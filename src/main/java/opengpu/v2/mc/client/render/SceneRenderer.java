@@ -75,6 +75,12 @@ public final class SceneRenderer {
 
 	private final Map<String, SceneGl> scenes = new HashMap<String, SceneGl>();
 	private final FramebufferPass pass = new FramebufferPass();
+	/**
+	 * Whether {@link #pass} is open this pre-pass. Not a duplicate of the pass's own {@code
+	 * active} flag — that one is private and exists to reject misuse; this one is the caller's
+	 * record of having opened it, so the lazy open is idempotent and the close is unconditional.
+	 */
+	private boolean passOpen;
 	private final Canvas2dRenderer canvasRenderer = new Canvas2dRenderer();
 	/**
 	 * One-shot for "this machine has no FBO support at all", which is a session-wide fact.
@@ -150,18 +156,33 @@ public final class SceneRenderer {
 		pruneDeadScenes(mirrors);
 		long budget = UPLOAD_BUDGET_PER_FRAME;
 		long rendersBefore = RenderStats.sceneRenders;
-		for (String sceneId : usedScenes) {
-			if (!mirrors.hasMirror(sceneId)) {
-				continue;
+		// ONE FramebufferPass around every scene, opened lazily by renderIfNeeded and closed
+		// here. The save/restore is per-frame work that does not depend on the target, so paying
+		// it once per visible scene was pure duplication.
+		//
+		// LAZY, and that is not an optimisation detail — it is what preserves the documented
+		// guarantee that a settled scene costs nothing. renderIfNeeded short-circuits before it
+		// asks for the pass, so a frame in which nothing re-renders still touches no GL state at
+		// all. Opening eagerly here would charge every idle frame ~21 state reads to keep a
+		// framebuffer bound that nothing draws into.
+		try {
+			for (String sceneId : usedScenes) {
+				if (!mirrors.hasMirror(sceneId)) {
+					continue;
+				}
+				SceneMirror mirror = mirrors.mirror(sceneId);
+				SceneGl gl = scenes.get(sceneId);
+				if (gl == null) {
+					gl = new SceneGl();
+					scenes.put(sceneId, gl);
+				}
+				budget = uploadTextures(gl, mirror, budget);
+				renderIfNeeded(gl, mirror);
 			}
-			SceneMirror mirror = mirrors.mirror(sceneId);
-			SceneGl gl = scenes.get(sceneId);
-			if (gl == null) {
-				gl = new SceneGl();
-				scenes.put(sceneId, gl);
-			}
-			budget = uploadTextures(gl, mirror, budget);
-			renderIfNeeded(gl, mirror);
+		} finally {
+			// Must close on any path. A pass left open would leave the scene FBO bound and the
+			// world's GL state canonicalised to OpenGPU's 2D regime for the rest of the frame.
+			closePass();
 		}
 		// "Did this frame have to draw anything" is the interpolation overhead stated directly,
 		// and it is measured HERE rather than inside renderIfNeeded because several scenes may
@@ -374,17 +395,57 @@ public final class SceneRenderer {
 		boolean interpolationDriven = interpolating && !mirror.isDirty() && !gl.uploadDirty
 				&& gl.everRendered;
 		int commandCount = countCommands(mirror);
+		// The pass opens here, on the first scene of the frame that actually renders, and stays
+		// open until prePass closes it.
+		openPass();
+		// Timed from retarget, NOT from the pass save/restore, which now happens once per frame
+		// outside any one scene. So renderNanos is per-SCENE work and no longer silently charges
+		// the first scene of the frame for the whole frame's state capture. That makes the
+		// figure smaller than it used to be by roughly the save/restore cost — numbers taken
+		// before this change and after it are not directly comparable, and PERF-BASELINE's
+		// fixed term was measured the old way.
 		long renderStart = System.nanoTime();
-		pass.begin(gl.fbo, gl.width, gl.height);
-		try {
-			canvasRenderer.renderScene(mirror.state(), gl.width, gl.height, glMap, gl.interp, now);
-		} finally {
-			pass.end();
-		}
+		pass.retarget(gl.fbo, gl.width, gl.height);
+		canvasRenderer.renderScene(mirror.state(), gl.width, gl.height, glMap, gl.interp, now);
 		RenderStats.onSceneRender(System.nanoTime() - renderStart, commandCount, interpolationDriven);
 		gl.everRendered = true;
 		gl.uploadDirty = false;
 		mirror.clearDirty();
+	}
+
+	/**
+	 * Open the shared pass if this frame has not already. Idempotent.
+	 *
+	 * {@code passOpen} is set BEFORE begin(), which looks wrong and is not. FramebufferPass.begin
+	 * sets its own {@code active} flag on its first statement, before ~21 GL calls; if any of them
+	 * throws, the pass is active while this class believes it never opened one. prePass's finally
+	 * would then skip end(), {@code active} would stay true with no path left to clear it, and
+	 * EVERY subsequent frame would throw "FramebufferPass is not reentrant" out of the Forge
+	 * render tick — for the rest of the session. Claiming ownership first makes closePass()
+	 * reach end() on exactly the path where it matters, and end() is safe to call there precisely
+	 * because begin() sets active first. Mirrors the same defensive ordering in closePass().
+	 */
+	private void openPass() {
+		if (!passOpen) {
+			passOpen = true;
+			long start = System.nanoTime();
+			pass.begin();
+			RenderStats.passOpens++;
+			RenderStats.passNanos += System.nanoTime() - start;
+		}
+	}
+
+	/**
+	 * Close the shared pass if it was opened. Idempotent, and called from a finally, so a scene
+	 * that throws mid-replay still hands the world its GL state back.
+	 */
+	private void closePass() {
+		if (passOpen) {
+			passOpen = false;
+			long start = System.nanoTime();
+			pass.end();
+			RenderStats.passNanos += System.nanoTime() - start;
+		}
 	}
 
 	/**

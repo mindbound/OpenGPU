@@ -20,14 +20,16 @@ import opengpu.v2.scene.SceneNode;
 import opengpu.v2.scene.SceneState;
 
 /**
- * Replays a scene's node list into the currently bound FBO (a FramebufferPass must be
- * active: ortho projection, logical y-down, blend on). Canvas transform ops run on a
+ * Replays a scene's node list into the currently bound FBO (a FramebufferPass must be active
+ * AND retargeted to this scene immediately before the call: ortho projection sized for it,
+ * logical y-down, blend on, freshly cleared). Canvas transform ops run on a
  * CPU-side affine stack — vertices are transformed before submission, so no GL matrix
  * state is touched during replay (the design's record-time-capped matrix stack).
  *
- * Command semantics mirrored from the server-side normative rules: FILL ignores the
- * transform (whole-canvas raster fill, the compaction anchor); CLEAR_RECT is a hard set
- * (blend off); pending textures draw nothing (the defined transparent placeholder).
+ * Command semantics mirrored from the server-side normative rules: FILL ignores the CANVAS
+ * transform but not the NODE one (whole-canvas raster fill, the compaction anchor);
+ * CLEAR_RECT is a hard set (blend off); pending textures draw nothing (the defined
+ * transparent placeholder).
  */
 public final class Canvas2dRenderer {
 	private static final int OVAL_SEGMENTS = 48;
@@ -98,8 +100,13 @@ public final class Canvas2dRenderer {
 		// with real GL at every entry — never inherited from the previous scene's tail.
 		GL11.glDisable(GL11.GL_TEXTURE_2D);
 		texturing = false;
-		// The framebuffer is cleared by FramebufferPass.begin(), which owns the ordering
+		// The framebuffer is cleared by FramebufferPass.retarget(), which owns the ordering
 		// between the clear and the alpha mask that keeps the attachment opaque.
+		//
+		// Note the precondition this call carries is NARROWER than "a pass is open": it is
+		// "retarget() ran for THIS scene, with nothing drawn since". One pass can now serve
+		// several targets, so a caller that retargets, draws elsewhere, and comes back would
+		// hand this method a framebuffer that is neither freshly cleared nor the one it thinks.
 
 		List<SceneNode> ordered = new ArrayList<SceneNode>(state.nodes.values());
 		Collections.sort(ordered, new Comparator<SceneNode>() {
@@ -353,15 +360,48 @@ public final class Canvas2dRenderer {
 		GL11.glVertex2d(effective.tx(x, y), effective.ty(x, y));
 	}
 
-	/** FILL ignores the transform: a raster fill of the whole canvas (compaction anchor). */
+	/**
+	 * A vertex placed by the NODE transform only, skipping the canvas-local stack.
+	 *
+	 * Exists for FILL, which is defined to ignore the canvas transform but has no business
+	 * ignoring where its node was put. See fillWholeCanvas.
+	 */
+	private void nodeVertex(double x, double y) {
+		GL11.glVertex2d(node.tx(x, y), node.ty(x, y));
+	}
+
+	/**
+	 * FILL ignores the CANVAS transform: a raster fill of the whole canvas, and the compaction
+	 * anchor. It does NOT ignore the NODE transform.
+	 *
+	 * Fixed 2026-08-09. This emitted raw glVertex2d, which skipped `local` (correct, documented,
+	 * and load-bearing — SceneCanvas truncates on a full-canvas fill precisely because it is a
+	 * raster operation in canvas space) and ALSO skipped `node` (not correct, not documented, and
+	 * not intended). A canvas node moved to (100, 50) whose list contained OP_FILL painted the
+	 * scene rect (0,0)-(w,h) rather than (100,50)-(100+w,50+h): the fill landed at the scene
+	 * origin regardless of where its node was.
+	 *
+	 * Reachable from the shipped library — `c:fill()` on any node that has been moved, and
+	 * `canvasSubmit` accepts `fill` against any canvas id. Only the DISPLAY node refuses
+	 * transforms, and the display node sits at identity, which is why this survived: on the one
+	 * canvas most programs use, node-space and scene-space coincide and the defect is invisible.
+	 *
+	 * Fixed HERE and on its own, before the static-layer FBO (ROADMAP P1), deliberately. Under a
+	 * static layer the fill would be emitted into the layer's own ortho and the defect would
+	 * vanish as a side effect of an optimisation — and an optimisation whose engagement moves
+	 * pixels cannot be shipped or reviewed. The change has to be visible as a fix.
+	 *
+	 * NOT unit-testable: Canvas2dRenderer needs a GL context, so no JVM test can load it. Verified
+	 * by reading and in-game.
+	 */
 	private void fillWholeCanvas(int width, int height, boolean unused) {
 		setTexturing(false);
 		color();
 		GL11.glBegin(GL11.GL_QUADS);
-		GL11.glVertex2d(0, 0);
-		GL11.glVertex2d(0, height);
-		GL11.glVertex2d(width, height);
-		GL11.glVertex2d(width, 0);
+		nodeVertex(0, 0);
+		nodeVertex(0, height);
+		nodeVertex(width, height);
+		nodeVertex(width, 0);
 		GL11.glEnd();
 	}
 

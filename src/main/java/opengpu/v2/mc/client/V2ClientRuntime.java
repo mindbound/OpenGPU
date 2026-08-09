@@ -51,6 +51,14 @@ public final class V2ClientRuntime {
 	// warning for the session's lifetime.
 	private long lastCodecWarnTick = -CODEC_WARN_INTERVAL_TICKS;
 	private volatile boolean pendingReset;
+	/**
+	 * Latched when the pre-pass throws, so it is attempted once and never again this session.
+	 *
+	 * Retrying would be worse than useless: whatever failed will fail identically every frame,
+	 * and the log would fill at the frame rate. Cleared only by restarting the game, which is
+	 * also what a player would do.
+	 */
+	private boolean prePassDisabled;
 
 	private V2ClientRuntime() {}
 
@@ -127,12 +135,41 @@ public final class V2ClientRuntime {
 		if (Minecraft.getMinecraft().theWorld == null) {
 			return;
 		}
+		if (prePassDisabled) {
+			return;
+		}
 		// Frames can arrive between ticks; pick them up so the pre-pass renders fresh state.
 		drainInbound();
 		renderScenes.clear();
 		renderScenes.addAll(usedScenes);
 		usedScenes.clear();
-		renderer.prePass(mirrorClient, renderScenes);
+		try {
+			renderer.prePass(mirrorClient, renderScenes);
+		} catch (Throwable t) {
+			// A throw out of here does NOT black out the screens: Forge's event bus does not
+			// catch, so it reaches Minecraft.run(), which writes a crash report and calls
+			// System.exit -- skipping the normal shutdown. In single-player the world is not
+			// saved on the way out, so a rendering bug in this mod costs the player everything
+			// since the last autosave.
+			//
+			// This file already chose the other policy for the other way rendering can fail:
+			// SceneRenderer's no-FBO path logs once, tells the player in chat, and returns,
+			// leaving screens blank and the game running. Two failure modes in one subsystem,
+			// opposite outcomes, and only one of them was deliberate. A blank screen and a
+			// log line is the right answer to both.
+			prePassDisabled = true;
+			OpenGPU.logger.error("OpenGPU rendering failed and has been disabled for this "
+					+ "session; screens will stay blank. Please report this with the stack "
+					+ "trace below.", t);
+			Minecraft mc = Minecraft.getMinecraft();
+			if (mc != null && mc.thePlayer != null) {
+				mc.thePlayer.addChatMessage(new net.minecraft.util.ChatComponentText(
+						net.minecraft.util.EnumChatFormatting.RED + "[OpenGPU] "
+								+ net.minecraft.util.EnumChatFormatting.RESET
+								+ "Rendering failed and is disabled for this session (see the log). "
+								+ "Screens will stay blank; the game is otherwise unaffected."));
+			}
+		}
 	}
 
 	@SubscribeEvent

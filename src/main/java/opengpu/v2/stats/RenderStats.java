@@ -41,6 +41,44 @@ public final class RenderStats {
 	public static long renderNanos;
 	public static long renderNanosMax;
 
+	/**
+	 * A render this slow is a hitch, not a cost — an order of magnitude above the ~500 us a
+	 * heavily-loaded scene takes here, so nothing a benchmark is trying to measure can reach it.
+	 */
+	public static final long STALL_NANOS = 2L * 1000L * 1000L;
+	/**
+	 * Renders over {@link #STALL_NANOS}, and the time they took.
+	 *
+	 * {@link #renderNanos} is a SUM, so a benchmark scored by differencing it absorbs a rare
+	 * multi-millisecond hitch undiluted and silently: at ~124 fps one 33 ms stall shifts a 20 s
+	 * run-scoped mean by 13 us, which is the same size as the effects being measured. The text
+	 * measurement hit exactly that — two runs of one configuration landed 13.3 us apart while
+	 * another pair landed 0.2 us apart, and nothing in the instrument could say whether the
+	 * difference was noise or one stall. These two counters make that separable: subtract
+	 * stallNanos from the numerator and stallRenders from the denominator for a hitch-free mean,
+	 * and compare against the raw one.
+	 */
+	public static long stallRenders;
+	public static long stallNanos;
+
+	/**
+	 * The FramebufferPass save/restore: how many times it was opened, and what that cost.
+	 *
+	 * Counted because hoisting the pass out of the per-scene loop (2026-08-09) otherwise DELETES
+	 * this quantity from the instrument. {@link #renderNanos} used to include one save/restore
+	 * per scene render; it now includes none, so the reported per-scene mean drops by that amount
+	 * whether or not any real work was saved. With a single visible scene the true saving is
+	 * exactly zero and the apparent improvement is entirely that artifact.
+	 *
+	 * It also restores what {@code ingame/scenetest.lua} was written to look for. That harness
+	 * asks whether per-render cost multiplies with the number of scenes, and names its own target
+	 * as "a SHARED cost that does not multiply". The hoist created exactly such a term — and
+	 * removing it from the numerator the harness reads would have made the harness report perfect
+	 * additivity at every N, i.e. it could no longer fail. A test that cannot fail is not a test.
+	 */
+	public static long passOpens;
+	public static long passNanos;
+
 	/** Canvas commands replayed, so cost per command can be derived. */
 	public static long commandsReplayed;
 
@@ -70,6 +108,10 @@ public final class RenderStats {
 		commandsReplayed += commands;
 		if (nanos > renderNanosMax) {
 			renderNanosMax = nanos;
+		}
+		if (nanos > STALL_NANOS) {
+			stallRenders++;
+			stallNanos += nanos;
 		}
 		if (drivenByInterpolation) {
 			interpolationRenders++;
@@ -111,6 +153,10 @@ public final class RenderStats {
 		interpolationRenders = 0;
 		renderNanos = 0;
 		renderNanosMax = 0;
+		stallRenders = 0;
+		stallNanos = 0;
+		passOpens = 0;
+		passNanos = 0;
 		commandsReplayed = 0;
 		uploadBytes = 0;
 		uploads = 0;

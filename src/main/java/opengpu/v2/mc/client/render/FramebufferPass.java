@@ -59,8 +59,22 @@ public final class FramebufferPass {
 		return OpenGlHelper.isFramebufferEnabled();
 	}
 
-	/** Bind the scene FBO and establish the canonical 2D state. Pair with {@link #end()}. */
-	public void begin(int fbo, int width, int height) {
+	/**
+	 * Save the caller's GL state and establish the canonical 2D state. Pair with {@link #end()},
+	 * and call {@link #retarget} at least once in between to choose a framebuffer.
+	 *
+	 * SPLIT from the former {@code begin(fbo, width, height)} on 2026-08-09. Everything here is
+	 * per-PASS — ~21 state reads and the enable/blend/line-width canonicalisation — and none of
+	 * it depends on which framebuffer is being drawn into. It used to run once per visible SCENE
+	 * because the whole thing was inside the per-scene loop, so two scenes paid for it twice and
+	 * N scenes N times, for a value that cannot differ between them.
+	 *
+	 * The split is also structural, not just a saving: this class is deliberately not reentrant
+	 * and SceneRenderer holds exactly one instance, so anything that wants to render into a
+	 * SECOND target in the same frame — a static-layer FBO, ROADMAP P1 — cannot nest a pass and
+	 * must retarget within one. That is the shape this enables.
+	 */
+	public void begin() {
 		if (active) {
 			throw new IllegalStateException("FramebufferPass is not reentrant");
 		}
@@ -121,9 +135,6 @@ public final class FramebufferPass {
 		// primitives through a stale texel. end() restores the saved value either way.
 		GL11.glDisable(GL11.GL_TEXTURE_2D);
 
-		OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, fbo);
-		GL11.glViewport(0, 0, width, height);
-
 		GL11.glDisable(GL11.GL_SCISSOR_TEST);
 		GL11.glDisable(GL11.GL_FOG);
 		GL11.glDisable(GL11.GL_LIGHTING);
@@ -135,9 +146,34 @@ public final class FramebufferPass {
 		GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 		// Canvas outlines are 1px; the world's block-highlight pass leaves this at 2.
 		GL11.glLineWidth(1.0F);
+
+		// Matrices pushed ONCE; retarget() reloads them per framebuffer and end() pops both.
+		// Pushing per retarget would grow the stack by one pair per scene and overflow it at
+		// GL's 2-deep minimum guarantee for PROJECTION.
+		GL11.glMatrixMode(GL11.GL_PROJECTION);
+		GL11.glPushMatrix();
+		GL11.glMatrixMode(GL11.GL_MODELVIEW);
+		GL11.glPushMatrix();
+	}
+
+	/**
+	 * Point the open pass at a framebuffer: bind it, size the viewport, clear it, and set the
+	 * logical y-down ortho for its dimensions. Callable repeatedly within one {@link #begin()}.
+	 *
+	 * Everything here genuinely varies per target, which is why it is the part that repeats.
+	 */
+	public void retarget(int fbo, int width, int height) {
+		if (!active) {
+			throw new IllegalStateException("retarget() without begin()");
+		}
+		OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, fbo);
+		GL11.glViewport(0, 0, width, height);
+
 		// Clear FIRST, with every channel writable — glClear obeys the colour mask, so
 		// masking alpha before this point leaves the attachment's alpha at its undefined
 		// (in practice zero) initial contents and the whole scene reads as transparent.
+		// The mask is re-set per target rather than once per pass because the clear depends
+		// on it, and a previous retarget left it alpha-masked.
 		GL11.glColorMask(true, true, true, true);
 		GL11.glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
 		GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
@@ -148,14 +184,12 @@ public final class FramebufferPass {
 		// under an Iris blend lock.
 		GL11.glColorMask(true, true, true, false);
 
-		// Matrices from scratch; the previous ones come back via the paired pops in end().
+		// Matrices from scratch on the pair begin() pushed; end()'s pops restore the caller's.
 		GL11.glMatrixMode(GL11.GL_PROJECTION);
-		GL11.glPushMatrix();
 		GL11.glLoadIdentity();
 		// Logical y-down: (0,0) is the canvas top-left, like every 2D canvas API.
 		GL11.glOrtho(0, width, height, 0, -1, 1);
 		GL11.glMatrixMode(GL11.GL_MODELVIEW);
-		GL11.glPushMatrix();
 		GL11.glLoadIdentity();
 	}
 

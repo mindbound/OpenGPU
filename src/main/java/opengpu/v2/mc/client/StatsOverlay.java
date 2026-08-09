@@ -162,6 +162,27 @@ public final class StatsOverlay {
 			lines.add(String.format("    commands replayed %d, uploads %d (%.1f MiB)",
 					RenderStats.commandsReplayed, RenderStats.uploads,
 					RenderStats.uploadBytes / 1048576.0));
+			// Cumulative render time, so a benchmark can be scored over a WHOLE run instead of
+			// off the windowed mean above. The windowed figure is a rolling 500 ms sample, which
+			// means an operator reading it has to pick which windows to write down — and picking
+			// is selection. Two readings of this pair, before and after a run, give an exact
+			// run-scoped mean (delta us / delta renders) that no hand-picking can bias, and it
+			// costs nothing to compute because both counters are already being kept.
+			lines.add(String.format("    render total %.1f ms over %d renders",
+					RenderStats.renderNanos / 1.0e6, RenderStats.sceneRenders));
+			// The stall share of that total, so a run-scoped mean can be taken with and without
+			// hitches. Without it a benchmark cannot tell a real effect from one 33 ms stall,
+			// which at this frame rate is worth 13 us on a 20 s run -- the size of the effects
+			// being measured. Subtract both figures from the pair above for a hitch-free mean.
+			lines.add(String.format("    of which stalls (>%d ms): %d renders, %.1f ms",
+					RenderStats.STALL_NANOS / 1000000L, RenderStats.stallRenders,
+					RenderStats.stallNanos / 1.0e6));
+			// The FBO save/restore, which the render total above deliberately EXCLUDES. It is
+			// once per frame rather than once per scene, so this is the shared cost that does
+			// not multiply with scene count — the quantity scenetest.lua exists to look for,
+			// and the one the per-scene mean would otherwise hide entirely.
+			lines.add(String.format("    pass save/restore: %d opens, %.1f ms",
+					RenderStats.passOpens, RenderStats.passNanos / 1.0e6));
 			lines.add(String.format("    textures deferred for budget %dx",
 					RenderStats.texturesDeferred));
 			appendServerLines(lines);
