@@ -56,7 +56,40 @@ public final class V2Wire {
 
 	// Producer- AND consumer-side sanity caps. Enforced at seal/construction time as well as
 	// decode time so an over-cap payload is impossible to produce, not a decode-time surprise.
-	public static final int MAX_DELTAS = 1 << 16;
+	/**
+	 * Deltas per batch.
+	 *
+	 * LOWERED 1&lt;&lt;16 -&gt; 1&lt;&lt;15 on 2026-08-09, because the claim directly above was false in the
+	 * BYTE dimension. The count cap and the payload caps were each enforced, but nothing bounded
+	 * their product against the decoder's ceiling: 65536 deltas x 81 B (a full-mask NodeProps,
+	 * the widest delta a server can produce) is 5.3 MB, and with the write and submit
+	 * per-batch allowances on top the worst case reached 5.6 MB against a
+	 * BatchCodec.MAX_INFLATED_BYTES of 4 MiB. The server would have produced a batch that EVERY
+	 * client refuses whole — a silent desync, not a crash, and invisible to convergence
+	 * checking because no mirror ever applies it.
+	 *
+	 * NOT fixed by adding a byte check at seal, because ServerScene.sealBatch ALREADY has a
+	 * seal-time check on this cap and it throws. A second one on a byte predicate would only
+	 * reach the same throw by a different route; by seal the batch is assembled and the tick is
+	 * spent, so the choices are crash the pump or send something known to be undecodable.
+	 *
+	 * What lowering the cap actually buys is the removal of a failure MODE. Sizing the two caps
+	 * against each other leaves the loud failure (the existing IllegalStateException) as the only
+	 * one, and deletes the silent one, where a batch ships and every mirror refuses it.
+	 *
+	 * The cost is a band that changes behaviour. Above 47,331 deltas a batch was undecodable, so
+	 * (47331, 65536] silently desynced and is now caught; but (32768, 47331] previously WORKED
+	 * and now throws. That band is unreachable in practice: MAX_NODES is 4096 and a node
+	 * contributes at most a couple of deltas per tick, putting a pathological full-scene rewrite
+	 * near 8192 — a 4x margin — against 143 B/tick and a 24,662 B largest batch in the heaviest
+	 * bench2 run. BatchSizeBoundTest pins BOTH sides, so neither raising this into the
+	 * undecodable range nor lowering it into the reachable one passes silently.
+	 *
+	 * Those two bounds leave the window [32768, 47331], and 1&lt;&lt;15 is the only power of two in
+	 * it — 1&lt;&lt;14 puts the pump's throw back in reach, 1&lt;&lt;16 is where this started. The value
+	 * is derived rather than picked, which is why the tests assert a window and not a number.
+	 */
+	public static final int MAX_DELTAS = 1 << 15;
 	public static final int MAX_COMMANDS = 1 << 20;
 	public static final int MAX_SCENE_PROP_PAYLOAD = 1 << 20;
 	/** Modified-UTF-8 keeps 3 bytes/char worst case: 8192 chars stays far under writeUTF's 65535-byte limit. */

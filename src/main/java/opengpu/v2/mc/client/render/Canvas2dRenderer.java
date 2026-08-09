@@ -77,6 +77,8 @@ public final class Canvas2dRenderer {
 	private final Affine effective = new Affine();
 	private final List<double[]> stack = new ArrayList<double[]>();
 	private double colR, colG, colB, colA;
+	/** The current node's tint, as a 0..1 multiplier. Set by beginNode, applied by color(). */
+	private double tintR = 1, tintG = 1, tintB = 1, tintA = 1;
 	private boolean texturing;
 
 	public void renderScene(SceneState state, int width, int height, Map<Integer, Integer> glTextures) {
@@ -147,6 +149,39 @@ public final class Canvas2dRenderer {
 		local.identity();
 		stack.clear();
 		colR = 1; colG = 1; colB = 1; colA = 1;
+		// THE NODE TINT IS A MULTIPLIER, applied for every node type rather than only sprites.
+		//
+		// It used to be read solely in drawSprite, which meant setNodeTint on a canvas node or on
+		// the display node converged perfectly across the wire and then rendered nothing at all —
+		// the server and every client agreed on a property none of them drew. A feature that
+		// looks like it works and does not is the thing this codebase refuses elsewhere (no
+		// createGroup, no canvas-backed sprites), so it is now honoured instead of removed:
+		// tinting a whole canvas is how a program fades or flashes one, and there was no other
+		// way to do it.
+		//
+		// Multiplied in color() rather than assigned here, because a canvas sets its own colour
+		// per command; assigning would be overwritten by the first OP_SET_COLOR. Default tint is
+		// 0xFFFFFFFF, so an untinted node multiplies by exactly 1 and nothing changes.
+		//
+		// ONE EXCEPTION, AND IT IS NOT FIXABLE HERE: OP_CLEAR_RECT draws with GL_BLEND disabled
+		// (see its case below) because a clear is a hard set, not a paint. With blending off the
+		// source alpha participates in nothing, so a tint's RGB multiplies a cleared region while
+		// its ALPHA is inert over exactly that region. Gating the blend on tintA would be the
+		// obvious fix and is the wrong one: SceneCanvas compacts on a full-canvas CLEAR_RECT at
+		// ANY alpha precisely because it hard-sets, and a canvas resource cannot know which nodes
+		// reference it or with what tint — the truncation proof would stop holding. Documented as
+		// an exception instead, in the callback doc, the Lua wrapper and API-V2.
+		//
+		// LOAD-BEARING ORDERING: every path that draws must call this method first. That was
+		// already true for the transform and the font; it is now true for COLOUR as well, because
+		// these fields persist between nodes. A draw placed above a beginNode would render in the
+		// PREVIOUS node's tint — a defect that follows z-order and reads as nondeterministic,
+		// exactly like the font leak the comment below describes.
+		int tint = sceneNode.tint;
+		tintA = (tint >>> 24 & 0xFF) / 255.0;
+		tintR = (tint >>> 16 & 0xFF) / 255.0;
+		tintG = (tint >>> 8 & 0xFF) / 255.0;
+		tintB = (tint & 0xFF) / 255.0;
 		// Font resets with the colour, and must: it is ambient state in the same command
 		// stream, so a canvas that selected unscii would otherwise leak it into whichever
 		// canvas replayed next. That leak would follow node draw order, making text change
@@ -283,12 +318,11 @@ public final class Canvas2dRenderer {
 		if (glId == null) {
 			return; // pending
 		}
+		// The tint is NOT applied here any more: beginNode has already loaded it as the node
+		// multiplier and color() applies it. Assigning it into colR..colA as well would square
+		// it — a 50% tint would render at 25%. This is the special case the multiplier removed,
+		// and removing it is what let canvas nodes have a tint at all.
 		beginNode(sceneNode);
-		int tint = sceneNode.tint;
-		colA = (tint >>> 24 & 0xFF) / 255.0;
-		colR = (tint >>> 16 & 0xFF) / 255.0;
-		colG = (tint >>> 8 & 0xFF) / 255.0;
-		colB = (tint & 0xFF) / 255.0;
 		texturedQuad(glId, 0, 0, res.width, res.height, 0, 0, 1, 1);
 	}
 
@@ -306,8 +340,13 @@ public final class Canvas2dRenderer {
 		}
 	}
 
+	/**
+	 * The single point where colour reaches GL, which is what makes the node tint one multiply
+	 * rather than a change at every draw site. Verified: this is the only glColor call in the
+	 * renderer.
+	 */
 	private void color() {
-		GL11.glColor4d(colR, colG, colB, colA);
+		GL11.glColor4d(colR * tintR, colG * tintG, colB * tintB, colA * tintA);
 	}
 
 	private void vertex(double x, double y) {
@@ -510,7 +549,13 @@ public final class Canvas2dRenderer {
 	 * The draw colour is ambient state meant for shapes and text; letting it modulate blits
 	 * too means a fill colour set several commands earlier silently darkens or recolours
 	 * every later texture — a footgun that costs an image and gives no error. Per-object
-	 * tinting lives on Sprite nodes, which carry an explicit {@code tint} property.
+	 * tinting is the NODE's {@code tint} property, set with setNodeTint.
+	 *
+	 * Note what this does and does not clear. It zeroes the COMMAND colour, so the canvas's own
+	 * setColor cannot modulate a blit — but the node tint lives in a separate multiplier applied
+	 * by {@link #color()}, so a tinted node still tints its textures. That is the intended
+	 * reading of "tint this node": it applies to everything the node draws, exactly as it does
+	 * for a sprite.
 	 */
 	private void untintedQuad(int glId, double x, double y, double w, double h,
 			double u0, double v0, double u1, double v1) {

@@ -203,7 +203,28 @@ c:discard()
 local node = gpu:show(c)
 check(node ~= nil, "show() returns a node")
 check(node:moveTo(10, 20) == node, "moveTo chains")
-check(not pcall(function() node:setTint(255, 0, 0) end), "setTint refuses a canvas node")
+-- INVERTED 2026-08-09. This asserted that setTint REFUSED a canvas node, which was right while
+-- the renderer read the tint only in its sprite path: tinting a canvas converged on both sides
+-- and changed nothing on screen, and the wrapper refused rather than let that look like it
+-- worked. The renderer now applies the tint as a per-node multiplier, so the refusal is gone and
+-- this checks the capability instead.
+check(node:setTint(255, 0, 0) == node, "setTint accepts a canvas node and chains")
+check(calls[#calls].name == "setNodeTint" and calls[#calls].args[1] == node.id,
+      "and posts it against that node's id")
+check(node:setTint(255, 255, 255, 128) == node, "alpha-only tint is accepted (the fade case)")
+check(calls[#calls].args[5] == 128, "alpha reaches the callback", tostring(calls[#calls].args[5]))
+-- The default still has to be opaque, or an omitted alpha would silently fade every node.
+node:setTint(10, 20, 30)
+check(calls[#calls].args[5] == 255, "omitting alpha means opaque, not transparent",
+      tostring(calls[#calls].args[5]))
+-- And still works on a SPRITE. Inverting the canvas check removed the suite's only tint
+-- assertion against a sprite handle -- which is the path whose direct tint assignment was
+-- DELETED when the multiplier landed, so it is the one that could have silently regressed.
+local tintSprite = gpu:sprite(1)
+check(tintSprite:setTint(200, 100, 50) == tintSprite, "setTint still works on a sprite node")
+check(calls[#calls].name == "setNodeTint" and calls[#calls].args[2] == 200,
+      "and posts the sprite's channels unchanged")
+tintSprite:free()
 
 node:free()
 check(not pcall(function() node:moveTo(1, 1) end), "a freed node raises on use")

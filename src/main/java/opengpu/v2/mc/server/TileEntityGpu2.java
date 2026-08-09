@@ -2488,7 +2488,25 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 		return null;
 	}
 
-	@Callback(direct = true, limit = 256, doc = "function(nodeId:number, r:number, g:number, b:number[, a:number]) -- Multiply a node's output by a colour (0-255 channels).")
+	/**
+	 * Tint multiplies everything the node draws — sprite or canvas.
+	 *
+	 * The canvas case did nothing at all until 2026-08-09: the renderer read the tint only in
+	 * its sprite path, so this callback converged across the wire and rendered no difference,
+	 * which is exactly the "converges perfectly and does nothing" shape this codebase refuses
+	 * elsewhere. It is now a per-node multiplier applied where colour reaches GL, so tinting a
+	 * whole canvas — fade with alpha, flash with a colour — works without redrawing a command.
+	 *
+	 * The canvas's own setColor still cannot modulate a drawTexture; that separation is
+	 * deliberate and unchanged. The NODE tint is a different thing and applies to everything.
+	 *
+	 * ALPHA HAS ONE EXCEPTION: {@code clear}/{@code clearRectangle} hard-set their pixels with
+	 * blending disabled — that is what makes a clear a clear, and what lets the canvas compact on
+	 * one — so a tint's RGB multiplies a cleared region while its alpha does not reach it. A
+	 * canvas whose background came from {@code clear()} keeps that background at full strength
+	 * however far the rest is faded; {@code fill()} fades with everything else.
+	 */
+	@Callback(direct = true, limit = 256, doc = "function(nodeId:number, r:number, g:number, b:number[, a:number]) -- Multiply everything a node draws by a colour (0-255 channels). Works on sprite AND canvas nodes. Alpha multiplies every primitive's alpha, which is not the same as layer opacity: overlapping content blends within the canvas first. clear()/clearRectangle() hard-set with blending off, so a tint's RGB reaches them but its alpha does not. Does not change setColor's rule that a canvas's own colour never tints drawTexture.")
 	public Object[] setNodeTint(Context context, Arguments args) throws Exception {
 		int id = args.checkInteger(0);
 		int r = clampChannel(args.checkInteger(1));

@@ -457,18 +457,36 @@ function Node:swapWith(other)
 end
 
 --[[
-  Tint multiplies the node's output -- but ONLY on sprite nodes.
+  Tint multiplies everything the node draws. Works on ANY node -- sprite or canvas.
 
-  The renderer resets colour per node and reads the tint in the sprite path alone, so tinting a
-  canvas node converges perfectly on both sides and changes nothing on screen. Refusing here
-  turns an invisible no-op into a clear error; remove this guard if the renderer ever grows
-  canvas tinting.
+  Until 2026-08-09 this refused anything but a sprite, and rightly: the renderer read the tint in
+  the sprite path alone, so tinting a canvas converged perfectly on both sides and changed nothing
+  on screen, and an invisible no-op is worse than an error. That guard carried an instruction to
+  remove it if the renderer ever grew canvas tinting. It has -- the tint is now a per-node
+  multiplier applied wherever colour reaches GL -- so the guard is gone.
+
+  What it multiplies, on a canvas: every shape, every glyph, and every texture. The canvas's own
+  setColor still cannot modulate a drawTexture (that separation is deliberate and unchanged), but
+  the NODE tint applies to the whole node's output, which is what "tint this node" has always
+  meant for a sprite.
+
+  Alpha multiplies EVERY PRIMITIVE'S alpha. That is not the same as layer opacity, and the
+  difference shows on overlapping content: each primitive blends with what is already beneath it
+  inside the same canvas, so a dark bar over a light panel at a=128 lands midway between them
+  rather than at half its own value. To dim a composed frame uniformly you still have to redraw
+  it; to fade one out, this is the tool.
+
+  TWO EXCEPTIONS, both about alpha:
+    * clear() and clearRectangle() HARD-SET their pixels with blending off -- that is what makes
+      them a clear rather than a paint, and what lets the canvas compact on them. The tint's RGB
+      multiplies them; the tint's ALPHA does not reach them at all. A canvas whose background
+      came from clear() keeps that background at full strength however far you fade the rest.
+      Use fill() instead if you want the background to fade with everything else.
+    * Alpha 0 hides the drawn commands but leaves any cleared region painted, for the same
+      reason.
 ]]
 function Node:setTint(r, g, b, a)
   checkAlive(self, "setTint")
-  if self.kind ~= "sprite" then
-    error("setTint has no effect on a " .. self.kind .. " node; only sprites are tinted", 2)
-  end
   call("setNodeTint", self.gpu.raw.setNodeTint, self.id, r, g, b, a or 255)
   return self
 end
@@ -907,7 +925,7 @@ function Gpu:show(canvas, opts)
   return n
 end
 
---- A sprite node over a texture id. Sprites are the only nodes tint applies to.
+--- A sprite node over a texture id.
 function Gpu:sprite(textureId)
   local id = call("createSprite", self.raw.createSprite, textureId)
   local n = setmetatable({
