@@ -803,10 +803,12 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 			// Pointer.x/y, which the server accepted at press time. A disqualified sender
 			// cannot choose where the click lands, and still gets no event through.
 			//
-			// POINTERS ONLY. Held KEYS are not released, because the key path keeps no state to
-			// release from — route() emits monitor_key_down and tracks nothing, so the server
-			// does not know a key is down. That is a real gap and it predates this code; it is
-			// recorded in ROADMAP rather than half-addressed here.
+			// POINTERS AND KEYS. This said "POINTERS ONLY … the key path keeps no state to
+			// release from" until 2026-08-08, which was true while route() tracked nothing for
+			// keys and false the moment it did — and it was the text that made the missing key
+			// half of the reach gate below read as deliberate. All three gates here release
+			// both: the two immediately following go through flushWatcherLocked, which sweeps
+			// keys as well as pointers, and the reach gate calls flushKey per keycode.
 			if (!host.isSubscribed(watcherUuid) || input.epoch != scene.epoch()) {
 				flushWatcherLocked(watcherUuid);
 				return;
@@ -845,6 +847,13 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 				if (input.kind == MessageCodec.INPUT_POINTER_UP
 						&& input.c >= 0 && input.c <= 2) {
 					inputRouter.flushPointer(watcherUuid, input.c);
+				} else if (input.kind == MessageCodec.INPUT_KEY_UP
+						&& input.b >= 0 && input.b <= 0xFF) {
+					// Keys, by the identical argument. Scoped to THIS keycode (input.b, the
+					// keycode — input.c is the button field and means nothing here) rather than
+					// flushing the watcher, because a player holding several keys who jitters
+					// across the boundary must not lose the ones they are still holding.
+					inputRouter.flushKey(watcherUuid, input.b);
 				}
 				return;
 			}
@@ -998,12 +1007,23 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 		for (InputRouter.PendingRelease r : held) {
 			NBTTagCompound e = new NBTTagCompound();
 			e.setString("w", r.watcher);
-			e.setInteger("b", r.button);
-			e.setInteger("i", r.id);
 			e.setString("s", r.address);
-			e.setInteger("x", r.x);
-			e.setInteger("y", r.y);
 			e.setLong("t", r.recordedAt);
+			// The discriminator, added 2026-08-08 when keys started being tracked. KIND_POINTER
+			// is 0 SO THAT A RECORD WRITTEN BEFORE THIS EXISTED READS BACK CORRECTLY: NBT's
+			// getInteger returns 0 for an absent key, so an old save's records are pointers by
+			// construction and no migration code is needed. Written unconditionally anyway, so
+			// a record's kind is explicit on disk rather than inferred from an absence.
+			e.setInteger("k", r.kind);
+			if (r.kind == InputRouter.PendingRelease.KIND_KEY) {
+				e.setInteger("c", r.keycode);
+				e.setInteger("h", r.ch);
+			} else {
+				e.setInteger("b", r.button);
+				e.setInteger("i", r.id);
+				e.setInteger("x", r.x);
+				e.setInteger("y", r.y);
+			}
 			list.appendTag(e);
 		}
 		tag.setTag("v2held", list);
@@ -1049,16 +1069,38 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 			// the record immortal. Coordinates get a sanity bound rather than a scene check
 			// — emitRelease clamps to the live scene at send time, but only when a scene
 			// exists, and a hand-edited coordinate should not ride through that gap.
+			long recordedAt = e.getLong("t");
+			if (recordedAt < 0) {
+				continue;
+			}
+			// Absent on records written before keys were tracked, and getInteger answers 0 for
+			// an absent key — which is KIND_POINTER. That is why the constant is 0, and it is
+			// the whole of the migration.
+			int kind = e.getInteger("k");
+			if (kind == InputRouter.PendingRelease.KIND_KEY) {
+				// Same bounds route() applies to a live key event, for the same reason: the disk
+				// is not trusted either. A keycode outside 0..255 or a char outside 0..0xFFFF
+				// would emit a release no press could have produced.
+				int keycode = e.getInteger("c");
+				int ch = e.getInteger("h");
+				if (keycode < 0 || keycode > 0xFF || ch < 0 || ch > 0xFFFF) {
+					continue;
+				}
+				out.add(InputRouter.PendingRelease.key(watcher, surface, keycode, ch, recordedAt));
+				continue;
+			}
+			if (kind != InputRouter.PendingRelease.KIND_POINTER) {
+				continue; // a kind we do not know cannot be emitted safely
+			}
 			int button = e.getInteger("b");
 			int id = e.getInteger("i");
-			long recordedAt = e.getLong("t");
 			int x = e.getInteger("x");
 			int y = e.getInteger("y");
-			if (button < 0 || button > 2 || id < 1 || recordedAt < 0
+			if (button < 0 || button > 2 || id < 1
 					|| x < 0 || y < 0 || x > 0x3FFF || y > 0x3FFF) {
 				continue;
 			}
-			out.add(new InputRouter.PendingRelease(watcher, button, id, surface, x, y,
+			out.add(InputRouter.PendingRelease.pointer(watcher, button, id, surface, x, y,
 					recordedAt));
 		}
 		synchronized (sceneLock) {

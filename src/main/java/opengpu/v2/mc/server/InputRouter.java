@@ -63,7 +63,35 @@ public final class InputRouter {
 		}
 	}
 
+	/**
+	 * A key currently held down, as the server understands it.
+	 *
+	 * The server tracked NOTHING for keys until 2026-08-08 — route() forwarded the two signals
+	 * and kept no state — so every path that stranded a pointer stranded a key identically, and
+	 * there was nothing to release from. The client tracks its own held keys and releases them
+	 * when the GUI closes, which covers the ordinary case and hides how much it does not cover:
+	 * a crash or Alt+F4, a proximity unsubscribe at 96 blocks, a screen removed, a world save,
+	 * a chunk unload, or a KEY_UP dropped by the rate limit.
+	 *
+	 * Identity is the KEYCODE, not the char: shift changes the char while the physical key is
+	 * the same, so matching a release to its press by char would fail exactly when a program
+	 * holds a modifier. The char is carried along only to be replayed on release.
+	 */
+	private static final class HeldKey {
+		final int keycode;
+		final int ch;
+		/** The surface the DOWN was emitted from, by ADDRESS — same rule as Pointer. */
+		final String address;
+
+		HeldKey(int keycode, int ch, String address) {
+			this.keycode = keycode;
+			this.ch = ch;
+			this.address = address;
+		}
+	}
+
 	private final Map<String, Pointer> activePointer = new HashMap<String, Pointer>();
+	private final Map<String, HeldKey> heldKeys = new HashMap<String, HeldKey>();
 	private final Map<String, Integer> eventsThisTick = new HashMap<String, Integer>();
 	private long currentTick = Long.MIN_VALUE;
 	private int nextPointerId = 1;
@@ -80,9 +108,29 @@ public final class InputRouter {
 		return watcherKey + '#' + button;
 	}
 
+	/**
+	 * Keyed per KEYCODE, for the same reason pointers are keyed per button: holding several
+	 * keys at once is ordinary, and one slot per watcher would make the second press overwrite
+	 * the first, stranding it with nothing left pointing at it.
+	 *
+	 * A DIFFERENT separator from pointerSlot's, so the two namespaces cannot collide: both are
+	 * "watcher + separator + small int", and watcherOf() has to recover the watcher from either.
+	 */
+	private static String keySlot(String watcherKey, int keycode) {
+		return watcherKey + '@' + keycode;
+	}
+
+	/**
+	 * Recover the watcher from either namespace's slot key.
+	 *
+	 * Must strip whichever separator appears LAST, not '#' specifically: a watcher key is a
+	 * player UUID string, which contains neither character, but taking the later of the two
+	 * positions is what keeps this correct without depending on that. Returning the whole slot
+	 * when neither is present is the pre-existing behaviour for a bare watcher key.
+	 */
 	private static String watcherOf(String slot) {
-		int hash = slot.lastIndexOf('#');
-		return hash < 0 ? slot : slot.substring(0, hash);
+		int cut = Math.max(slot.lastIndexOf('#'), slot.lastIndexOf('@'));
+		return cut < 0 ? slot : slot.substring(0, cut);
 	}
 
 	/**
@@ -135,6 +183,20 @@ public final class InputRouter {
 			moveToPending(entry.getKey(), p);
 			moved++;
 		}
+		// Keys held on the same surface, by the same rule. Every sweep in this file has to do
+		// both halves; a sweep that moved pointers only would leave the key stranded in exactly
+		// the situation the sweep exists for.
+		java.util.Iterator<Map.Entry<String, HeldKey>> keys = heldKeys.entrySet().iterator();
+		while (keys.hasNext()) {
+			Map.Entry<String, HeldKey> entry = keys.next();
+			HeldKey k = entry.getValue();
+			if (!screenAddress.equals(k.address)) {
+				continue;
+			}
+			keys.remove();
+			moveToPending(entry.getKey(), k);
+			moved++;
+		}
 		return moved;
 	}
 
@@ -160,6 +222,14 @@ public final class InputRouter {
 			moveToPending(entry.getKey(), p);
 			moved++;
 		}
+		java.util.Iterator<Map.Entry<String, HeldKey>> keys = heldKeys.entrySet().iterator();
+		while (keys.hasNext()) {
+			Map.Entry<String, HeldKey> entry = keys.next();
+			HeldKey k = entry.getValue();
+			keys.remove();
+			moveToPending(entry.getKey(), k);
+			moved++;
+		}
 		return moved;
 	}
 
@@ -174,26 +244,79 @@ public final class InputRouter {
 	 * phantom release plus a lost press.
 	 */
 	public static final class PendingRelease {
+		/** A stranded pointer press: emits monitor_up. Value 0 so a record written before keys
+		 * were tracked reads back as a pointer with no migration code. */
+		public static final int KIND_POINTER = 0;
+		/** A stranded key press: emits monitor_key_up. */
+		public static final int KIND_KEY = 1;
+
+		/**
+		 * ONE record type and ONE pending list for both, deliberately.
+		 *
+		 * Everything downstream of the strand is identical for a key and a pointer: park rather
+		 * than emit, deliver at tick START, resolve the surface by address, require a listening
+		 * unpaused machine, retry every tick, expire, cap, and ride writeToNBT across a save.
+		 * Every one of those was got wrong at least once while the pointer path was being built
+		 * — three designs over four review rounds — and a parallel set of key structures would
+		 * be a second copy of all of them, free to drift. This codebase's most repeated defect
+		 * is a rule applied at some of the places it is needed.
+		 *
+		 * The cost is a record where some fields do not apply: button/id/x/y are meaningless
+		 * for a key, keycode/ch are meaningless for a pointer. Construct through the factories
+		 * below so a caller never has to decide what to put in the unused ones.
+		 */
+		public final int kind;
 		/** Who held it. Not needed to deliver — the signal names no player — kept for NBT
 		 * debuggability and any future per-player accounting. */
 		public final String watcher;
+		/** POINTER only. */
 		public final int button;
+		/** POINTER only: the server-minted gesture id. */
 		public final int id;
 		public final String address;
+		/** POINTER only. */
 		public final int x;
 		public final int y;
+		/** KEY only: the LWJGL keycode, which is what identifies the key across down and up. */
+		public final int keycode;
+		/** KEY only: the character recorded at PRESS time — see keyRelease below for why. */
+		public final int ch;
 		/** World time when the press was recorded, for expiry. */
 		public final long recordedAt;
 
-		public PendingRelease(String watcher, int button, int id, String address,
-				int x, int y, long recordedAt) {
+		private PendingRelease(int kind, String watcher, int button, int id, String address,
+				int x, int y, int keycode, int ch, long recordedAt) {
+			this.kind = kind;
 			this.watcher = watcher;
 			this.button = button;
 			this.id = id;
 			this.address = address;
 			this.x = x;
 			this.y = y;
+			this.keycode = keycode;
+			this.ch = ch;
 			this.recordedAt = recordedAt;
+		}
+
+		public static PendingRelease pointer(String watcher, int button, int id, String address,
+				int x, int y, long recordedAt) {
+			return new PendingRelease(KIND_POINTER, watcher, button, id, address, x, y,
+					0, 0, recordedAt);
+		}
+
+		/**
+		 * A stranded key.
+		 *
+		 * The char is the one recorded at PRESS time, not zero, because that is exactly what a
+		 * real release carries: GuiScene keeps a keycode-to-char map and replays the press char
+		 * on key-up (falling back to 0 only when it never saw the press). A synthesized release
+		 * that sent 0 would be distinguishable from a real one, and a program matching presses
+		 * to releases by char would not close the gesture it opened.
+		 */
+		public static PendingRelease key(String watcher, String address, int keycode, int ch,
+				long recordedAt) {
+			return new PendingRelease(KIND_KEY, watcher, 0, 0, address, 0, 0,
+					keycode, ch, recordedAt);
 		}
 	}
 
@@ -247,16 +370,30 @@ public final class InputRouter {
 	 * Either way exactly one path is live at a time.
 	 */
 	private void moveToPending(String watcherKey, Pointer p) {
+		addPending(PendingRelease.pointer(watcherOf(watcherKey), p.button, p.id,
+				p.address, p.x, p.y, worldTimeForRecords));
+	}
+
+	/** The key half of the same single transition. See {@link #moveToPending(String, Pointer)}. */
+	private void moveToPending(String watcherKey, HeldKey k) {
+		addPending(PendingRelease.key(watcherOf(watcherKey), k.address, k.keycode, k.ch,
+				worldTimeForRecords));
+	}
+
+	private void addPending(PendingRelease record) {
 		// Capped in MEMORY, not just at the NBT boundary. Parking on an unreachable machine
 		// made unbounded growth reachable: a client spamming presses while no machine can
 		// hear the releases would otherwise grow this list by its full event allowance
 		// every tick until expiry, hours later. Oldest dropped first, same policy as the
 		// save path: the newest presses are the ones a program still waits on.
+		//
+		// Keys share the cap rather than getting their own, deliberately: the bound exists to
+		// keep this GPU's NBT small, and that is a property of the total. Two caps of 32 would
+		// be a 64-record list wearing a smaller number.
 		while (pendingReleases.size() >= MAX_PENDING_RELEASES) {
 			pendingReleases.remove(0);
 		}
-		pendingReleases.add(new PendingRelease(watcherOf(watcherKey), p.button, p.id,
-				p.address, p.x, p.y, worldTimeForRecords));
+		pendingReleases.add(record);
 		persistenceDirty = true;
 	}
 
@@ -280,8 +417,15 @@ public final class InputRouter {
 				new java.util.ArrayList<PendingRelease>(pendingReleases);
 		for (Map.Entry<String, Pointer> e : activePointer.entrySet()) {
 			Pointer p = e.getValue();
-			out.add(new PendingRelease(watcherOf(e.getKey()), p.button, p.id, p.address,
+			out.add(PendingRelease.pointer(watcherOf(e.getKey()), p.button, p.id, p.address,
 					p.x, p.y, worldTime));
+		}
+		// Live keys ride the save exactly as live pointers do: on the far side of it they are
+		// the same thing — a press with no release and no client left to send one.
+		for (Map.Entry<String, HeldKey> e : heldKeys.entrySet()) {
+			HeldKey k = e.getValue();
+			out.add(PendingRelease.key(watcherOf(e.getKey()), k.address, k.keycode, k.ch,
+					worldTime));
 		}
 		if (out.size() > MAX_PENDING_RELEASES) {
 			// Oldest first: the newest presses are the ones a program is most likely to
@@ -365,8 +509,7 @@ public final class InputRouter {
 			// unmatched monitor_up, which the caveats already class as harmless; a dropped
 			// one is the stuck button this whole design exists to end. Expiry now only
 			// bounds the genuinely undeliverable.
-			Pointer p = new Pointer(r.id, r.button, r.address, r.x, r.y);
-			if (emitRelease(p, fromNetwork, sceneWidth, sceneHeight)) {
+			if (emitRelease(r, fromNetwork, sceneWidth, sceneHeight)) {
 				it.remove();
 				persistenceDirty = true;
 				sent++;
@@ -397,8 +540,7 @@ public final class InputRouter {
 			if (!address.equals(r.address)) {
 				continue;
 			}
-			Pointer p = new Pointer(r.id, r.button, r.address, r.x, r.y);
-			if (emitRelease(p, fromNetwork, sceneWidth, sceneHeight, true)) {
+			if (emitRelease(r, fromNetwork, sceneWidth, sceneHeight, true)) {
 				it.remove();
 				persistenceDirty = true;
 				sent++;
@@ -413,8 +555,7 @@ public final class InputRouter {
 		java.util.Iterator<PendingRelease> it = pendingReleases.iterator();
 		while (it.hasNext()) {
 			PendingRelease r = it.next();
-			Pointer p = new Pointer(r.id, r.button, r.address, r.x, r.y);
-			if (emitRelease(p, fromNetwork, sceneWidth, sceneHeight, true)) {
+			if (emitRelease(r, fromNetwork, sceneWidth, sceneHeight, true)) {
 				it.remove();
 				persistenceDirty = true;
 				sent++;
@@ -427,6 +568,21 @@ public final class InputRouter {
 		int moved = 0;
 		for (int button = 0; button <= 2; button++) {
 			moved += flushPointer(watcherKey, button);
+		}
+		// Keys cannot be swept by iterating their space the way buttons are — a keycode is 0..255
+		// and only a handful are ever held — so this walks the map and matches the watcher. Uses
+		// watcherOf rather than a prefix test on purpose: a startsWith would also match a watcher
+		// whose UUID string happens to be a prefix of another's.
+		java.util.Iterator<Map.Entry<String, HeldKey>> keys = heldKeys.entrySet().iterator();
+		while (keys.hasNext()) {
+			Map.Entry<String, HeldKey> entry = keys.next();
+			if (!watcherKey.equals(watcherOf(entry.getKey()))) {
+				continue;
+			}
+			HeldKey k = entry.getValue();
+			keys.remove();
+			moveToPending(entry.getKey(), k);
+			moved++;
 		}
 		// DELIBERATELY does not touch eventsThisTick. It used to, back when the only caller was
 		// disconnect eviction and clearing a departing player's counter looked tidy. It is now
@@ -463,6 +619,33 @@ public final class InputRouter {
 	}
 
 	/**
+	 * End ONE key, the exact mirror of {@link #flushPointer}.
+	 *
+	 * Per keycode for the same reason that one is per button: the gate that calls this fires per
+	 * EVENT, so ending every key a watcher holds would kill the others the instant a player
+	 * crossed the reach boundary — jitter at exactly 8 blocks, a shove, one step back. A release
+	 * is the one event meaning that key is over.
+	 *
+	 * This is the FIFTH flush site, and it was missing from the first draft of the key work: the
+	 * reach gate released pointers and let keys fall through with their slot still set, so a
+	 * player displaced past 8 blocks mid-press — a minecart, knockback, water, a piston, a
+	 * teleport — left the key held in Lua until something else swept it. Nothing about the key
+	 * path made that visible; the comment above the gate asserted keys had no state to release
+	 * from, which had just stopped being true.
+	 *
+	 * @return 1 if a key was moved to pending, 0 otherwise
+	 */
+	public int flushKey(String watcherKey, int keycode) {
+		String slot = keySlot(watcherKey, keycode);
+		HeldKey k = heldKeys.remove(slot);
+		if (k == null) {
+			return 0;
+		}
+		moveToPending(slot, k);
+		return 1;
+	}
+
+	/**
 	 * Send one server-originated {@code monitor_up}, as UNCHECKED {@code computer.signal}.
 	 *
 	 * Unchecked is a decision, not an omission, and this method is its whole blast radius —
@@ -483,7 +666,13 @@ public final class InputRouter {
 	 * itself admitted through both guards.
 	 */
 	private boolean emitRelease(Pointer p, Node fromNetwork, int sceneWidth, int sceneHeight) {
-		return emitRelease(p, fromNetwork, sceneWidth, sceneHeight, false);
+		return emitRelease(PendingRelease.pointer(null, p.button, p.id, p.address, p.x, p.y, 0L),
+				fromNetwork, sceneWidth, sceneHeight, false);
+	}
+
+	private boolean emitRelease(PendingRelease r, Node fromNetwork, int sceneWidth,
+			int sceneHeight) {
+		return emitRelease(r, fromNetwork, sceneWidth, sceneHeight, false);
 	}
 
 	/**
@@ -493,8 +682,8 @@ public final class InputRouter {
 	 *                   sending at all. A machine must still be reachable either way — with
 	 *                   nobody listening there is nothing to send into.
 	 */
-	private boolean emitRelease(Pointer p, Node fromNetwork, int sceneWidth, int sceneHeight,
-			boolean lastChance) {
+	private boolean emitRelease(PendingRelease r, Node fromNetwork, int sceneWidth,
+			int sceneHeight, boolean lastChance) {
 		if (fromNetwork == null || fromNetwork.network() == null) {
 			return false;
 		}
@@ -504,7 +693,7 @@ public final class InputRouter {
 		// been removed and replaced. Every other cross-object reference in this codebase is an
 		// address for the same reason. A null here is the surface having genuinely gone, which
 		// is the one case that stays undeliverable.
-		Node target = fromNetwork.network().node(p.address);
+		Node target = fromNetwork.network().node(r.address);
 		if (target == null || target.address() == null) {
 			return false;
 		}
@@ -535,8 +724,14 @@ public final class InputRouter {
 		// Clamped to the LIVE scene size, not the size at press time. setResolution can shrink
 		// the scene while a gesture is held, and a release outside the canvas is exactly what
 		// route()'s own bounds check refuses to let a client send.
-		int x = sceneWidth > 0 ? Math.max(0, Math.min(sceneWidth - 1, p.x)) : p.x;
-		int y = sceneHeight > 0 ? Math.max(0, Math.min(sceneHeight - 1, p.y)) : p.y;
+		//
+		// Keys carry no coordinates, so nothing to clamp — monitor_key_up is (char, keycode),
+		// the same shape the client sends. Everything ABOVE this point is deliberately shared:
+		// resolving the surface by address, requiring a listening unpaused machine, and the
+		// last-chance override are properties of "a release the client can no longer send",
+		// not of what kind of release it is.
+		int x = sceneWidth > 0 ? Math.max(0, Math.min(sceneWidth - 1, r.x)) : r.x;
+		int y = sceneHeight > 0 ? Math.max(0, Math.min(sceneHeight - 1, r.y)) : r.y;
 		// Guarded because this fans out through every reachable node's onMessage, including
 		// third-party components, and it now runs from the tick-START loop: an escaping
 		// throw there is a crash, and a crash with the record persisted is a crash on every
@@ -545,11 +740,17 @@ public final class InputRouter {
 		// retrying a throwing handler every tick would just crash-spam; a possibly-lost
 		// release on a network with a broken third-party component is the lesser harm.
 		try {
-			target.sendToReachable("computer.signal", "monitor_up",
-					Integer.valueOf(x), Integer.valueOf(y),
-					Integer.valueOf(p.button), Integer.valueOf(p.id));
+			if (r.kind == PendingRelease.KIND_KEY) {
+				// Argument order matches the client's own key events: (char, keycode).
+				target.sendToReachable("computer.signal", "monitor_key_up",
+						Integer.valueOf(r.ch), Integer.valueOf(r.keycode));
+			} else {
+				target.sendToReachable("computer.signal", "monitor_up",
+						Integer.valueOf(x), Integer.valueOf(y),
+						Integer.valueOf(r.button), Integer.valueOf(r.id));
+			}
 		} catch (RuntimeException e) {
-			opengpu.OpenGPU.logger.warn("v2: a component on screen " + p.address
+			opengpu.OpenGPU.logger.warn("v2: a component on screen " + r.address
 					+ "'s network threw while receiving a release", e);
 		}
 		return true;
@@ -576,7 +777,12 @@ public final class InputRouter {
 		// press that never ends, and the next press reuses the stale slot. Releases are
 		// self-limiting anyway — there can only be as many as there were presses, and those
 		// ARE capped.
-		boolean isRelease = input.kind == MessageCodec.INPUT_POINTER_UP;
+		// INPUT_KEY_UP is exempt for exactly the same reason, and was not until 2026-08-08:
+		// dropping a key release leaves heldKeys set forever, so Lua sees a key that never comes
+		// up and the next press of that key finds a stale slot. Key releases are self-limiting
+		// too — one per press, and presses ARE capped.
+		boolean isRelease = input.kind == MessageCodec.INPUT_POINTER_UP
+				|| input.kind == MessageCodec.INPUT_KEY_UP;
 		if (!isRelease) {
 			Integer used = eventsThisTick.get(watcherKey);
 			int count = used == null ? 0 : used;
@@ -720,9 +926,57 @@ public final class InputRouter {
 				// argument shape) was a documented interop hazard.
 				if (input.a < 0 || input.a > 0xFFFF || input.b < 0 || input.b > 0xFF)
 					return false;
-				String name = input.kind == MessageCodec.INPUT_KEY_DOWN
-						? "monitor_key_down" : "monitor_key_up";
-				node.sendToReachable("computer.checked_signal", player, name,
+				boolean down = input.kind == MessageCodec.INPUT_KEY_DOWN;
+				String slot = keySlot(watcherKey, input.b);
+				if (down) {
+					// AUTO-REPEAT IS THE COMMON CASE, not a defensive edge. Minecraft enables
+					// keyboard repeat while a GUI is open (so text fields work), so a held key
+					// re-enters keyTyped many times a second: a 6-second hold of W was measured
+					// in game as 42 repeats, all arriving as KEY_DOWN for keycode 17.
+					//
+					// Overwrite, therefore, and never create a second record: ONE PHYSICAL KEY
+					// OWES EXACTLY ONE RELEASE. Same keycode, same surface, and the newest char
+					// is the one a release should replay. Treating a repeat as a fresh press
+					// would put 42 records in the pending list for one key and deliver 42
+					// releases for one press.
+					//
+					// (An earlier version of this comment asserted repeats could not happen,
+					// reasoning from the absence of an enableRepeatEvents call in our own client
+					// code. That call is Minecraft's to make, not ours; the in-game measurement
+					// is what settled it.)
+					heldKeys.put(slot, new HeldKey(input.b, input.a, node.address()));
+					persistenceDirty = true;
+				} else {
+					HeldKey held = heldKeys.remove(slot);
+					// A RELEASE WITH NO PRESS BEHIND IT IS REFUSED, exactly as the pointer path
+					// refuses one, and this is what makes the rate-limit exemption above SAFE
+					// rather than a hole. INPUT_KEY_UP is exempt from
+					// MAX_EVENTS_PER_WATCHER_PER_TICK — which is the only inbound throttle in the
+					// stack — so without this a client could emit unlimited monitor_key_up
+					// signals into every machine on the network by never sending a press. The
+					// exemption's justification is "one per press, and presses ARE capped"; this
+					// line is what makes that true instead of merely stated.
+					//
+					// It also removes the DOUBLE RELEASE. Once a sweep has moved the key to a
+					// pending record, the slot is gone, so the player's real key-up on the way
+					// back finds nothing and stays quiet — rather than delivering a second
+					// monitor_key_up, through whatever surface is bound by then.
+					if (held == null) {
+						return false;
+					}
+					persistenceDirty = true;
+					// Address-checked like the pointer release path, and for the same reason: a
+					// binding can move under a held key without any surface being destroyed, and
+					// emitting through the CURRENT screen would deliver a release naming a
+					// surface the player never pressed on, while the real one stayed stuck. Park
+					// it instead — the delivery loop will send it from the right node.
+					if (!held.address.equals(node.address())) {
+						moveToPending(slot, held);
+						return false;
+					}
+				}
+				node.sendToReachable("computer.checked_signal", player,
+						down ? "monitor_key_down" : "monitor_key_up",
 						Integer.valueOf(input.a), Integer.valueOf(input.b));
 				return true;
 			}
