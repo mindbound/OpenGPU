@@ -322,6 +322,133 @@ public class CanvasSemanticsTest {
 				canvas.visibleCommands().size() <= 1);
 	}
 
+	// The half the guard above does not cover. truncationFits() asks whether the COMPACTED list
+	// fits ALONE — but compaction happens in the middle of an append, and the input commands
+	// after the covering op are still to be laid on top of it. So the floor can fit, the input
+	// precheck can pass, and the canvas still finishes over its cap. Same consequence as above;
+	// what differs is that this reaches ORDINARY caps, not just caps of one or two.
+
+	@Test
+	public void compactionLeavesRoomForTheInputStillToCome() {
+		// cap 4, input exactly 4: the precheck passes at the boundary, the FILL compacts the list
+		// to two, and the three PLOTs behind it land on top for five.
+		SceneCanvas canvas = new SceneCanvas(64, 64, 4);
+		canvas.append(cmds(
+				CanvasCommand.of(V2Wire.OP_FILL),
+				CanvasCommand.of(V2Wire.OP_PLOT, 1, 1),
+				CanvasCommand.of(V2Wire.OP_PLOT, 2, 2),
+				CanvasCommand.of(V2Wire.OP_PLOT, 3, 3)));
+
+		assertTrue("held " + canvas.visibleCommands().size() + " commands against a cap of 4",
+				canvas.visibleCommands().size() <= 4);
+		// The consequence, not a restatement of it: this is the publish that restore and every
+		// resync perform, and the one whose failure ScenePersistence answers by deleting.
+		new SceneCanvas(64, 64, 4).publish(canvas.visibleCommands());
+	}
+
+	@Test
+	public void theCapOverflowIsReachableOnAnOrdinaryCanvas() {
+		// Not a small-cap curiosity. The same shape at the default cap, which is what a canvas
+		// gets when Lua names no cap at all.
+		//
+		// The filler is PUSH rather than PLOT on purpose, so the fixture is a frame that could
+		// actually arrive: zero-arity ops encode in one byte, making this ~4 KiB against a
+		// MAX_SUBMIT_BYTES of 64 KiB. The same frame built from PLOTs would be 17 bytes a
+		// command and could not be submitted in one call at all — which would leave the test
+		// demonstrating an overflow no player could reach.
+		int cap = 4096;
+		java.util.List<CanvasCommand> frame = new java.util.ArrayList<CanvasCommand>();
+		frame.add(CanvasCommand.of(V2Wire.OP_FILL));
+		for (int i = 1; i < cap; i++) {
+			frame.add(CanvasCommand.of(V2Wire.OP_PUSH));
+		}
+		SceneCanvas canvas = new SceneCanvas(64, 64, cap);
+		canvas.append(frame);
+
+		assertTrue("held " + canvas.visibleCommands().size() + " against a cap of " + cap,
+				canvas.visibleCommands().size() <= cap);
+		new SceneCanvas(64, 64, cap).publish(canvas.visibleCommands());
+	}
+
+	@Test
+	public void theCapHoldsAcrossSeveralCompactionsInOneAppend() {
+		// The induction step: each compaction resets the baseline, so the bound has to hold from
+		// the LAST one, not just the first. The opening FILL is declined (2 + 5 > 6) and a later
+		// one is taken (2 + 3 <= 6), so a decline does not latch compaction off for the rest of
+		// the append.
+		//
+		// Being straight about its limits: this test passes on the UNFIXED code too, and cannot
+		// detect a revert. It cannot, and no test of this shape can — a decline is only ever
+		// possible while `visible` is still empty, so it can only happen at the front of an
+		// append, and any later compaction wipes the evidence. What it guards is the opposite
+		// direction: a future change that declines more broadly than it must.
+		// compactionStillFiresJustBelowTheBoundary is the one that fails on a revert.
+		SceneCanvas canvas = new SceneCanvas(64, 64, 6);
+		canvas.append(cmds(
+				CanvasCommand.of(V2Wire.OP_FILL),
+				CanvasCommand.of(V2Wire.OP_PLOT, 1, 1),
+				CanvasCommand.of(V2Wire.OP_FILL),
+				CanvasCommand.of(V2Wire.OP_PLOT, 2, 2),
+				CanvasCommand.of(V2Wire.OP_PLOT, 3, 3),
+				CanvasCommand.of(V2Wire.OP_PLOT, 4, 4)));
+
+		assertTrue("held " + canvas.visibleCommands().size() + " commands against a cap of 6",
+				canvas.visibleCommands().size() <= 6);
+		assertTrue("the later FILL should still have compacted — declining must be the exception,"
+				+ " not the new default", canvas.visibleCommands().size() < 6);
+		new SceneCanvas(64, 64, 6).publish(canvas.visibleCommands());
+	}
+
+	@Test
+	public void compactionStillFiresJustBelowTheBoundary() {
+		// Both sides of the guard's edge, because the two ways to get it wrong have opposite
+		// costs: too loose is the overflow itself, too tight is a silent size regression on
+		// every canvas that ever compacts.
+		//
+		// One command below the cap there is room for the floor AND the tail behind it, so
+		// compaction takes and the list opens with the re-emitted SET_COLOR. At exactly the cap
+		// there is not, so it declines and the list opens with the FILL itself. Both finish
+		// holding exactly cap commands — the length alone cannot tell them apart, which is why
+		// this asserts the shape.
+		assertEquals("one below the boundary must still compact",
+				V2Wire.OP_SET_COLOR, fillLedFrame(64, 63).visibleCommands().get(0).op);
+		assertEquals("at the boundary it must decline rather than overflow",
+				V2Wire.OP_FILL, fillLedFrame(64, 64).visibleCommands().get(0).op);
+	}
+
+	/** A cap-capacity canvas given one FILL followed by {@code n - 1} plots, as one append. */
+	private static SceneCanvas fillLedFrame(int cap, int n) {
+		java.util.List<CanvasCommand> frame = new java.util.ArrayList<CanvasCommand>();
+		frame.add(CanvasCommand.of(V2Wire.OP_FILL));
+		for (int i = 1; i < n; i++) {
+			frame.add(CanvasCommand.of(V2Wire.OP_PLOT, i % 32, i % 32));
+		}
+		SceneCanvas canvas = new SceneCanvas(64, 64, cap);
+		canvas.append(frame);
+		return canvas;
+	}
+
+	@Test
+	public void decliningToCompactStillLeavesTheFrameIntact() {
+		// Declining is safe only if it is a no-op for the CONTENT. The un-compacted list must
+		// still be the frame that was submitted, in order — compaction is a bound on growth, so
+		// skipping it may cost bytes but must never cost a command.
+		SceneCanvas canvas = new SceneCanvas(64, 64, 4);
+		canvas.append(cmds(
+				CanvasCommand.of(V2Wire.OP_FILL),
+				CanvasCommand.of(V2Wire.OP_PLOT, 1, 1),
+				CanvasCommand.of(V2Wire.OP_PLOT, 2, 2),
+				CanvasCommand.of(V2Wire.OP_PLOT, 3, 3)));
+
+		java.util.List<CanvasCommand> held = canvas.visibleCommands();
+		assertEquals("the covering op must survive", V2Wire.OP_FILL, held.get(0).op);
+		assertEquals(4, held.size());
+		for (int i = 1; i < 4; i++) {
+			assertEquals("plot " + i + " must survive in order", V2Wire.OP_PLOT, held.get(i).op);
+			assertEquals(i, held.get(i).args[0], 1e-9);
+		}
+	}
+
 	@Test
 	public void aCanvasAlwaysAcceptsItsOwnVisibleListBack() {
 		// The consequence, stated as the invariant that actually matters: restore and resync both

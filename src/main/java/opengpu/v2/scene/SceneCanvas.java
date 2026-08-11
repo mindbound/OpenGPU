@@ -13,13 +13,18 @@ import opengpu.v2.protocol.V2Wire;
  *   bounded in practice.
  * - publish (present mode): the given list atomically replaces the visible list.
  *
- * Compaction is deliberately conservative — it only fires when replay-from-scratch of the
- * truncated list is provably identical to replay of the full list:
+ * Compaction is deliberately conservative and needs TWO independent conditions. The first is
+ * replay-EQUIVALENCE: it fires only when replay-from-scratch of the truncated list is provably
+ * identical to replay of the full list:
  * - OP_FILL truncates only if the current color is fully opaque (a translucent fill blends
  *   with prior content) and no transform op has been recorded (transforms recorded earlier
  *   would be lost by truncation, changing later commands' meaning).
  * - OP_CLEAR_RECT (hard set, no blending) truncates regardless of alpha if its rect covers
  *   the full canvas and no transform op has been recorded.
+ * The second is ROOM, and equivalence alone is not sufficient: truncation replaces the list with a
+ * two- or three-command floor, and the input still to come in the same append lands on top of that
+ * floor, so compaction is also declined when the two together would exceed commandCap. See
+ * {@link #truncationFits}.
  * After truncation the list becomes [SET_COLOR(current), SET_FONT(current) if non-default,
  * coveringCommand] — the covering command replays with the color it was issued under, and any
  * ambient state that outlives it is re-established for the commands appended afterwards.
@@ -92,12 +97,15 @@ public final class SceneCanvas {
 		if (visible.size() + commands.size() > commandCap)
 			throw new IllegalStateException(
 					"canvas command list full (" + commandCap + "); fill()/clear() or use present()");
+		int remaining = commands.size();
 		for (CanvasCommand cmd : commands) {
-			appendOne(cmd);
+			remaining--;
+			appendOne(cmd, remaining);
 		}
 	}
 
-	private void appendOne(CanvasCommand cmd) {
+	/** @param remaining input commands still to be appended AFTER this one. */
+	private void appendOne(CanvasCommand cmd, int remaining) {
 		if (cmd.op == V2Wire.OP_SET_COLOR) {
 			colorR = clampChannel(cmd.args[0]);
 			colorG = clampChannel(cmd.args[1]);
@@ -107,7 +115,7 @@ public final class SceneCanvas {
 			currentFont = clampFont(cmd.args[0]);
 		} else if (V2Wire.isTransformOp(cmd.op)) {
 			trackTransform(cmd.op);
-		} else if (covers(cmd) && truncationFits()) {
+		} else if (covers(cmd) && truncationFits(remaining)) {
 			truncateTo(cmd);
 			return;
 		}
@@ -154,13 +162,22 @@ public final class SceneCanvas {
 	}
 
 	/**
-	 * Whether the truncated list would fit inside {@link #commandCap}.
+	 * Whether the truncated list, PLUS the input still to come, would fit inside
+	 * {@link #commandCap}.
 	 *
 	 * Compaction REPLACES the list rather than shrinking it, so its output has a floor: two
 	 * commands, or three once a font is selected. Nothing bounded that floor against the cap. The
 	 * append precheck bounds the INPUT — visible + incoming — and is satisfied before compaction
 	 * rewrites anything, so a small-cap canvas could finish an append holding more commands than
 	 * its own cap declares.
+	 *
+	 * {@code remaining} is the half that floor alone does not cover, and it is the half that
+	 * reaches ORDINARY caps rather than caps of one or two. Compaction fires in the MIDDLE of an
+	 * append, so the input commands behind the covering op are still to be laid on top of the
+	 * truncated list. Checking only the floor let a cap-4096 canvas — the default — accept
+	 * {@code [FILL, PLOT x4095]}, compact to two on the FILL, and finish holding 4097. The
+	 * precheck passed, because it measured the input; the floor check passed, because it measured
+	 * the output; nothing measured them together.
 	 *
 	 * That is not a cosmetic overflow. {@code SnapshotCodec.encode} writes the visible list
 	 * without checking the cap, and decode rebuilds the canvas through {@code publish}, which
@@ -170,16 +187,19 @@ public final class SceneCanvas {
 	 *
 	 * Declining to compact is always safe: compaction is a bound on GROWTH, never a correctness
 	 * requirement, and the append precheck has already guaranteed the un-compacted list fits.
-	 * The decision converges across the wire because it reads only commandCap — which rides both
-	 * the snapshot and the persisted record — and currentFont, which is tracked identically on
-	 * both sides.
+	 * The decision converges across the wire because it reads only three things: commandCap, which
+	 * rides both the snapshot and the persisted record; currentFont, which is tracked identically
+	 * on both sides; and {@code remaining}, which is a position within the delta's OWN command list.
+	 * Server and mirror both reach this through {@code DeltaApplier} applying the same
+	 * {@code Delta.CanvasAppend} ({@code ServerScene.canvasAppend} stages the delta it just
+	 * applied), so the list, and every index into it, is identical on both sides.
 	 *
 	 * The cap-1 case here predates font tracking: [SET_COLOR, FILL] is two commands against a cap
 	 * of one. The font re-emission widened the broken set rather than creating it, which is why
 	 * this guard covers the shape rather than just the extra command.
 	 */
-	private boolean truncationFits() {
-		return 2 + (currentFont != V2Wire.FONT_DEFAULT ? 1 : 0) <= commandCap;
+	private boolean truncationFits(int remaining) {
+		return 2 + (currentFont != V2Wire.FONT_DEFAULT ? 1 : 0) + remaining <= commandCap;
 	}
 
 	private void truncateTo(CanvasCommand covering) {
