@@ -206,6 +206,23 @@ public final class SceneMirror {
 		// The body must be the version we believe is current. A body older than what the
 		// delta stream already told us about would silently roll the texture back; a newer
 		// one means we missed a write, which is a divergence we must not paper over.
+		//
+		// REJECTING IS THE WHOLE FIX — this deliberately does NOT flag needsResync, and an
+		// audit has already read the missing flag as a stuck-mirror bug once, so the recovery
+		// is worth naming here rather than leaving a reader to find it in another file.
+		// MirrorClient.requestPendingBodies is LEVEL-triggered on ResourceInfo.needsBody()
+		// (bytes == null || version != latestVersion) and re-sends on a retry cadence, so a
+		// rejected body is simply re-fetched — no resync needed for either direction:
+		//
+		//   version < latestVersion — a late response to an earlier request. needsBody() stays
+		//     true, the retry re-asks, and the mirror renders its stale content meanwhile.
+		//   version > latestVersion — a body response that overtook the batch announcing it.
+		//     Genuinely MISSING that write is impossible without a batch gap, and a gap latches
+		//     needsResync, which the first check above already rejects on. So this is transient:
+		//     the batch lands, latestVersion moves, needsBody() flips true, the body is re-asked.
+		//
+		// Escalating to a resync here would trade a cheap re-fetch for a full snapshot on what
+		// is usually just packet ordering.
 		if (version != res.latestVersion)
 			return false;
 		res.bytes = bytes.clone();

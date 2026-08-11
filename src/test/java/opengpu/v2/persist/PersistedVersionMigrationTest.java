@@ -185,6 +185,25 @@ public class PersistedVersionMigrationTest {
 			return this;
 		}
 
+		/**
+		 * The same node record with its LAST field absent — a stand-in for any bump that
+		 * changed the record's width. Used only to show what a mislabelled version does.
+		 */
+		StructureWriter nodeMissingTint(int id, byte type, int ref, double x, double y, int z)
+				throws IOException {
+			out.writeInt(id);
+			out.writeByte(type);
+			out.writeInt(ref);
+			out.writeDouble(x);
+			out.writeDouble(y);
+			out.writeDouble(0); // rot
+			out.writeDouble(1); // sx
+			out.writeDouble(1); // sy
+			out.writeInt(z);
+			out.writeBoolean(true);
+			return this;
+		}
+
 		byte[] done() throws IOException {
 			out.flush();
 			return bytes.toByteArray();
@@ -376,6 +395,116 @@ public class PersistedVersionMigrationTest {
 				ScenePersistence.restoreOrFresh("gpu-addr", new byte[] { 0, 3, 9, 9 }, store);
 		assertNotNull(result.scene);
 		assertTrue("the failure must be reported", !result.warnings.isEmpty());
+	}
+
+	/**
+	 * The tail is NOT silently extensible, and a future bump may not pretend otherwise.
+	 *
+	 * The tempting shortcut for adding a field is "append it and let old decoders ignore the
+	 * extra bytes". They do not ignore them — the trailing-data guard rejects, and on the
+	 * persistence path a rejection is {@code store.deleteScene}.
+	 *
+	 * SCOPE, precisely: this covers an append to the STREAM TAIL only. Widening a per-node or
+	 * per-resource RECORD is a different mechanism with a different symptom — the drift is
+	 * consumed by the reads that follow, and what surfaces is whatever guard the misaligned
+	 * bytes happen to trip first. {@link #aWronglyWhitelistedVersionCostsTheSceneEvenWhenItRejectsCleanly}
+	 * is the record-width case. Both shapes reject; neither is ignorable; the reasons differ.
+	 *
+	 * This test is what makes the tail case a fact rather than an assumption. If it ever starts
+	 * failing, someone made the format lenient, and every claim in the surrounding javadocs
+	 * about clean rejection needs re-reading.
+	 */
+	@Test
+	public void appendedBytesAreRejectedNeverIgnored() throws Exception {
+		byte[] valid = sample(V2Wire.PROTOCOL_VERSION);
+		assertNotNull("the fixture must decode before we corrupt it",
+				SnapshotCodec.decodePersisted(valid));
+
+		byte[] extended = new byte[valid.length + 1];
+		System.arraycopy(valid, 0, extended, 0, valid.length);
+
+		try {
+			SnapshotCodec.decodePersisted(extended);
+			fail("one appended byte decoded cleanly — the format is now silently extensible,"
+					+ " which means a truncated or misaligned save can also read as valid");
+		} catch (CodecException expected) {
+			assertTrue("expected the trailing-data guard, got: " + expected.getMessage(),
+					expected.getMessage().contains("Trailing data"));
+		}
+	}
+
+	/**
+	 * Why {@code LAYOUT_COMPATIBLE_PERSISTED_VERSIONS} cannot be a judgement call.
+	 *
+	 * Nothing verifies that a version listed there really is byte-identical; the list is a
+	 * maintainer's ASSERTION, checked by no code. This drives the case where that assertion is
+	 * wrong — v3 is whitelisted, but here the v3-stamped bytes carry a narrower node record, as
+	 * a bump that changed the record's width would have left them.
+	 *
+	 * The loss is that a rejection here is not a safe outcome. restoreOrFresh answers a
+	 * CodecException with {@code store.deleteScene}, so a CLEAN rejection still destroys the
+	 * world. "It will fail safe" is not a defence when the safe failure is deletion — which is
+	 * why the version → layout mapping has to be right by construction, and why the extension
+	 * policy is written down rather than left to a reviewer's memory.
+	 *
+	 * WHAT THIS TEST DOES NOT SHOW. It is not evidence that the structure format cannot be
+	 * silently misread. For the NODE array it genuinely cannot: the node loop is the last thing
+	 * before the trailing-data guard, so uniform per-record drift over N records must land the
+	 * stream either short (EOF) or long (leftover) — there is no slack to absorb it, and the
+	 * outcome is always a throw. Silence needs a record whose drift is swallowed by reads that
+	 * come after it, which means the RESOURCE record — and {@code resources(0)} below removes
+	 * that possibility on purpose, to keep this test about one mechanism. Read the claim as
+	 * scoped to the node array.
+	 *
+	 * The route to the throw is the instructive part, because every guard that could have
+	 * caught it sits DOWNSTREAM of the damage. Node 1 eats node 2's id as its tint. Node 2 then
+	 * reads its own id out of the middle of its record, and its type out of the last byte of
+	 * {@code ref} — which is TEX_ID, 2, which is NODE_SPRITE, so {@code isKnownNodeType} waves
+	 * it through. The decode dies eight bytes later at {@code z}. The counter-consistency check
+	 * would have rejected node 2's bogus id too, and never runs, because EOF fires first. The
+	 * guards are not missing; they are simply behind the point where the bytes stopped meaning
+	 * what the decoder thinks they mean.
+	 */
+	@Test
+	public void aWronglyWhitelistedVersionCostsTheSceneEvenWhenItRejectsCleanly() throws Exception {
+		// Keeps nodeMissingTint honest. node() is pinned against the real encoder by
+		// aV3StructureDecodesThroughThePersistencePath, so if a field is ever added to the node
+		// record, node() must follow it and this delta moves off 4 — failing here, loudly,
+		// instead of leaving the fixture below quietly modelling nothing.
+		assertEquals("nodeMissingTint has drifted from node(): the fixture no longer models a"
+				+ " one-field record-width change", 4, nodeRecordWidthDelta());
+
+		StructureWriter w = new StructureWriter(V3, "gpu-addr", EPOCH, 7, 900L, 3, 3);
+		w.resources(0);
+		w.nodes(2)
+				.nodeMissingTint(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0)
+				.nodeMissingTint(2, V2Wire.NODE_SPRITE, TEX_ID, 3.5, -1.25, 2);
+
+		try {
+			SnapshotCodec.decodePersisted(w.done());
+			fail("a node record of the wrong width decoded cleanly. For the node array that"
+					+ " should be impossible — either the layout moved, or the trailing-data"
+					+ " guard is gone and misaligned saves now read as valid scenes");
+		} catch (CodecException expected) {
+			// Pinning the exact mechanism, not merely "it threw". The weaker check this
+			// replaced was satisfied by every other message the codec can emit, so it would
+			// have stayed green if the fixture stopped reaching the node loop at all — and
+			// if v3 ever leaves the whitelist it stops reaching it, rejected at the header.
+			assertEquals("the documented route is EOF partway through the last node; another"
+					+ " message means the trace in this javadoc no longer describes the code",
+					"Truncated snapshot", expected.getMessage());
+			assertTrue("expected the EOF underneath it, got: " + expected.getCause(),
+					expected.getCause() instanceof java.io.EOFException);
+		}
+	}
+
+	/** Width of the real node record minus the deliberately-narrowed one. Must stay 4. */
+	private static int nodeRecordWidthDelta() throws IOException {
+		StructureWriter full = new StructureWriter(V3, "s", EPOCH, 1, 0L, 2, 2);
+		full.resources(0).nodes(1).node(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0);
+		StructureWriter narrow = new StructureWriter(V3, "s", EPOCH, 1, 0L, 2, 2);
+		narrow.resources(0).nodes(1).nodeMissingTint(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0);
+		return full.done().length - narrow.done().length;
 	}
 
 	/**
