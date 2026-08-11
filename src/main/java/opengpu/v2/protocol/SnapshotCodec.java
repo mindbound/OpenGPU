@@ -195,8 +195,17 @@ public final class SnapshotCodec {
 				res.knownHash = knownHash;
 				if (type == V2Wire.RES_CANVAS) {
 					int cap = in.readInt();
-					ArrayList<opengpu.v2.scene.CanvasCommand> commands = BatchCodec.readCommands(in);
+					// Construct the canvas BEFORE reading its list, then bound the read by the
+					// cap. Two reasons in that order: the constructor is what validates cap, and
+					// a bound is only worth having once it has been validated; and a payload's
+					// BYTE length does not bound its command COUNT, since the zero-arity ops
+					// encode in one byte each. The unbounded overload would therefore build up
+					// to MAX_COMMANDS entries out of a small blob before publish() refused the
+					// list — see BatchCodec.readCommands(DataInputStream, int), which exists for
+					// exactly this and names a canvas's cap as the count to pass.
 					SceneCanvas canvas = new SceneCanvas(width, height, cap);
+					ArrayList<opengpu.v2.scene.CanvasCommand> commands =
+							BatchCodec.readCommands(in, cap);
 					canvas.publish(commands);
 					res.canvas = canvas;
 				}

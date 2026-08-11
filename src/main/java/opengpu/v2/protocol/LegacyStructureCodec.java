@@ -80,8 +80,12 @@ public final class LegacyStructureCodec {
 				res.knownHashVersion = 1;
 				if (type == V2Wire.RES_CANVAS) {
 					int cap = in.readInt();
-					ArrayList<CanvasCommand> commands = BatchCodec.readCommands(in);
+					// Bounded by the cap, and constructed before the read so the cap is
+					// validated first — same reasoning as SnapshotCodec's canvas branch, and
+					// the same hazard: a v2 blob is read off disk, so an unbounded count here
+					// is an unbounded allocation driven by a file.
 					SceneCanvas canvas = new SceneCanvas(width, height, cap);
+					ArrayList<CanvasCommand> commands = BatchCodec.readCommands(in, cap);
 					canvas.publish(commands);
 					res.canvas = canvas;
 				}
