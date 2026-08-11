@@ -278,22 +278,111 @@ public final class ScenePersistence {
 
 	/**
 	 * The recommended chunk-load policy: restore, and on an unreadable structure fall back
-	 * to a FRESH scene — deleting the scene's stored bodies first (they are unreferenced by
-	 * anything and would otherwise leak) — with the failure recorded as a warning. Mirrors
-	 * hard-reset correctly via the fresh scene's new epoch.
+	 * to a FRESH scene, with the failure recorded as a warning. Mirrors hard-reset correctly
+	 * via the fresh scene's new epoch.
+	 *
+	 * THE DELETION RULE, tightened 2026-08-11 — read this before changing any branch below.
+	 * Stored bodies are deleted ONLY on POSITIVE EVIDENCE that the structure is corrupt. Never
+	 * because we merely failed to obtain one, and never because we are too old to read one.
+	 * Leaking bodies wastes disk and is recoverable by hand; deleting them destroys the player's
+	 * pictures and is not. Where the two compete, leak.
+	 *
+	 * What the old code did wrong, both halves reachable in normal play:
+	 *
+	 *   ABSENCE. A null structure went straight to deleteScene with an EMPTY warnings list — so a
+	 *   brand-new GPU and a scene whose spilled structure had vanished were indistinguishable,
+	 *   and the destructive one logged NOTHING. A spill is written out-of-band; a disk-full save,
+	 *   an antivirus lock, or a restored-from-backup world can leave the bodies present and the
+	 *   structure gone. That is the case where the bodies are most worth keeping, and it was the
+	 *   case that deleted them silently. {@code structureExpected} is how the caller says "NBT
+	 *   told me a structure exists" — see TileEntityGpu2.initScene, which had that bit and
+	 *   discarded it.
+	 *
+	 *   THE FUTURE. SnapshotCodec throws for any version it does not know, which includes every
+	 *   version ABOVE the current one. Rolling a jar back one release — an ordinary modpack
+	 *   action after a crash — therefore deleted every scene's textures on first chunk load. The
+	 *   backward direction has a compatible-versions array, a gated read and a bump checklist;
+	 *   the forward direction had nothing at all. It is now peeked BEFORE the decode, using the
+	 *   same peek-don't-catch discipline restore() already documents.
+	 *
+	 * KEPT MEANS ARCHIVED, NOT LEFT IN PLACE — this distinction is the whole correctness of the
+	 * rule and the first version of this change got it wrong. A fresh scene restarts its resource
+	 * ids at 1; body blobs carry no scene-incarnation marker; and {@link #restore} accepts a
+	 * framed body on a LENGTH match alone (the hash cross-check exists only on the legacy-raw
+	 * path). Bodies left in the live directory therefore attach silently to whatever the next
+	 * incarnation creates at the same id with the same dimensions — the player's new texture
+	 * comes back holding the old one's pixels, not degraded, not warned. Archiving moves them out
+	 * of the id namespace, so "kept" cannot become "silently inherited".
+	 *
+	 * The claimed-version range is [2, PROTOCOL_VERSION] — v2 has its own decoder, 3 and 4 are
+	 * layout-compatible, and PROTOCOL_VERSION is current. Anything OUTSIDE that range is a
+	 * structure we do not claim to read, which includes both genuinely-newer saves and garbage:
+	 * `peekVersion` returns a SIGNED short, so any first byte >= 0x80 peeks negative, and a
+	 * zero-length file (the classic post-crash artifact) peeks -1. Testing only "above current"
+	 * would have sent all of those to the delete branch while the javadoc claimed they leaked.
+	 * We cannot distinguish corruption-that-looks-versioned from a real version — the structure
+	 * format carries no magic number, unlike bodies — so everything unclaimed is archived.
 	 */
 	public static RestoreResult restoreOrFresh(String sceneId, byte[] structureOrNull, ResourceStore store) {
-		if (structureOrNull != null) {
-			try {
-				return restore(structureOrNull, store);
-			} catch (CodecException e) {
-				List<String> warnings = new ArrayList<String>();
-				warnings.add("Structure unreadable (" + e.getMessage() + "); starting fresh");
-				store.deleteScene(sceneId);
-				return new RestoreResult(new ServerScene(sceneId), warnings);
+		return restoreOrFresh(sceneId, structureOrNull, false, store);
+	}
+
+	/** @param structureExpected the caller has positive reason to believe a structure exists. */
+	public static RestoreResult restoreOrFresh(String sceneId, byte[] structureOrNull,
+			boolean structureExpected, ResourceStore store) {
+		List<String> warnings = new ArrayList<String>();
+		if (structureOrNull == null) {
+			// `structureExpected` alone is NOT sufficient: the caller derives it from the spill
+			// marker, which is only set for structures over the 64 KiB inline ceiling — and
+			// typical scenes are far under it. Losing an INLINE structure is the common case and
+			// would have been silent. Stored bodies with no structure to reference them is the
+			// signal that covers both, and it needs nothing from the caller.
+			boolean somethingWasHere = structureExpected || !store.listResources(sceneId).isEmpty();
+			if (somethingWasHere) {
+				warnings.add(archived(sceneId, store, "a persisted structure was EXPECTED for this"
+						+ " scene and none could be read"));
 			}
+			return new RestoreResult(new ServerScene(sceneId), warnings);
 		}
-		store.deleteScene(sceneId);
-		return new RestoreResult(new ServerScene(sceneId), new ArrayList<String>());
+		short version = LegacyStructureCodec.peekVersion(structureOrNull);
+		boolean weClaimToReadIt = version >= LegacyStructureCodec.V2_VERSION
+				&& version <= V2Wire.PROTOCOL_VERSION;
+		if (!weClaimToReadIt) {
+			warnings.add(archived(sceneId, store, "structure declares format v" + version
+					+ ", which this build does not read (it reads v"
+					+ LegacyStructureCodec.V2_VERSION + "-v" + V2Wire.PROTOCOL_VERSION
+					+ "). A newer save, or a corrupt header"));
+			return new RestoreResult(new ServerScene(sceneId), warnings);
+		}
+		try {
+			return restore(structureOrNull, store);
+		} catch (CodecException e) {
+			// Positive evidence of corruption: a version we DO claim to read, that then does not
+			// decode. This is the one branch that may delete.
+			warnings.add("Structure unreadable (" + e.getMessage() + "); starting fresh");
+			store.deleteScene(sceneId);
+			return new RestoreResult(new ServerScene(sceneId), warnings);
+		}
+	}
+
+	/**
+	 * Archive the scene's bytes and phrase the warning around what actually happened.
+	 *
+	 * The message deliberately does NOT say "upgrade again and it will come back". It will not:
+	 * the fresh scene's next chunk save rewrites the structure unconditionally, and vanilla
+	 * autosaves loaded chunks every 900 ticks — so the window is under a minute of play, and any
+	 * Lua draw marks the chunk dirty sooner. Telling a player to reinstall the newer jar later
+	 * would be advice that quietly expires.
+	 */
+	private static String archived(String sceneId, ResourceStore store, String cause) {
+		String where = store.archiveScene(sceneId);
+		if (where == null) {
+			return cause + "; starting fresh. Nothing was stored for this scene, so nothing"
+					+ " was lost";
+		}
+		return cause + "; starting fresh. Its stored textures were MOVED ASIDE to \"" + where
+				+ "\" rather than deleted — they are not referenced by anything now, and the"
+				+ " next chunk save will overwrite this scene's structure, so recover them from"
+				+ " there BEFORE continuing to play if they matter";
 	}
 }

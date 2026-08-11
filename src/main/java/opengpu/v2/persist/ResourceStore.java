@@ -47,6 +47,24 @@ public interface ResourceStore {
 	/** Removes every body and the structure blob of a scene (scene destroyed / GPU broken). */
 	void deleteScene(String sceneId);
 
+	/**
+	 * Move a scene's stored bytes ASIDE rather than destroying them: they leave the live id
+	 * namespace but stay on disk for a human to inspect.
+	 *
+	 * This exists because "keep the bodies" is not the same as "leave the bodies where they are",
+	 * and the difference is a silent-corruption bug. A fresh scene restarts its resource ids at 1,
+	 * body blobs carry no scene-incarnation marker ({@code frameBody} writes magic, format,
+	 * version, hash, length, payload — nothing identifying), and {@code ScenePersistence.restore}
+	 * accepts a framed body on a LENGTH match alone. So a body left in place at id 2 attaches
+	 * silently to whatever the next incarnation happens to create at id 2 with the same
+	 * dimensions — no warning, no degraded flag, the player's new texture holding the old one's
+	 * pixels. That is a misread, which this codebase ranks as worse than deletion.
+	 *
+	 * @return a human-meaningful description of where the bytes went, or null if there was
+	 *         nothing to archive.
+	 */
+	String archiveScene(String sceneId);
+
 	/** Lists the resource ids currently stored for a scene (for orphan cleanup at restore). */
 	List<Integer> listResources(String sceneId);
 

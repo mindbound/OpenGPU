@@ -203,6 +203,41 @@ public final class DirectoryResourceStore implements ResourceStore {
 	}
 
 	@Override
+	public synchronized String archiveScene(String sceneId) {
+		// Settle in-flight writes first, exactly as deleteScene does: an archive that raced a
+		// background save would leave the newest bytes behind in the live directory, which is the
+		// one place they must not be.
+		String prefix = sceneId + "\0";
+		List<String> keys = new ArrayList<String>(pendingSaves.keySet());
+		for (String key : keys) {
+			if (key.startsWith(prefix)) {
+				joinPending(key);
+			}
+		}
+		File dir = sceneDir(sceneId);
+		File[] files = dir.listFiles();
+		if (files == null || files.length == 0) {
+			return null;
+		}
+		// Counter, not a timestamp: two archives inside the same millisecond would collide, and
+		// this runs on chunk load where several scenes can fail together.
+		File target;
+		int n = 0;
+		do {
+			target = new File(root, sanitize(sceneId) + ".orphaned" + (n == 0 ? "" : "-" + n));
+			n++;
+		} while (target.exists() && n < 1000);
+		if (target.exists() || !dir.renameTo(target)) {
+			// Rename can fail across filesystems or on a locked file. Leaving the bytes in the
+			// live directory would re-open the silent-inherit path, so fall back to destroying
+			// them and say so — a loud loss beats a quiet corruption.
+			deleteScene(sceneId);
+			return null;
+		}
+		return target.getName();
+	}
+
+	@Override
 	public synchronized List<Integer> listResources(String sceneId) {
 		flushLocked();
 		ArrayList<Integer> ids = new ArrayList<Integer>();

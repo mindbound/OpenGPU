@@ -259,9 +259,15 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 			OpenGPU.logger.warn("GPU " + address + ": could not resolve persisted scene structure", e);
 			structure = null;
 		}
+		// Captured BEFORE the fields are cleared: NBT said this scene spilled its structure
+		// out-of-band, so a null result below is data loss rather than a new GPU. That
+		// distinction used to be computed here and thrown away, which is why the destructive
+		// case logged nothing — see the deletion rule on restoreOrFresh.
+		boolean structureExpected = pendingSpilled;
 		pendingStructure = null;
 		pendingSpilled = false;
-		ScenePersistence.RestoreResult result = ScenePersistence.restoreOrFresh(address, structure, store);
+		ScenePersistence.RestoreResult result =
+				ScenePersistence.restoreOrFresh(address, structure, structureExpected, store);
 		for (String warning : result.warnings) {
 			OpenGPU.logger.warn("GPU " + address + ": " + warning);
 		}
