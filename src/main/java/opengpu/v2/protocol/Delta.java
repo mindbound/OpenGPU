@@ -17,11 +17,18 @@ public abstract class Delta {
 		public final int nodeId;
 		public final byte nodeType;
 		public final int ref;
+		/** Transform parent, or 0 for none. Set at creation only — there is no re-parent delta. */
+		public final int parent;
 
 		public NodeCreate(int nodeId, byte nodeType, int ref) {
+			this(nodeId, nodeType, ref, 0);
+		}
+
+		public NodeCreate(int nodeId, byte nodeType, int ref, int parent) {
 			this.nodeId = nodeId;
 			this.nodeType = nodeType;
 			this.ref = ref;
+			this.parent = parent;
 		}
 
 		@Override

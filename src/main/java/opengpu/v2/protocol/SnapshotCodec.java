@@ -74,6 +74,9 @@ public final class SnapshotCodec {
 				out.writeInt(node.z);
 				out.writeBoolean(node.visible);
 				out.writeInt(node.tint);
+				// APPENDED in v5. The record went 58 -> 62 bytes; nothing before it moved, which
+				// is what lets a v4 record be read at its own width by the gate in decode().
+				out.writeInt(node.parent);
 			}
 			byte[] encoded = bytes.toByteArray();
 			// "Legal to create" must imply "deliverable": a snapshot the chunker cannot carry
@@ -89,21 +92,31 @@ public final class SnapshotCodec {
 	}
 
 	/**
-	 * Older persisted structure versions this decoder reads AS-IS, beyond the current
-	 * {@link V2Wire#PROTOCOL_VERSION}.
+	 * Older persisted structure versions THIS DECODER CAN READ, beyond the current
+	 * {@link V2Wire#PROTOCOL_VERSION}. Every entry carries the reason it can.
 	 *
-	 * A version belongs here only when its structure layout is byte-identical to the current
-	 * one — when the bump that produced it changed nothing this codec reads. 3 qualifies: the
-	 * 3 → 4 bump appended OP_SET_FONT to the op table and changed no field, and
-	 * {@link BatchCodec#readCommands} decodes commands by arity, so a v3 structure holds only
-	 * ops 1..21 whose arities are untouched.
+	 * The contract used to be "byte-identical to the current layout". The 4 → 5 bump ended that,
+	 * and the array now means "this decoder reads it, and here is why" — which is weaker, so the
+	 * reason is not optional. Exactly two reasons are admissible:
 	 *
-	 * IF A FUTURE BUMP MOVES, RESIZES OR REORDERS A FIELD, IT DOES NOT BELONG HERE. Write a
-	 * decoder for the old layout instead, as {@link LegacyStructureCodec} does for v2, and
-	 * dispatch on the peeked version. Listing a version here without checking that is how a
-	 * save gets silently MISREAD rather than cleanly rejected, which is worse than the data
-	 * loss this list exists to prevent — a misread structure produces a plausible scene built
-	 * from misaligned bytes.
+	 *   3 — BYTE-IDENTICAL. The 3 → 4 bump appended OP_SET_FONT to the op table and changed no
+	 *       field, and {@link BatchCodec#readCommands} decodes commands by arity, so a v3
+	 *       structure holds only ops 1..21 whose arities are untouched.
+	 *   4 — READ AT ITS OWN WIDTH BY A GATE. The 4 → 5 bump APPENDED {@code parent} to the node
+	 *       record, 58 bytes to 62, and moved nothing. decode() reads that field only when
+	 *       version >= 5, so a v4 node record is consumed at 58 bytes and the node loop still
+	 *       ends flush against the trailing-data guard. The op table did not change in this bump.
+	 *
+	 * IF A FUTURE BUMP MOVES, RESIZES OR REORDERS AN EXISTING FIELD, IT DOES NOT BELONG HERE, and
+	 * no gate rescues it. Write a decoder for the old layout instead, as
+	 * {@link LegacyStructureCodec} does for v2, and dispatch on the peeked version. The same goes
+	 * for a bump that changes an existing OP'S ARITY or reuses a retired op id: the structure
+	 * embeds command lists framed by arity alone, so that silently misreads every old canvas, and
+	 * a forked decoder does not help either because {@code CanvasCommand} validates against the
+	 * same global table. Listing a version here without checking BOTH questions is how a save gets
+	 * silently MISREAD rather than cleanly rejected, which is worse than the data loss this list
+	 * exists to prevent — a misread structure produces a plausible scene built from misaligned
+	 * bytes.
 	 *
 	 * The rule for the bump itself: when you raise PROTOCOL_VERSION, decide in the same edit
 	 * whether the outgoing version goes in this array. Leaving it out is a decision too, and
@@ -115,7 +128,36 @@ public final class SnapshotCodec {
 	 * TE saves before its scene is initialised. A world can therefore carry a v3 structure
 	 * through any number of v4 sessions.
 	 */
-	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3 };
+	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4 };
+
+	/**
+	 * A persisted parent is arbitrary bytes, so it has to be checked — and on this path a check
+	 * that THROWS is {@code ScenePersistence.restoreOrFresh} calling {@code store.deleteScene}.
+	 * So it sanitises. Dropping to "no parent" costs a grouping; throwing costs the world.
+	 *
+	 * Silent, deliberately, and with precedent: {@code ref} above gets no existence check either,
+	 * and a node pointing at a freed resource is simply skipped by the renderer. A degraded
+	 * grouping is the same class of loss.
+	 *
+	 * Three refusals, each O(1), and together they ARE the acyclicity argument — there is no
+	 * traversal and no visited set anywhere in this codec:
+	 *
+	 *   parent >= id  — self-parenting and forward references. Nodes are encoded in ascending id
+	 *                   order ({@code SceneState.nodes} is a TreeMap), so any legal parent is
+	 *                   already in the map by the time its child is read; an id at or above this
+	 *                   one either is this node or does not exist yet.
+	 *   absent        — freed before the save, or an id crafted from nothing.
+	 *   grandparent   — Stage B allows ONE nesting level, so a parent must itself be unparented.
+	 *                   This is also what refuses a two-cycle (5→7, 7→5) by reading one field.
+	 */
+	private static int sanitizeParent(SceneState state, int id, int parent) {
+		if (parent == 0 || parent >= id)
+			return 0;
+		SceneNode p = state.nodes.get(parent);
+		if (p == null || p.parent != 0)
+			return 0;
+		return parent;
+	}
 
 	/**
 	 * Network path: strict. A PEER of another vintage is an error — it disagrees about the op
@@ -231,17 +273,32 @@ public final class SnapshotCodec {
 				if (!V2Wire.isKnownNodeType(type))
 					throw new CodecException("Unknown node type " + type);
 				int ref = in.readInt();
-				SceneNode node = new SceneNode(id, type, ref);
-				node.x = in.readDouble();
-				node.y = in.readDouble();
-				node.rot = in.readDouble();
-				node.sx = in.readDouble();
-				node.sy = in.readDouble();
-				node.z = in.readInt();
-				node.visible = in.readBoolean();
-				node.tint = in.readInt();
+				double x = in.readDouble();
+				double y = in.readDouble();
+				double rot = in.readDouble();
+				double sx = in.readDouble();
+				double sy = in.readDouble();
+				int z = in.readInt();
+				boolean visible = in.readBoolean();
+				int tint = in.readInt();
+				// THE v5 GATE. A v4 record simply ends after tint, so it is read at its own
+				// 58-byte width and the node loop still finishes flush against the trailing-data
+				// guard below. Note >= 5, not >= 4: off by one here would read each v4 node's
+				// parent out of the NEXT node's id, and the run would die at EOF having deleted
+				// nothing but every pre-upgrade world. aV4StructureDecodesThroughThePersistencePath
+				// is the test that catches it.
+				int parent = version >= 5 ? in.readInt() : 0;
 				if (state.nodes.containsKey(id))
 					throw new CodecException("Duplicate node id " + id);
+				SceneNode node = new SceneNode(id, type, ref, sanitizeParent(state, id, parent));
+				node.x = x;
+				node.y = y;
+				node.rot = rot;
+				node.sx = sx;
+				node.sy = sy;
+				node.z = z;
+				node.visible = visible;
+				node.tint = tint;
 				state.nodes.put(id, node);
 			}
 			if (in.read() != -1)

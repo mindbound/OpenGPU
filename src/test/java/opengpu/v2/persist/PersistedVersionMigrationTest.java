@@ -47,6 +47,12 @@ import opengpu.v2.scene.SceneSnapshot;
 public class PersistedVersionMigrationTest {
 
 	private static final short V3 = 3;
+	/**
+	 * Pinned to a literal, never to {@code V2Wire.PROTOCOL_VERSION}. A historic fixture that
+	 * follows the constant stops describing the version it is named for the moment the constant
+	 * moves — and v4 is what is on the disk of every world written before transform parenting.
+	 */
+	private static final short V4 = 4;
 
 	/** v3's arities for the ops used below, transcribed rather than read back from V2Wire. */
 	private static final int V3_ARGS_SET_COLOR = 4;
@@ -169,6 +175,12 @@ public class PersistedVersionMigrationTest {
 			return this;
 		}
 
+		/**
+		 * The node record as v3 and v4 wrote it: 58 bytes, ending at tint. FROZEN — do not add
+		 * fields here. A historic fixture that tracks the current layout stops describing the
+		 * version it is named for, and this one is the only executable record of what a v4 world
+		 * has on disk. New fields go in a new writer, as {@link #nodeV5} does.
+		 */
 		StructureWriter node(int id, byte type, int ref, double x, double y, int z, int tint)
 				throws IOException {
 			out.writeInt(id);
@@ -182,6 +194,14 @@ public class PersistedVersionMigrationTest {
 			out.writeInt(z);
 			out.writeBoolean(true);
 			out.writeInt(tint);
+			return this;
+		}
+
+		/** The v5 node record: everything v4 wrote, then `parent`. 62 bytes. */
+		StructureWriter nodeV5(int id, byte type, int ref, double x, double y, int z, int tint,
+				int parent) throws IOException {
+			node(id, type, ref, x, y, z, tint);
+			out.writeInt(parent);
 			return this;
 		}
 
@@ -217,9 +237,18 @@ public class PersistedVersionMigrationTest {
 				.canvasWithContent(1, 512, 288, 4096)
 				.texture(TEX_ID, TEX_DIM, TEX_DIM, TEX_VERSION, TEX_VERSION,
 						V2Wire.contentHash(textureBody()));
-		w.nodes(2)
-				.node(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF)
-				.node(2, V2Wire.NODE_SPRITE, TEX_ID, 3.5, -1.25, 2, 0x80FF00FF);
+		w.nodes(2);
+		// The node record is the one thing that differs across the versions this fixture covers,
+		// so it is chosen by version rather than baked in. Everything else — header, resource
+		// record, canvas commands — is identical from v3 up, which is exactly why v3 and v4 are
+		// both readable and why only ONE of them needed a gate.
+		if (version >= 5) {
+			w.nodeV5(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF, 0)
+					.nodeV5(2, V2Wire.NODE_SPRITE, TEX_ID, 3.5, -1.25, 2, 0x80FF00FF, 0);
+		} else {
+			w.node(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF)
+					.node(2, V2Wire.NODE_SPRITE, TEX_ID, 3.5, -1.25, 2, 0x80FF00FF);
+		}
 		return w.done();
 	}
 
@@ -285,6 +314,96 @@ public class PersistedVersionMigrationTest {
 				assertTrue(expected.getMessage().toLowerCase().contains("version"));
 			}
 		}
+	}
+
+	/**
+	 * The v4 seam. This is the test the 4 → 5 bump exists to be caught by, and the ONLY thing in
+	 * the suite that catches the specific way that gate can be written wrong.
+	 *
+	 * Write {@code version >= 4} instead of {@code >= 5} in SnapshotCodec's node loop and nothing
+	 * else fails: v3 still decodes (3 is below both), v5 still round-trips (5 satisfies both), and
+	 * every test that builds its fixture from PROTOCOL_VERSION is by definition testing v5. Only a
+	 * fixture pinned to a LITERAL 4 puts a 58-byte record in front of a decoder that has been told
+	 * to read 62 — after which each node eats the next one's id as its parent and the whole run
+	 * dies at EOF, which on the real path is every pre-upgrade world deleted on first chunk load.
+	 */
+	@Test
+	public void aV4StructureDecodesThroughThePersistencePath() throws Exception {
+		SceneSnapshot snap = SnapshotCodec.decodePersisted(sample(V4));
+
+		assertEquals("gpu-addr", snap.sceneId);
+		assertEquals("the incarnation must CONTINUE — nothing here is degraded", EPOCH, snap.epoch);
+		assertEquals("both nodes must survive at the v4 record width", 2, snap.state.nodes.size());
+
+		SceneNode canvasNode = snap.state.nodes.get(1);
+		SceneNode sprite = snap.state.nodes.get(2);
+		assertEquals("a v4 node has no parent field, so it must read as unparented",
+				0, canvasNode.parent);
+		assertEquals(0, sprite.parent);
+		// Proof the records stayed ALIGNED rather than merely producing two node objects: a
+		// misread would have shifted these, and they are the last fields before the new one.
+		assertEquals(3.5, sprite.x, 1e-9);
+		assertEquals(-1.25, sprite.y, 1e-9);
+		assertEquals(2, sprite.z);
+		assertEquals(0x80FF00FF, sprite.tint);
+		assertEquals(TEX_ID, sprite.ref);
+	}
+
+	/**
+	 * A legal v5 parent survives, and every illegal one degrades to "unparented" rather than
+	 * throwing. The degradation IS the requirement: on this path a CodecException is
+	 * {@code store.deleteScene}, so validation that throws would answer "one node has a bad
+	 * parent id" with "delete the world and its textures".
+	 *
+	 * None of these four shapes is hypothetical. A self-parent and a forward reference are what
+	 * misaligned bytes produce; a second nesting level is what a save written by a future build
+	 * that lifted the one-level limit would contain, and that build's worlds must still open here;
+	 * an absent parent is a node freed before the save.
+	 */
+	@Test
+	public void anIllegalPersistedParentDegradesInsteadOfDeletingTheScene() throws Exception {
+		StructureWriter w =
+				new StructureWriter(V2Wire.PROTOCOL_VERSION, "gpu-addr", EPOCH, 7, 900L, 1, 11);
+		w.resources(0);
+		w.nodes(6)
+				.nodeV5(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0)   // a legal parent
+				.nodeV5(2, V2Wire.NODE_GROUP, 0, 1, 1, 0, 0xFFFFFFFF, 1)   // a legal child of it
+				.nodeV5(3, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 3)   // parents itself
+				.nodeV5(4, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 5)   // forward reference
+				.nodeV5(5, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 2)   // 2 is already a child
+				.nodeV5(10, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7); // 7 was never written
+
+		SceneSnapshot snap = SnapshotCodec.decodePersisted(w.done());
+
+		assertEquals("only the bad FIELD may degrade — no node may be dropped",
+				6, snap.state.nodes.size());
+		assertEquals("a legal parent must survive untouched", 1, snap.state.nodes.get(2).parent);
+		assertEquals("a node parented to itself", 0, snap.state.nodes.get(3).parent);
+		assertEquals("a forward reference", 0, snap.state.nodes.get(4).parent);
+		assertEquals("a second nesting level", 0, snap.state.nodes.get(5).parent);
+		assertEquals("a parent id that is absent", 0, snap.state.nodes.get(10).parent);
+	}
+
+	@Test
+	public void restoreOrFreshMustNotDeleteAV4Scene() throws Exception {
+		// The v4 half of the deletion path, driven through the real chunk-load policy. v4 is the
+		// version on every world written before transform parenting, so this is the one that
+		// stands between an upgrade and a wiped save.
+		String sceneId = "gpu-addr";
+		byte[] body = textureBody();
+		store.save(sceneId, TEX_ID,
+				ScenePersistence.frameBody(TEX_VERSION, V2Wire.contentHash(body), body));
+		store.flush();
+
+		ScenePersistence.RestoreResult result =
+				ScenePersistence.restoreOrFresh(sceneId, sample(V4), store);
+
+		assertTrue("a clean v4 restore must report no warnings, got: " + result.warnings,
+				result.warnings.isEmpty());
+		assertEquals("the scene must keep its identity, not be replaced by a fresh one",
+				EPOCH, result.scene.epoch());
+		assertEquals("both resources must survive", 2, result.scene.state().resources.size());
+		assertNotNull("the stored texture body must still be on disk", store.load(sceneId, TEX_ID));
 	}
 
 	@Test
@@ -515,17 +634,25 @@ public class PersistedVersionMigrationTest {
 	 * every in-game load works. It only appears on a world written by the PREVIOUS build, which
 	 * nothing in CI has. This fails the moment PROTOCOL_VERSION moves, next to the instructions.
 	 */
-	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 4;
+	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 5;
 
 	@Test
 	public void aProtocolBumpMustDecideWhatHappensToTheOutgoingFormat() {
 		assertEquals("PROTOCOL_VERSION moved to " + V2Wire.PROTOCOL_VERSION + ". Decide, in the"
 				+ " SAME edit, what happens to saves written as "
-				+ VERSION_THIS_TEST_WAS_WRITTEN_FOR + ": if the structure layout is unchanged, add"
-				+ " it to SnapshotCodec.LAYOUT_COMPATIBLE_PERSISTED_VERSIONS; if any field moved,"
-				+ " write a decoder for the old layout as LegacyStructureCodec does for v2. Doing"
-				+ " NEITHER deletes every existing world's scenes on first chunk load. Then update"
-				+ " this constant and add a case above.",
+				+ VERSION_THIS_TEST_WAS_WRITTEN_FOR + ". Answer BOTH questions the extension"
+				+ " policy asks (DESIGN-RENDERER-V2, Persistence & legacy migration), because one"
+				+ " version number covers two formats. (1) THE RECORDS: unchanged -> add the old"
+				+ " version to SnapshotCodec.LAYOUT_COMPATIBLE_PERSISTED_VERSIONS with its reason;"
+				+ " a field APPENDED -> add it there too AND gate the new read on the version, as"
+				+ " v5 does for `parent`; a field MOVED, RESIZED or REORDERED -> no gate helps,"
+				+ " write a decoder for the old layout as LegacyStructureCodec does for v2."
+				+ " (2) THE OP TABLE: an op APPENDED is harmless, but changing an existing op's"
+				+ " arity or reusing a retired id silently misreads every old canvas and rules the"
+				+ " old version out entirely. Doing NEITHER deletes every existing world's scenes"
+				+ " on first chunk load. Then add a golden fixture for "
+				+ VERSION_THIS_TEST_WAS_WRITTEN_FOR + " pinned to a LITERAL version, drive it"
+				+ " through restoreOrFresh as well as the codec, and update this constant last.",
 				VERSION_THIS_TEST_WAS_WRITTEN_FOR, V2Wire.PROTOCOL_VERSION);
 	}
 }

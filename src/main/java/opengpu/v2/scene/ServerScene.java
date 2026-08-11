@@ -277,14 +277,34 @@ public final class ServerScene {
 	public static final int MAX_NODES = 4096;
 
 	public int createNode(byte nodeType, int ref) {
+		return createNode(nodeType, ref, 0);
+	}
+
+	/**
+	 * {@code parent} is 0 for none. It is fixed here and never afterwards — see
+	 * {@link SceneNode#parent} for why re-parenting is not offered.
+	 *
+	 * The "parent below child" rule needs no check in this method: the id is drawn fresh from a
+	 * monotonic counter, so it is above every existing node by construction. DeltaApplier checks
+	 * it anyway, because it also sees ids that arrived over the wire.
+	 */
+	public int createNode(byte nodeType, int ref, int parent) {
 		if (ref != 0 && !state.resources.containsKey(ref))
 			throw new IllegalStateException("Node references unknown resource " + ref);
+		if (parent != 0) {
+			SceneNode p = state.nodes.get(parent);
+			if (p == null)
+				throw new IllegalStateException("Unknown parent node " + parent);
+			if (p.parent != 0)
+				throw new IllegalStateException("Groups nest one level only; node " + parent
+						+ " is already a child of " + p.parent);
+		}
 		if (state.nodes.size() >= MAX_NODES)
 			throw new IllegalStateException("Scene node limit reached (" + MAX_NODES + ")");
 		if (state.nextNodeId == Integer.MAX_VALUE)
 			throw new IllegalStateException("Scene node id space exhausted; recreate the scene");
 		int id = state.nextNodeId++;
-		applyAndStage(new Delta.NodeCreate(id, nodeType, ref));
+		applyAndStage(new Delta.NodeCreate(id, nodeType, ref, parent));
 		return id;
 	}
 

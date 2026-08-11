@@ -225,6 +225,91 @@ public class SceneGraphTest {
 	}
 
 	@Test
+	public void aParentedNodeConvergesAndSurvivesASnapshot() throws Exception {
+		ServerScene server = new ServerScene(SCENE);
+		SceneMirror mirror = new SceneMirror(SCENE);
+		server.setCurrentTick(1);
+		withDisplay(server);
+		int group = server.createNode(V2Wire.NODE_GROUP, 0);
+		int child = server.createNode(V2Wire.NODE_GROUP, 0, group);
+		ship(server, mirror);
+
+		assertEquals("the parent must ride the NodeCreate delta",
+				group, mirror.state().nodes.get(child).parent);
+		assertTrue(server.state().contentEquals(mirror.state()));
+
+		// And the persisted/snapshot path, which is a different encoder from the delta above.
+		// contentEquals now compares parent, so a snapshot that dropped it would fail here
+		// rather than silently producing an unparented scene on every resync.
+		opengpu.v2.scene.SceneState restored = opengpu.v2.protocol.SnapshotCodec
+				.decode(opengpu.v2.protocol.SnapshotCodec.encode(server.snapshot())).state;
+		assertEquals(group, restored.nodes.get(child).parent);
+		assertTrue(server.state().contentEquals(restored));
+	}
+
+	@Test
+	public void aParentMustAlreadyExist() {
+		ServerScene server = new ServerScene(SCENE);
+		withDisplay(server);
+		try {
+			server.createNode(V2Wire.NODE_GROUP, 0, 9999);
+			fail("expected an unknown parent to be rejected");
+		} catch (IllegalStateException expected) {
+			// intended
+		}
+	}
+
+	@Test
+	public void groupsNestOneLevelOnly() {
+		// DESIGN fixes Stage B at one nesting level. Refusing the second level at CREATION is
+		// what makes `parent < id` plus "the parent is unparented" a complete acyclicity
+		// argument — with it, no decoder anywhere needs to walk a chain.
+		ServerScene server = new ServerScene(SCENE);
+		withDisplay(server);
+		int group = server.createNode(V2Wire.NODE_GROUP, 0);
+		int child = server.createNode(V2Wire.NODE_GROUP, 0, group);
+		try {
+			server.createNode(V2Wire.NODE_GROUP, 0, child);
+			fail("expected a second nesting level to be rejected");
+		} catch (IllegalStateException expected) {
+			// intended
+		}
+	}
+
+	@Test
+	public void freeingAParentIsRefusedWhileItHasChildren() throws Exception {
+		// Not tidiness. `parent` is final, so a freed parent would leave its children holding an
+		// id that resolves to nothing — and SnapshotCodec sanitises an unresolvable parent to 0.
+		// Live state would then say "child of N" while every reload of the same scene said
+		// "unparented": a permanent divergence between a running scene and its own save.
+		ServerScene server = new ServerScene(SCENE);
+		SceneMirror mirror = new SceneMirror(SCENE);
+		server.setCurrentTick(1);
+		withDisplay(server);
+		int group = server.createNode(V2Wire.NODE_GROUP, 0);
+		int child = server.createNode(V2Wire.NODE_GROUP, 0, group);
+		ship(server, mirror);
+
+		server.setCurrentTick(2);
+		try {
+			server.freeNode(group);
+			fail("expected freeing a parent with a live child to be rejected");
+		} catch (IllegalStateException expected) {
+			// intended
+		}
+		// The refusal must leave the scene untouched, not half-applied.
+		assertNotNull("the parent must still be there", server.state().nodes.get(group));
+		assertEquals(group, server.state().nodes.get(child).parent);
+
+		// Freeing the child first, then the parent, works — so this is an ordering rule and not
+		// a node that can never be removed.
+		server.freeNode(child);
+		server.freeNode(group);
+		ship(server, mirror);
+		assertTrue(server.state().contentEquals(mirror.state()));
+	}
+
+	@Test
 	public void aNodeCannotReferenceAResourceThatDoesNotExist() {
 		ServerScene server = new ServerScene(SCENE);
 		withDisplay(server);

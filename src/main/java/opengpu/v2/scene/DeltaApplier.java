@@ -24,11 +24,42 @@ public final class DeltaApplier {
 				throw new IllegalStateException("Node " + d.nodeId + " already exists");
 			if (d.ref != 0 && !state.resources.containsKey(d.ref))
 				throw new IllegalStateException("Node " + d.nodeId + " references unknown resource " + d.ref);
-			state.nodes.put(d.nodeId, new SceneNode(d.nodeId, d.nodeType, d.ref));
+			// Parenting rules, enforced HERE because both sides run this — the server through
+			// applyAndStage and the mirror through applyBatch — so server and mirror accept
+			// exactly the same set. Throwing is right on this path: a bad delta flags needsResync
+			// and a snapshot repairs it. (The PERSISTED path cannot throw; see
+			// SnapshotCodec.sanitizeParent for why it sanitises the same three conditions.)
+			if (d.parent != 0) {
+				if (d.parent >= d.nodeId)
+					throw new IllegalStateException("Node " + d.nodeId + " parent " + d.parent
+							+ " must be a lower id; ids are monotonic and that is what keeps the graph acyclic");
+				SceneNode p = state.nodes.get(d.parent);
+				if (p == null)
+					throw new IllegalStateException("Node " + d.nodeId + " parented to unknown node " + d.parent);
+				if (p.parent != 0)
+					throw new IllegalStateException("Node " + d.nodeId + " would nest two levels deep;"
+							+ " node " + d.parent + " is already a child of " + p.parent);
+			}
+			state.nodes.put(d.nodeId, new SceneNode(d.nodeId, d.nodeType, d.ref, d.parent));
 		} else if (delta instanceof Delta.NodeFree) {
 			Delta.NodeFree d = (Delta.NodeFree) delta;
-			if (state.nodes.remove(d.nodeId) == null)
+			// A freed parent would leave its children holding an id that no longer resolves, and
+			// that is not merely untidy: SnapshotCodec.sanitizeParent resets an unresolvable
+			// parent to 0, so live state would say "child of 7" while everything restored from a
+			// save said "unparented" — a permanent, silent divergence between a running scene and
+			// its own reload. Refusing keeps `parent` resolvable for as long as it exists.
+			//
+			// Refusal rather than a cascading free is the conservative half of the choice: adding
+			// a cascade later only accepts calls that error today, while removing one would break
+			// programs that had come to rely on it.
+			if (!state.nodes.containsKey(d.nodeId))
 				throw new IllegalStateException("Freeing unknown node " + d.nodeId);
+			for (SceneNode child : state.nodes.values()) {
+				if (child.parent == d.nodeId)
+					throw new IllegalStateException("Node " + d.nodeId + " still has child "
+							+ child.id + "; free the children first");
+			}
+			state.nodes.remove(d.nodeId);
 		} else if (delta instanceof Delta.NodeProps) {
 			Delta.NodeProps d = (Delta.NodeProps) delta;
 			SceneNode node = state.nodes.get(d.nodeId);

@@ -39,7 +39,13 @@ public class ProtocolVersionTest {
 	 * adding an op — that is the entire point of this test.
 	 */
 	private static final int HIGHEST_OP_AT_THIS_VERSION = V2Wire.OP_SET_FONT;
-	private static final short VERSION_THAT_DEFINES_IT = 4;
+	/**
+	 * 5, while the highest op is still the one v4 defined. That gap is intentional and is the
+	 * answer to this test's own instruction: the 4 -> 5 bump appended `parent` to the node record
+	 * and did not touch the op table, so only this constant moves. The gap is also what lets
+	 * SnapshotCodec list v4 as readable — a bump that HAD changed an arity could not.
+	 */
+	private static final short VERSION_THAT_DEFINES_IT = 5;
 
 	@Test
 	public void versionAndOpTableMoveTogether() {

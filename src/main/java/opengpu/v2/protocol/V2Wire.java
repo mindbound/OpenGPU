@@ -17,6 +17,15 @@ public final class V2Wire {
 	/**
 	 * Bumped 3 -> 4 on 2026-08-08 when OP_SET_FONT was added.
 	 *
+	 * Bumped 4 -> 5 on 2026-08-11 for transform parenting: SceneNode gained `parent`, which
+	 * widened both the NodeCreate delta and the persisted node record. This is the FIRST bump
+	 * that moved the persisted record rather than the op table, and it is the one the extension
+	 * policy in DESIGN-RENDERER-V2 (§ Persistence & legacy migration) was written for. Version 4
+	 * is therefore readable, not byte-identical: see SnapshotCodec's version gate and the
+	 * justification attached to its entry in LAYOUT_COMPATIBLE_PERSISTED_VERSIONS. The op table
+	 * did NOT change in this bump, which is the other half of the question that policy makes
+	 * every bump answer.
+	 *
 	 * THE BUMP AND THE OP TABLE MUST MOVE TOGETHER, and that is the only thing protecting
 	 * against silent corruption here. The decoder tests this for strict equality and rejects
 	 * unknown ops outright, so a client of the wrong vintage discards the whole batch before
@@ -25,7 +34,7 @@ public final class V2Wire {
 	 * version number, disagree about the op table, and an old client decodes the new op's
 	 * argument as some other op's payload. See ProtocolVersionTest.
 	 */
-	public static final short PROTOCOL_VERSION = 4;
+	public static final short PROTOCOL_VERSION = 5;
 
 	// Delta type ids
 	public static final byte DELTA_NODE_CREATE = 1;

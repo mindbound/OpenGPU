@@ -113,6 +113,7 @@ public final class BatchCodec {
 			out.writeInt(n.nodeId);
 			out.writeByte(n.nodeType);
 			out.writeInt(n.ref);
+			out.writeInt(n.parent);
 		} else if (d instanceof Delta.NodeFree) {
 			out.writeInt(((Delta.NodeFree) d).nodeId);
 		} else if (d instanceof Delta.NodeProps) {
@@ -269,7 +270,11 @@ public final class BatchCodec {
 				byte nodeType = in.readByte();
 				if (!V2Wire.isKnownNodeType(nodeType))
 					throw new CodecException("Unknown node type " + nodeType);
-				return new Delta.NodeCreate(nodeId, nodeType, in.readInt());
+				// No version gate on the wire: the batch path checks PROTOCOL_VERSION for strict
+				// equality, so a peer that could send a 4-shaped NodeCreate is already refused
+				// before reaching here. The gate belongs on the persisted path alone.
+				int ref = in.readInt();
+				return new Delta.NodeCreate(nodeId, nodeType, ref, in.readInt());
 			}
 			case V2Wire.DELTA_NODE_FREE:
 				return new Delta.NodeFree(in.readInt());
