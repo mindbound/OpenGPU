@@ -76,6 +76,35 @@ public class LegacyMigrationTest {
 			return this;
 		}
 
+		/**
+		 * A canvas declaring {@code cap} and then {@code commandCount} zero-arity FILLs — one
+		 * byte each, which is the whole reason the decoded list has to be bounded by the cap
+		 * rather than by the blob's length.
+		 */
+		V2Writer canvasWithCommands(int id, int w, int h, int cap, int commandCount)
+				throws IOException {
+			out.writeInt(id);
+			out.writeByte(V2Wire.RES_CANVAS);
+			out.writeInt(w);
+			out.writeInt(h);
+			out.writeInt(0);
+			out.writeLong(0L);
+			out.writeInt(cap);
+			out.writeInt(commandCount);
+			for (int i = 0; i < commandCount; i++) {
+				out.writeByte(V2Wire.OP_FILL);
+			}
+			return this;
+		}
+
+		/** One canvas, no nodes — the smallest structure that exercises the canvas branch. */
+		static byte[] justACanvas(int cap, int commandCount) throws IOException {
+			V2Writer w = new V2Writer("gpu-addr", 0x5EED, 1, 0L, 2, 1);
+			w.resources(1).canvasWithCommands(1, 512, 288, cap, commandCount);
+			w.nodes(0);
+			return w.done();
+		}
+
 		V2Writer nodes(int count) throws IOException {
 			out.writeInt(count);
 			return this;
@@ -163,6 +192,31 @@ public class LegacyMigrationTest {
 		assertEquals(3, sprite.z);
 		assertEquals(0x80FF0000, sprite.tint);
 		assertTrue(sprite.visible);
+	}
+
+	/**
+	 * The v2 canvas list is bounded by the cap the decoder just read, not by MAX_COMMANDS.
+	 *
+	 * This path reads blobs off disk that were written by a build no longer in the tree, so it
+	 * is the one place where "the encoder would never emit that" is not an argument. Both
+	 * assertions matter and in opposite directions: over-cap must be refused at the COUNT rather
+	 * than after a million objects have been built, and exactly-at-cap must still decode —
+	 * a bound one off in the tightening direction would not fail a load here, it would hand
+	 * restoreOrFresh a CodecException and delete a real pre-upgrade world.
+	 */
+	@Test
+	public void aV2CanvasListIsBoundedByItsOwnCap() throws Exception {
+		expectReject(V2Writer.justACanvas(4, 5), "exceeds the limit");
+	}
+
+	@Test
+	public void aV2CanvasListExactlyAtItsCapStillDecodes() throws Exception {
+		SceneSnapshot snap = LegacyStructureCodec.decodeV2(V2Writer.justACanvas(4, 4));
+
+		ResourceInfo canvas = snap.state.resources.get(1);
+		assertNotNull("the canvas must survive a full-to-cap list", canvas.canvas);
+		assertEquals("every command must be kept", 4, canvas.canvas.visibleCommands().size());
+		assertEquals(4, canvas.canvas.commandCap);
 	}
 
 	@Test

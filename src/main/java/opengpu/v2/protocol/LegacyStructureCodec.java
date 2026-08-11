@@ -82,8 +82,9 @@ public final class LegacyStructureCodec {
 					int cap = in.readInt();
 					// Bounded by the cap, and constructed before the read so the cap is
 					// validated first — same reasoning as SnapshotCodec's canvas branch, and
-					// the same hazard: a v2 blob is read off disk, so an unbounded count here
-					// is an unbounded allocation driven by a file.
+					// the same hazard: a v2 blob is read off disk, so the count is controlled by
+					// whatever is in the file, and the unbounded overload turns each declared
+					// byte of it into a live CanvasCommand.
 					SceneCanvas canvas = new SceneCanvas(width, height, cap);
 					ArrayList<CanvasCommand> commands = BatchCodec.readCommands(in, cap);
 					canvas.publish(commands);

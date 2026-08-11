@@ -16,12 +16,14 @@ import opengpu.v2.scene.SceneSnapshot;
 /**
  * The canvas command list inside a snapshot must be bounded by the cap the decoder just read.
  *
- * A payload's BYTE length does not bound its command COUNT — the zero-arity ops encode in one
- * byte each — which is why {@link BatchCodec#readCommands(java.io.DataInputStream, int)} exists
- * and why its javadoc tells callers to pass "the count the target will actually accept (a
- * canvas's command cap)". SnapshotCodec read the cap and then called the UNBOUNDED overload, so
- * a structure could declare up to {@link V2Wire#MAX_COMMANDS} commands and have every one of
- * them built before {@code SceneCanvas.publish} refused the list.
+ * A payload's BYTE length is a weak bound on its command COUNT — the zero-arity ops encode in
+ * one byte each — which is why the bounded reads exist. The rule is written down on
+ * {@link BatchCodec#decodeCommandList(byte[], int)}, which tells callers to pass "the count the
+ * target will actually accept (a canvas's command cap)";
+ * {@link BatchCodec#readCommands(java.io.DataInputStream, int)} is the streaming form of the
+ * same bound and carries no javadoc of its own. SnapshotCodec read the cap and then called the
+ * UNBOUNDED overload, so a structure could declare up to {@link V2Wire#MAX_COMMANDS} commands
+ * and have every one of them built before {@code SceneCanvas.publish} refused the list.
  *
  * The outcome was never wrong — an over-cap list was always rejected — so the two tests below
  * pin the two things that ARE observable and that a careless bound would break:

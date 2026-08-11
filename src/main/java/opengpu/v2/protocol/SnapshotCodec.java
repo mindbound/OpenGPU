@@ -198,11 +198,22 @@ public final class SnapshotCodec {
 					// Construct the canvas BEFORE reading its list, then bound the read by the
 					// cap. Two reasons in that order: the constructor is what validates cap, and
 					// a bound is only worth having once it has been validated; and a payload's
-					// BYTE length does not bound its command COUNT, since the zero-arity ops
-					// encode in one byte each. The unbounded overload would therefore build up
-					// to MAX_COMMANDS entries out of a small blob before publish() refused the
-					// list — see BatchCodec.readCommands(DataInputStream, int), which exists for
-					// exactly this and names a canvas's cap as the count to pass.
+					// BYTE length is a weak bound on its command COUNT, since the zero-arity ops
+					// encode in one byte each. The unbounded overload would therefore turn about
+					// a megabyte of blob into MAX_COMMANDS live objects before publish() refused
+					// the list. BatchCodec.decodeCommandList(byte[], int) carries the javadoc for
+					// this rule — pass "the count the target will actually accept (a canvas's
+					// command cap)" — and readCommands(DataInputStream, int) is its streaming
+					// form, which the two structure decoders were the last callers not to use.
+					//
+					// This NARROWS the hazard, it does not close it: cap is itself only bounded
+					// by MAX_COMMANDS - 2, so a save forging a large cap and a matching count
+					// still allocates in proportion to its own length. Bounding tighter than the
+					// canvas's own cap is what would close it, and is deliberately not done —
+					// any bound that can refuse a legitimate save is, on this path,
+					// restoreOrFresh deleting the scene. What this does close is the realistic
+					// case: a canvas with an ordinary cap can no longer be made to build a
+					// million commands.
 					SceneCanvas canvas = new SceneCanvas(width, height, cap);
 					ArrayList<opengpu.v2.scene.CanvasCommand> commands =
 							BatchCodec.readCommands(in, cap);
