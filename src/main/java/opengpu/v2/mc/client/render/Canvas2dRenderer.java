@@ -109,9 +109,38 @@ public final class Canvas2dRenderer {
 		// hand this method a framebuffer that is neither freshly cleared nor the one it thinks.
 
 		List<SceneNode> ordered = new ArrayList<SceneNode>(state.nodes.values());
+		// SORTED BY THE ANCHOR FIRST — the parent when there is one, the node itself otherwise —
+		// then by the node's own z and id. That places a parent and its children in one
+		// contiguous run at the parent's slot in the global order, and it is what makes a group's
+		// z mean anything at all.
+		//
+		// Without it a group's setZ converged perfectly across the wire and moved no pixel: the
+		// group draws nothing and its children kept sorting at their own z among strangers. That
+		// is the same "property that looks like it works and does not" this file rejects for tint
+		// (beginNode) and for visibility (below), and DESIGN lists z among a Group's properties,
+		// so leaving it flat would have been the one axis where a group silently lied.
+		//
+		// It also stops a child sorting UNDER its own parent: a hat parented to a head at z=10
+		// used to draw beneath it, because the hat's default z of 0 sorted first globally. Within
+		// a run the child's own z still orders it against its siblings AND against the parent, so
+		// deliberately putting a child behind its parent still works — it is only the accidental
+		// case that is fixed.
+		//
+		// Cost: one map lookup per comparison, and only for PARENTED nodes — an unparented node
+		// short-circuits on `parent == 0` with no lookup at all. Scenes that use no groups pay
+		// nothing, and the ones that pay are the ones that wanted the ordering.
 		Collections.sort(ordered, new Comparator<SceneNode>() {
 			@Override
 			public int compare(SceneNode n1, SceneNode n2) {
+				SceneNode a1 = anchorOf(n1, state);
+				SceneNode a2 = anchorOf(n2, state);
+				if (a1.z != a2.z) {
+					return a1.z < a2.z ? -1 : 1;
+				}
+				if (a1.id != a2.id) {
+					return a1.id < a2.id ? -1 : 1;
+				}
+				// Same run: siblings against each other, and the parent against its own children.
 				if (n1.z != n2.z) {
 					return n1.z < n2.z ? -1 : 1;
 				}
@@ -119,7 +148,11 @@ public final class Canvas2dRenderer {
 			}
 		});
 		for (SceneNode sceneNode : ordered) {
-			if (!sceneNode.visible) {
+			// A HIDDEN GROUP HIDES ITS CHILDREN. Without this a group's own `visible` would mean
+			// nothing at all — a NODE_GROUP draws nothing itself — so hiding one would converge
+			// across the wire and change no pixel, which is the same defect the tint comment in
+			// beginNode describes. One nesting level means one lookup rather than a walk.
+			if (!isDrawn(sceneNode, state)) {
 				continue;
 			}
 			if (sceneNode.type == V2Wire.NODE_CANVAS) {
@@ -130,10 +163,12 @@ public final class Canvas2dRenderer {
 			} else if (sceneNode.type == V2Wire.NODE_SPRITE) {
 				ResourceInfo res = state.resources.get(sceneNode.ref);
 				if (res != null && res.type == V2Wire.RES_TEXTURE) {
-					drawSprite(sceneNode, res, glTextures);
+					drawSprite(sceneNode, res, state, glTextures);
 				}
 			}
-			// NODE_GROUP: Stage B.
+			// NODE_GROUP itself draws nothing: it exists to carry a transform, a tint and a
+			// visibility flag for its children, all of which are applied where they are consumed
+			// (beginNode for the first two, the check above for the third).
 		}
 	}
 
@@ -142,17 +177,20 @@ public final class Canvas2dRenderer {
 	private long interpNanos;
 	private final double[] xform = new double[5];
 
-	private void beginNode(SceneNode sceneNode) {
-		double nx = sceneNode.x, ny = sceneNode.y, nrot = sceneNode.rot;
-		double nsx = sceneNode.sx, nsy = sceneNode.sy;
-		if (interp != null) {
-			interp.transformOf(sceneNode, interpNanos, xform);
-			nx = xform[0]; ny = xform[1]; nrot = xform[2]; nsx = xform[3]; nsy = xform[4];
-		}
+	private void beginNode(SceneNode sceneNode, SceneState state) {
+		// PARENT FIRST, then the child, onto the same matrix. Affine's operations post-multiply,
+		// so applying one node's TRS and then another's composes them in that order — there is no
+		// matrix product to write here. The parent is interpolated exactly like the child, which
+		// is what makes a moving group carry its children smoothly rather than in tick steps.
+		//
+		// One nesting level means one lookup and no loop. If that limit is ever lifted this
+		// becomes a walk up to the root, and `parent < id` is what guarantees it terminates.
 		node.identity();
-		node.translate(nx, ny);
-		node.rotate(nrot);
-		node.scale(nsx, nsy);
+		SceneNode parent = parentOf(sceneNode, state);
+		if (parent != null) {
+			applyTransform(parent);
+		}
+		applyTransform(sceneNode);
 		local.identity();
 		stack.clear();
 		colR = 1; colG = 1; colB = 1; colA = 1;
@@ -189,6 +227,18 @@ public final class Canvas2dRenderer {
 		tintR = (tint >>> 16 & 0xFF) / 255.0;
 		tintG = (tint >>> 8 & 0xFF) / 255.0;
 		tintB = (tint & 0xFF) / 255.0;
+		// A GROUP'S TINT MULTIPLIES ITS CHILDREN'S, for the same reason the tint above is honoured
+		// for every node type rather than only sprites: a NODE_GROUP draws nothing itself, so a
+		// tint that did not reach its children would be a property that converges perfectly across
+		// the wire and renders nothing — the defect described at length just above. Fading a whole
+		// group with one call is most of why a group is worth having.
+		if (parent != null && parent.tint != 0xFFFFFFFF) {
+			int pt = parent.tint;
+			tintA *= (pt >>> 24 & 0xFF) / 255.0;
+			tintR *= (pt >>> 16 & 0xFF) / 255.0;
+			tintG *= (pt >>> 8 & 0xFF) / 255.0;
+			tintB *= (pt & 0xFF) / 255.0;
+		}
 		// Font resets with the colour, and must: it is ambient state in the same command
 		// stream, so a canvas that selected unscii would otherwise leak it into whichever
 		// canvas replayed next. That leak would follow node draw order, making text change
@@ -196,6 +246,58 @@ public final class Canvas2dRenderer {
 		currentFont = V2Wire.FONT_DEFAULT;
 		setTexturing(false);
 		updateEffective();
+	}
+
+	/** Applies one node's TRS onto {@link #node}, interpolated when a source is available. */
+	private void applyTransform(SceneNode n) {
+		double nx = n.x, ny = n.y, nrot = n.rot, nsx = n.sx, nsy = n.sy;
+		if (interp != null) {
+			interp.transformOf(n, interpNanos, xform);
+			nx = xform[0]; ny = xform[1]; nrot = xform[2]; nsx = xform[3]; nsy = xform[4];
+		}
+		node.translate(nx, ny);
+		node.rotate(nrot);
+		node.scale(nsx, nsy);
+	}
+
+	/**
+	 * A node's transform parent, or null.
+	 *
+	 * Null covers both "unparented" and "the parent id does not resolve", and the second should be
+	 * unreachable: the network codec refuses a dangling parent, the persisted codec sanitises one
+	 * to 0, and a parent cannot be freed while a child still points at it. It is tolerated rather
+	 * than asserted on because the renderer must not be the thing that takes a client down over
+	 * scene data — the same reason a dangling {@code ref} draws nothing instead of throwing.
+	 */
+	private static SceneNode parentOf(SceneNode n, SceneState state) {
+		return n.parent == 0 ? null : state.nodes.get(n.parent);
+	}
+
+	/**
+	 * Whether this node will actually be drawn: visible itself AND not hidden by its parent.
+	 *
+	 * Package-private because {@code SceneRenderer.countCommands} must ask the SAME question when
+	 * it builds the per-command timing denominator. Asking a different one is how that denominator
+	 * went wrong before — see its javadoc — and a hidden group's children are exactly the case
+	 * where "visible" and "drawn" part company.
+	 */
+	static boolean isDrawn(SceneNode n, SceneState state) {
+		if (!n.visible) {
+			return false;
+		}
+		SceneNode parent = parentOf(n, state);
+		return parent == null || parent.visible;
+	}
+
+	/**
+	 * The node whose slot in the global z-order this node occupies: its parent, or itself.
+	 *
+	 * Public to the package because {@code SceneRenderer} needs the same notion of "is this node
+	 * actually going to be drawn" for its per-command timing denominator.
+	 */
+	static SceneNode anchorOf(SceneNode n, SceneState state) {
+		SceneNode parent = parentOf(n, state);
+		return parent == null ? n : parent;
 	}
 
 	private void updateEffective() {
@@ -210,7 +312,7 @@ public final class Canvas2dRenderer {
 
 	private void replayCanvas(SceneCanvas canvas, SceneNode sceneNode, SceneState state,
 			Map<Integer, Integer> glTextures) {
-		beginNode(sceneNode);
+		beginNode(sceneNode, state);
 		for (CanvasCommand cmd : canvas.visibleCommands()) {
 			double[] a = cmd.args;
 			switch (cmd.op) {
@@ -320,7 +422,8 @@ public final class Canvas2dRenderer {
 		}
 	}
 
-	private void drawSprite(SceneNode sceneNode, ResourceInfo res, Map<Integer, Integer> glTextures) {
+	private void drawSprite(SceneNode sceneNode, ResourceInfo res, SceneState state,
+			Map<Integer, Integer> glTextures) {
 		Integer glId = glTextures.get(res.id);
 		if (glId == null) {
 			return; // pending
@@ -329,7 +432,7 @@ public final class Canvas2dRenderer {
 		// multiplier and color() applies it. Assigning it into colR..colA as well would square
 		// it — a 50% tint would render at 25%. This is the special case the multiplier removed,
 		// and removing it is what let canvas nodes have a tint at all.
-		beginNode(sceneNode);
+		beginNode(sceneNode, state);
 		texturedQuad(glId, 0, 0, res.width, res.height, 0, 0, 1, 1);
 	}
 

@@ -73,6 +73,7 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 *
 	 * 1 = the v2 surface as first shipped. 2 = adds getVersion/getLimits. 3 = adds swapVisibility.
 	 * 4 = adds setFont/getFontMetrics and the optional fontId argument to getTextWidth.
+	 * 5 = adds createGroup and the optional parent argument to createSprite/createCanvasNode.
 	 *
 	 * The "SAME change" rule above is not decoration: level 3 was late, because swapVisibility
 	 * shipped in the commit after the one that introduced this constant and nobody bumped it. For
@@ -85,8 +86,14 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 * in-game while this constant still said 3. Note what does NOT catch that — the whole point
 	 * of the field is to be readable on a build that lacks the feature, so on the build you are
 	 * developing every check passes and every test is green. Only reading this line does.
+	 *
+	 * Level 5 nearly made it three for three. createGroup, the parent arguments, the renderer
+	 * composition and eight Lua tests were all written and passing while this still said 4 — the
+	 * failure mode is identical every time and the paragraph above describes it exactly, which is
+	 * evidence that a warning in a javadoc is not a control. The thing that actually caught it was
+	 * writing the in-game harness and needing a number to gate on.
 	 */
-	public static final int API_LEVEL = 4;
+	public static final int API_LEVEL = 5;
 	/** Server-side VRAM budget in bytes (textures w*h*4 + canvas command capacity estimate). */
 	public static final long VRAM_BUDGET_BYTES = 16L * 1024 * 1024;
 	/** Budget estimate per canvas command slot (id + args worst case, serialized). */
@@ -1868,12 +1875,11 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	// AbstractValue wrappers on this side: legacy A-03 was a non-static inner AbstractValue
 	// that OC could not reinstantiate on restore, and ids sidestep the whole class of hazard.
 	//
-	// NO createGroup() YET. As of the v5 bump SceneNode DOES carry `parent`, ServerScene.createNode
-	// accepts one, and the wire and the save both round-trip it — but the renderer still ignores
-	// NODE_GROUP (Canvas2dRenderer composes no parent transform), so a group would still hold
-	// nothing on screen. Exposing it now would ship a call that converges perfectly and draws
-	// nothing, which is the same defect the node-tint comment in Canvas2dRenderer.beginNode
-	// describes. It lands with the renderer half, not before.
+	// createGroup() SHIPPED with the renderer half that gives it meaning: Canvas2dRenderer now
+	// composes a parent's transform, multiplies its tint into its children's, and hides a child
+	// whose parent is hidden. It was deliberately withheld until then — a group whose properties
+	// converged across the wire and changed no pixel would have been the same defect the node-tint
+	// comment in Canvas2dRenderer.beginNode describes.
 
 	/**
 	 * Draw into a canvas by submitting a whole packed command list in one call.
@@ -2312,14 +2318,48 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 * nothing — the same reason there is no createGroup. Use createCanvasNode to show a canvas
 	 * until the renderer grows canvas-as-texture-source.
 	 */
-	@Callback(direct = true, limit = 16, doc = "function(textureId:number):number -- Create a sprite node drawing a texture as a quad; returns its node id. For an offscreen canvas use createCanvasNode.")
+	@Callback(direct = true, limit = 16, doc = "function(textureId:number[, parentId:number]):number -- Create a sprite node drawing a texture as a quad; returns its node id. For an offscreen canvas use createCanvasNode.")
 	public Object[] createSprite(Context context, Arguments args) throws Exception {
-		return createNodeLocked(V2Wire.NODE_SPRITE, args.checkInteger(0), true);
+		return createNodeLocked(V2Wire.NODE_SPRITE, args.checkInteger(0), true, optParent(args, 1));
 	}
 
-	@Callback(direct = true, limit = 16, doc = "function(canvasId:number):number -- Create a node that displays an offscreen canvas as a layer; returns its node id.")
+	@Callback(direct = true, limit = 16, doc = "function(canvasId:number[, parentId:number]):number -- Create a node that displays an offscreen canvas as a layer; returns its node id.")
 	public Object[] createCanvasNode(Context context, Arguments args) throws Exception {
-		return createNodeLocked(V2Wire.NODE_CANVAS, args.checkInteger(0), false);
+		return createNodeLocked(V2Wire.NODE_CANVAS, args.checkInteger(0), false, optParent(args, 1));
+	}
+
+	/**
+	 * A group is a node that draws nothing and exists to be a parent: its children inherit its
+	 * transform, its tint (multiplied into theirs) and its visibility.
+	 *
+	 * It takes no parent of its own, and that is the one-nesting-level limit showing through
+	 * rather than an oversight. A parent must itself be unparented, so a group nested in another
+	 * group could never hold children — the call would succeed and produce something useless.
+	 * Refusing the argument outright is clearer than accepting it and failing later.
+	 */
+	@Callback(direct = true, limit = 16, doc = "function():number -- Create a group node: a transform parent that draws nothing. Pass its id as the parent of sprites and canvas nodes to move, tint, hide and z-order them together. Groups do not nest, so this takes no arguments. NOTE: a group's tint ALPHA does not reach a child canvas region painted by clear() -- see setNodeTint.")
+	public Object[] createGroup(Context context, Arguments args) throws Exception {
+		// Actually refused, not merely documented as refused. The javadoc above used to argue
+		// that refusing beats accepting-and-failing-later while the body ignored `args` entirely,
+		// so createGroup(someId) returned an unparented group to a caller who believed it nested.
+		if (args.count() > 0) {
+			throw new Exception("createGroup takes no arguments; groups do not nest, so a group"
+					+ " cannot have a parent of its own");
+		}
+		synchronized (sceneLock) {
+			requireScene();
+			if (scene.state().nodes.size() >= ServerScene.MAX_NODES) {
+				throw new Exception("scene node limit reached (" + ServerScene.MAX_NODES + ")");
+			}
+			int id = scene.createNode(V2Wire.NODE_GROUP, 0);
+			chunkDirty = true;
+			return new Object[] { id };
+		}
+	}
+
+	/** Optional trailing parent argument; absent means unparented. */
+	private static int optParent(Arguments args, int index) {
+		return args.count() > index ? args.checkInteger(index) : 0;
 	}
 
 	/**
@@ -2329,9 +2369,23 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 * each renders only its own resource type, so a mismatched ref produces a node that
 	 * converges and draws nothing.
 	 */
-	private Object[] createNodeLocked(byte nodeType, int ref, boolean wantTexture) throws Exception {
+	private Object[] createNodeLocked(byte nodeType, int ref, boolean wantTexture, int parent)
+			throws Exception {
 		synchronized (sceneLock) {
 			requireScene();
+			// Restated here rather than left to ServerScene's IllegalStateException, so the
+			// message names the id the caller passed. Any unparented node may be a parent, not
+			// only a group — a group is just the parent that draws nothing.
+			if (parent != 0) {
+				opengpu.v2.scene.SceneNode p = scene.state().nodes.get(parent);
+				if (p == null) {
+					throw new Exception("invalid parent node id " + parent);
+				}
+				if (p.parent != 0) {
+					throw new Exception("node " + parent + " is already a child of " + p.parent
+							+ "; groups do not nest, so it cannot be a parent itself");
+				}
+			}
 			ResourceInfo res = scene.state().resources.get(ref);
 			if (res == null) {
 				throw new Exception("invalid resource id " + ref);
@@ -2345,7 +2399,7 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 			if (scene.state().nodes.size() >= ServerScene.MAX_NODES) {
 				throw new Exception("scene node limit reached (" + ServerScene.MAX_NODES + ")");
 			}
-			int id = scene.createNode(nodeType, ref);
+			int id = scene.createNode(nodeType, ref, parent);
 			chunkDirty = true;
 			return new Object[] { id };
 		}

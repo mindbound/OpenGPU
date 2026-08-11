@@ -29,7 +29,7 @@ local function record(name)
     if name == "createCanvas" then
       nextResourceId = nextResourceId + 1
       return nextResourceId
-    elseif name == "createCanvasNode" or name == "createSprite" then
+    elseif name == "createCanvasNode" or name == "createSprite" or name == "createGroup" then
       nextNodeId = nextNodeId + 1
       return nextNodeId
     elseif name == "canvasOps" then
@@ -87,7 +87,7 @@ for _, m in ipairs({ "canvasOps", "getEpoch", "clearNodes", "createCanvas", "cre
                      "setNodeVisible", "setNodeTint", "freeNode", "freeCanvas",
                      "getSubmitBudget", "setColor", "fill", "clear", "drawText",
                      "getLimits", "getVersion", "swapVisibility",
-                     "setFont", "getFontMetrics", "getTextWidth" }) do
+                     "setFont", "getFontMetrics", "getTextWidth", "createGroup" }) do
   proxy[m] = record(m)
 end
 
@@ -117,6 +117,8 @@ oldProxy.getVersion = nil
 -- one that has actually bitten in game, where OpenOS serves a cached proxy after a jar update --
 -- was unreachable by the suite, and hit "attempt to call a nil value" inside the library.
 oldProxy.swapVisibility = nil
+-- And predates createGroup, so the same stale-proxy path is reachable for it.
+oldProxy.createGroup = nil
 -- And predates setFont, for the same reason: the stale-proxy path is the one that actually bites
 -- in development, and a wrapper that calls a nil callback fails with "attempt to call a nil
 -- value" instead of telling you to reboot the computer.
@@ -408,6 +410,69 @@ check(not okOld, "swapWith on a component predating it raises rather than callin
 check(okOld or tostring(errOld):find("REBOOT", 1, true) ~= nil,
       "and the message says to reboot the computer -- OpenOS caches the proxy, so a client "
       .. "restart does not pick up a new callback", errOld)
+
+-- Groups: the parent has to actually reach the callback, because everything above it converges
+-- perfectly whether or not it does.
+local gpu2 = opengpu.bind("stub-address")
+local grp = gpu2:group()
+check(grp ~= nil and grp.kind == "group", "group() returns a node handle")
+
+local function lastArgsOf(name)
+  for i = #calls, 1, -1 do
+    if calls[i].name == name then return calls[i].args end
+  end
+  return nil
+end
+
+local kid = gpu2:sprite(7, { parent = grp })
+local spriteArgs = lastArgsOf("createSprite")
+check(spriteArgs and spriteArgs.n == 2 and spriteArgs[2] == grp.id,
+      "sprite(id, {parent=group}) passes the parent id through to createSprite")
+
+gpu2:sprite(7)
+local plainArgs = lastArgsOf("createSprite")
+check(plainArgs and plainArgs.n == 1,
+      "and an unparented sprite passes ONE argument, not a trailing nil -- absent and nil are "
+      .. "not reliably distinguishable on the OC side")
+
+local layerKid = gpu2:show(gpu2:canvas(8, 8), { parent = grp.id })
+local layerArgs = lastArgsOf("createCanvasNode")
+check(layerArgs and layerArgs.n == 2 and layerArgs[2] == grp.id,
+      "a raw node id is accepted as a parent as well as a handle")
+
+check(not pcall(function() gpu2:sprite(7, { parent = "nonsense" }) end),
+      "a parent that is neither a node nor an id is refused")
+
+-- freeNode can now legitimately REFUSE -- a group with live children is not freeable -- so the
+-- handle has to survive a refused free. Retiring it first would strand the node: alive on the
+-- server, with its only handle marked dead and dropped from gpu.nodes, reachable afterwards only
+-- through clearNodes. The stub cannot model the server's rule, so the refusal is injected.
+local realFreeNode = proxy.freeNode
+proxy.freeNode = setmetatable({}, { __call = function()
+  error("node 101 still has child 102; free the children first")
+end })
+local refusedOk = pcall(function() grp:free() end)
+proxy.freeNode = realFreeNode
+check(not refusedOk, "a refused free propagates rather than being swallowed")
+check(grp.valid, "and the handle stays USABLE after a refused free, not stranded")
+
+-- Children first, then the group -- the order the server actually requires, and the order
+-- clearNodes takes by freeing descending.
+kid:free()
+layerKid:free()
+grp:free()
+check(not grp.valid, "a successful free retires the handle")
+check(not pcall(function() gpu2:sprite(7, { parent = grp }) end),
+      "a freed group cannot be used as a parent")
+
+-- And the stale-proxy path, which is the one that actually bites after a jar update: OpenOS
+-- serves the cached proxy, createGroup is nil, and calling it would fail with "attempt to call a
+-- nil value" instead of saying what to do.
+local oldGroupGpu = opengpu.bind("old-address")
+local grpOk, grpErr = pcall(function() oldGroupGpu:group() end)
+check(not grpOk, "group() on a component predating createGroup raises rather than calling nil")
+check(grpOk or tostring(grpErr):lower():find("reboot") ~= nil,
+      "and the message says to reboot the computer", tostring(grpErr))
 
 print(string.format("=== %d passed, %d failed ===", pass, fail))
 os.exit(fail == 0 and 0 or 1)

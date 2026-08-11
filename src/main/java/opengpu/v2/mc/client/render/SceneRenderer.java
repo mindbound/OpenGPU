@@ -469,7 +469,11 @@ public final class SceneRenderer {
 		SceneState state = mirror.state();
 		int total = 0;
 		for (SceneNode node : state.nodes.values()) {
-			if (!node.visible || node.type != V2Wire.NODE_CANVAS) {
+			// isDrawn, not node.visible: a canvas node under a HIDDEN GROUP draws nothing, and
+			// counting its commands would understate ns/command by the whole ratio. This is the
+			// same failure the javadoc above describes, reintroduced by transform parenting —
+			// the numerator stopped including these commands and the denominator had not noticed.
+			if (!Canvas2dRenderer.isDrawn(node, state) || node.type != V2Wire.NODE_CANVAS) {
 				continue;
 			}
 			ResourceInfo res = state.resources.get(node.ref);

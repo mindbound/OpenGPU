@@ -505,12 +505,22 @@ end
 ]]
 function Node:free()
   if not self.valid then return end
+  if self.gpu.epoch ~= self.epoch then
+    -- The scene this id belonged to is gone; the server already dropped it. Retire the handle
+    -- without calling, per the note above.
+    self.valid = false
+    self.gpu.nodes[self.id] = nil
+    return
+  end
+  -- CALL FIRST, retire on success. freeNode can now REFUSE -- a group with live children is not
+  -- freeable -- and retiring first would leave the node alive on the server with its only handle
+  -- marked dead and dropped from gpu.nodes, i.e. unreachable except through clearNodes or a raw
+  -- id the program no longer has. Before transform parenting the only reachable failures were
+  -- "unknown node" (impossible while valid) and the display node (never wrapped in a handle), so
+  -- the old order was safe; it stopped being safe the moment a free could legitimately fail.
+  call("freeNode", self.gpu.raw.freeNode, self.id)
   self.valid = false
   self.gpu.nodes[self.id] = nil
-  if self.gpu.epoch ~= self.epoch then
-    return -- the scene this id belonged to is gone; the server already dropped it
-  end
-  call("freeNode", self.gpu.raw.freeNode, self.id)
 end
 
 -- ---------------------------------------------------------------------------
@@ -895,6 +905,56 @@ function Gpu:canvas(width, height, commandCap)
   return c
 end
 
+-- A parent may be given as a node handle (what gpu:group() returns) or as a raw node id.
+-- Returns nil for "no parent", which the callers below turn into simply not passing the argument
+-- rather than passing nil -- a trailing nil is not reliably distinguishable from an absent
+-- argument on the OC side, and this library does not rely on that.
+local function parentIdOf(parent, who)
+  if parent == nil then
+    return nil
+  end
+  if type(parent) == "number" then
+    return parent
+  end
+  if getmetatable(parent) == Node then
+    checkAlive(parent, who)
+    return parent.id
+  end
+  error(who .. " expects parent to be a node or a node id, got " .. type(parent), 3)
+end
+
+--[[
+  A group node: a transform parent that draws nothing.
+
+  Children created with `parent = group` inherit its transform, its tint (multiplied into their
+  own), its visibility and its z -- so one moveTo, one setTint, one setVisible or one setZ moves,
+  fades, hides or re-layers the whole set. A group and its children occupy one contiguous run in
+  the scene's z-order; within that run a child's own z orders it against its siblings and against
+  the group itself. Groups do NOT nest: a group cannot have a parent, because a parented node may
+  not be a parent, so a nested group could never hold anything.
+
+  ONE CAVEAT, and it is the one that will surprise you, because fading a group is most of why you
+  would use one: a tint's ALPHA does not reach a canvas region painted by `clear()`. clear() hard-
+  sets its pixels with blending off, so the tint's RGB tints them and its alpha does not fade
+  them. `group:setTint(255,255,255,0)` makes a child's SHAPES vanish while a cleared background
+  stays at full strength. Use fillRect for backgrounds you intend to fade. Same rule as
+  Node:setTint, which explains why it cannot be fixed in the renderer.
+
+  Freeing a group with live children fails. Free the children first, or call gpu:clearNodes().
+]]
+function Gpu:group()
+  if not self.raw.createGroup then
+    error("this GPU has no createGroup. If the mod was just updated, OpenOS has cached the old"
+      .. " component proxy -- reboot the computer (restarting the client does not help)", 2)
+  end
+  local id = call("createGroup", self.raw.createGroup)
+  local n = setmetatable({
+    gpu = self, id = id, kind = "group", valid = true, epoch = self.epoch,
+  }, Node)
+  self.nodes[id] = n
+  return n
+end
+
 --- Composite a canvas above the display canvas as a node.
 --[[
   Show a canvas as a node. `opts.visible = false` creates it hidden.
@@ -917,7 +977,13 @@ function Gpu:show(canvas, opts)
     error("show expects a canvas created by gpu:canvas()", 2)
   end
   checkAlive(canvas, "show")
-  local id = call("createCanvasNode", self.raw.createCanvasNode, canvas.id)
+  local pid = parentIdOf(opts and opts.parent, "show")
+  local id
+  if pid then
+    id = call("createCanvasNode", self.raw.createCanvasNode, canvas.id, pid)
+  else
+    id = call("createCanvasNode", self.raw.createCanvasNode, canvas.id)
+  end
   local n = setmetatable({
     gpu = self, id = id, kind = "canvas node", valid = true, epoch = self.epoch,
   }, Node)
@@ -928,9 +994,15 @@ function Gpu:show(canvas, opts)
   return n
 end
 
---- A sprite node over a texture id.
-function Gpu:sprite(textureId)
-  local id = call("createSprite", self.raw.createSprite, textureId)
+--- A sprite node over a texture id. `opts.parent` attaches it to a group.
+function Gpu:sprite(textureId, opts)
+  local pid = parentIdOf(opts and opts.parent, "sprite")
+  local id
+  if pid then
+    id = call("createSprite", self.raw.createSprite, textureId, pid)
+  else
+    id = call("createSprite", self.raw.createSprite, textureId)
+  end
   local n = setmetatable({
     gpu = self, id = id, kind = "sprite", valid = true, epoch = self.epoch,
   }, Node)
