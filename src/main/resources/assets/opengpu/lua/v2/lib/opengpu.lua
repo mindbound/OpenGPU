@@ -1,8 +1,11 @@
 --[[
   opengpu -- object wrappers over the OpenGPU component.
 
-  The raw callback surface is 58 functions with several edges that are easy to fall off and
-  hard to debug. This library exists to remove exactly those, and each wrapper below earns its
+  The raw callback surface is 62 functions with several edges that are easy to fall off and
+  hard to debug. (62 counts the `opengpu` component only, which is all this library binds to;
+  the `opengpu_screen` component adds three more that no program calls directly. The figure
+  read 58 until 2026-08-09 — it drifted as setFont, getFontMetrics, setNodeTint and
+  swapVisibility landed, none of which thought to update the first sentence of the library.) This library exists to remove exactly those, and each wrapper below earns its
   place against one of them:
 
     * Failures arrive as `nil, message`, NOT as raised errors, so `pcall` does not catch them

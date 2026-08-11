@@ -37,7 +37,19 @@ public final class V2Wire {
 	public static final byte DELTA_CANVAS_APPEND = 7;
 	/** Reserved for scene-level state (post-chain order, scene uniforms) — unused until Stage D. */
 	public static final byte DELTA_SCENE_PROP = 8;
-	/** Reserved for surface bind/unbind (payload settles with the Stage A surface work). */
+	/**
+	 * Reserved ids for surface bind/unbind. NOT a pending payload — the prediction expired.
+	 *
+	 * This said the payload would "settle with the Stage A surface work". That work shipped, and
+	 * settled it the other way: binding a scene to a screen is an OC callback pair on the GPU
+	 * (bind/unbind) whose result is synced by the screen tile entity, not a scene delta. Nothing
+	 * constructs either id, no decoder case reads one, and BatchCodec answers an arriving 9 or 10
+	 * with "Unknown delta type".
+	 *
+	 * They stay reserved because the wire is append-only by id: handing 9 and 10 to something
+	 * else would make a future build silently misread any batch an old one had produced. Corrected
+	 * 2026-08-09 — the comment had been describing an obligation that no longer existed.
+	 */
 	public static final byte DELTA_BIND = 9;
 	public static final byte DELTA_UNBIND = 10;
 	/** Packed-RGBA region write into a texture (v3). Always carries its pixels. */

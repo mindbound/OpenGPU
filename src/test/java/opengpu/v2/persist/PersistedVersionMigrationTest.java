@@ -293,6 +293,81 @@ public class PersistedVersionMigrationTest {
 				result.scene.state().resources.get(TEX_ID).bytes[3]);
 	}
 
+	/**
+	 * The v2 seam, end to end: the one dispatch line whose failure mode is deletion.
+	 *
+	 * {@code LegacyMigrationTest} proves decodeV2 works and {@code restoreOrFreshMustNotDeleteAV3Scene}
+	 * proves the v3 path works, but nothing drove v2 bytes through {@code restoreOrFresh} itself —
+	 * and that seam is where the stakes live: route a v2 structure to the strict decoder instead of
+	 * the legacy one and the CodecException answer is {@code store.deleteScene}. The two halves
+	 * being individually correct proves nothing about the line that chooses between them.
+	 *
+	 * The body is stored RAW, not framed, because that is what a genuine pre-upgrade world has on
+	 * disk: v2 wrote bare payload validated by the manifest hash. This therefore also exercises the
+	 * legacy-raw-body shim (accept, attach, leave persistedVersion 0 so the next save re-frames),
+	 * which no other test reaches.
+	 */
+	@Test
+	public void restoreOrFreshRoutesAV2WorldThroughTheLegacyDecoder() throws Exception {
+		String sceneId = "gpu-addr";
+		byte[] body = textureBody();
+
+		ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+		DataOutputStream out = new DataOutputStream(bytes);
+		// v2 header: same fields as v3, older version short.
+		out.writeShort(opengpu.v2.protocol.LegacyStructureCodec.V2_VERSION);
+		out.writeUTF(sceneId);
+		out.writeInt(0x5EED);   // epoch — must CONTINUE through the migration, not be reminted
+		out.writeInt(7);        // seq
+		out.writeLong(99L);     // tick
+		out.writeInt(TEX_ID + 1);
+		out.writeInt(2);
+		// v2 resource record: ONE hash, no version fields — the layout decodeV2 exists for.
+		out.writeInt(1);
+		out.writeInt(TEX_ID);
+		out.writeByte(V2Wire.RES_TEXTURE);
+		out.writeInt(TEX_DIM);
+		out.writeInt(TEX_DIM);
+		out.writeInt(body.length);
+		out.writeLong(V2Wire.contentHash(body));
+		// One sprite showing it, so node migration rides along.
+		out.writeInt(1);
+		out.writeInt(1);
+		out.writeByte(V2Wire.NODE_SPRITE);
+		out.writeInt(TEX_ID);
+		out.writeDouble(3.5);
+		out.writeDouble(-2.0);
+		out.writeDouble(0);
+		out.writeDouble(1);
+		out.writeDouble(1);
+		out.writeInt(0);
+		out.writeBoolean(true);
+		out.writeInt(0xFFFFFFFF);
+		out.flush();
+
+		store.save(sceneId, TEX_ID, body);   // RAW: exactly what a v2-era save left behind
+		store.flush();
+
+		ScenePersistence.RestoreResult result =
+				ScenePersistence.restoreOrFresh(sceneId, bytes.toByteArray(), store);
+
+		assertTrue("a clean v2 migration must warn about nothing, got: " + result.warnings,
+				result.warnings.isEmpty());
+		assertEquals("the epoch must continue through the migration", 0x5EED, result.scene.epoch());
+		ResourceInfo tex = result.scene.state().resources.get(TEX_ID);
+		assertNotNull("the texture must survive the seam", tex);
+		assertEquals("the raw legacy body must attach, not degrade to blank",
+				body[3], tex.bytes[3]);
+		assertEquals("an attached legacy body is version-1 content", 1, tex.version);
+		assertEquals("a raw body must NOT count as persisted, or the re-framing shim dies"
+				+ " and the format freeze can never delete it", 0, tex.persistedVersion);
+		assertNotNull("the stored body must still be on disk — the delete path must not run",
+				store.load(sceneId, TEX_ID));
+		SceneNode sprite = result.scene.state().nodes.get(1);
+		assertNotNull("the node must survive the seam", sprite);
+		assertEquals(TEX_ID, sprite.ref);
+	}
+
 	@Test
 	public void aTrulyUnreadableStructureStillDegradesToFresh() throws Exception {
 		// Accepting v3 must not turn a corrupt structure into an exception escaping through chunk

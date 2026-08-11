@@ -13,8 +13,7 @@ new protocol, scene model and renderer, and the original code was removed in ful
 **OpenGPU does not migrate OCLights2 worlds, and is not a drop-in replacement for it.** The
 legacy blocks and items no longer exist; their ids are abandoned on load. A world that contained
 them still loads, without a prompt, but those blocks are gone. Back up any save before opening it
-with OpenGPU. The same applies to saves from **OCLights3**, the working name used by early
-revival commits.
+with OpenGPU.
 
 **Status:** in development, and it makes no compatibility promises yet — the Lua API is still
 moving.
