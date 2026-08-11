@@ -243,7 +243,6 @@ public final class FramebufferPass {
 	// ------------------------------------------------------------------
 	// FBO lifecycle helpers (OpenGlHelper wrappers only; see ANGELICA-NOTES rule 1)
 
-	/** Create an FBO with an RGBA8 color attachment. Returns {fbo, colorTexture} or null. */
 	/**
 	 * Largest scene dimension this GL context can allocate.
 	 *
@@ -261,6 +260,73 @@ public final class FramebufferPass {
 
 	private static int maxDimension = -1;
 
+	private static final int TRUST_UNKNOWN = -1;
+	private static final int TRUST_NO = 0;
+	private static final int TRUST_YES = 1;
+	private static int statusQueryTrust = TRUST_UNKNOWN;
+	private static boolean statusQueryUntrustedLogged;
+
+	/**
+	 * Does {@code glCheckFramebufferStatus} on THIS context actually report incompleteness, or
+	 * does it answer COMPLETE unconditionally?
+	 *
+	 * Not a paranoid question. Angelica 2.2.x's SDL GPU backend emulates framebuffers and its
+	 * {@code checkFramebufferStatus()} returns {@code GL_FRAMEBUFFER_COMPLETE} for everything;
+	 * Angelica knows this and exposes {@code framebufferCompletenessIsMeaningful()} so Iris can
+	 * opt out. We cannot call that — it does not exist at 2.1.59 and is Angelica-internal — and
+	 * our own status call is redirected into the same stub, so without this probe our
+	 * completeness guard below is silently dead code on that backend. See ANGELICA-NOTES
+	 * § 2.2.x survey, finding 1.
+	 *
+	 * The probe is a self-test of the QUERY, not of any real framebuffer: build an FBO with no
+	 * attachments at all and ask. The GL spec makes that INCOMPLETE_MISSING_ATTACHMENT — and it
+	 * stays incomplete even under ARB_framebuffer_no_attachments (GL 4.3), because the default
+	 * width/height of a fresh framebuffer object are zero. So a backend that answers COMPLETE
+	 * here is answering COMPLETE to everything, and has told us so with a case it cannot
+	 * legitimately pass.
+	 *
+	 * Why not verify the ATTACHMENT instead, which is the tempting alternative: under Angelica
+	 * {@code glGetTexLevelParameteri(GL_TEXTURE_2D, …)} is served from GLSM's
+	 * {@code TextureInfoCache} — it replays the dimensions WE passed to {@code glTexImage2D}
+	 * rather than what the driver allocated, and clamps through {@code Math.max(w >> level, 1)}
+	 * so it can never return 0. Corroborating our own request against our own request would
+	 * report success on every backend, honest or not. Do not re-add it.
+	 */
+	private static boolean statusQueryIsMeaningful() {
+		if (statusQueryTrust == TRUST_UNKNOWN) {
+			// Bind/restore by value, exactly as everything else in this class does. Binding an
+			// incomplete FBO is legal; only drawing to or reading from one is an error, and we
+			// do neither.
+			int previous = GL11.glGetInteger(GL_FRAMEBUFFER_BINDING);
+			int probe = OpenGlHelper.func_153165_e();
+			if (probe == 0) {
+				// Name 0 is the DEFAULT framebuffer, which is legitimately COMPLETE. Binding it
+				// and reading COMPLETE would prove nothing yet look exactly like a lying backend,
+				// so the one thing we must not do is cache a verdict. Leave the question open —
+				// FBO creation is rare enough that re-probing on the next scene costs nothing —
+				// and behave for now exactly as this method did before the probe existed.
+				return true;
+			}
+			OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, probe);
+			int status = OpenGlHelper.func_153167_i(OpenGlHelper.field_153198_e);
+			OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, previous);
+			OpenGlHelper.func_153174_h(probe);
+			statusQueryTrust = status != OpenGlHelper.field_153202_i ? TRUST_YES : TRUST_NO;
+		}
+		return statusQueryTrust == TRUST_YES;
+	}
+
+	/**
+	 * Create an FBO with an RGBA8 color attachment. Returns {fbo, colorTexture}, or null when
+	 * the scene cannot be allocated at that size.
+	 *
+	 * Two gates, and they fail in opposite directions on purpose. The dimension check is
+	 * authoritative — it runs before any GL call and reads a limit no cache can distort. The
+	 * completeness check is authoritative only where {@link #statusQueryIsMeaningful()} says the
+	 * driver answers it honestly; where it does not, an FBO is ACCEPTED rather than rejected,
+	 * because refusing every scene on a backend we merely cannot audit would blank every screen
+	 * in the game to guard against a failure we have no reason to believe occurred.
+	 */
 	public static int[] createSceneFbo(int width, int height) {
 		// Checked BEFORE any GL call. glTexImage2D past GL_MAX_TEXTURE_SIZE raises
 		// GL_INVALID_VALUE and allocates nothing, which then surfaces only as an incomplete
@@ -272,6 +338,10 @@ public final class FramebufferPass {
 		if (width <= 0 || height <= 0 || width > max || height > max) {
 			return null;
 		}
+		// Resolved BEFORE we bind anything. The probe does its own bind/restore, and running it
+		// midway through ours would nest two save/restore pairs around the same binding for no
+		// reason. After the first call it is a field read.
+		boolean statusMeaningful = statusQueryIsMeaningful();
 		// Restored before returning: leaving the new color attachment bound would let a
 		// later draw sample a texture attached to the active render target.
 		int previousTexture = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
@@ -293,9 +363,24 @@ public final class FramebufferPass {
 		OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, previous);
 		GL11.glBindTexture(GL11.GL_TEXTURE_2D, previousTexture);
 		if (status != OpenGlHelper.field_153202_i) {
+			// Acted on regardless of trust, and deliberately so: a backend that answers COMPLETE
+			// to everything can never produce this branch, so reaching it is positive evidence
+			// from any backend. Only the COMPLETE answer needs the trust flag to mean anything.
 			OpenGlHelper.func_153174_h(fbo);
 			GL11.glDeleteTextures(tex);
 			return null;
+		}
+		if (!statusMeaningful && !statusQueryUntrustedLogged) {
+			// Session-wide fact about the backend, so once is right here — unlike a per-scene
+			// allocation failure, which SceneRenderer deliberately does NOT funnel through a
+			// one-shot flag for exactly that reason.
+			statusQueryUntrustedLogged = true;
+			opengpu.OpenGPU.logger.warn("This render backend reports GL_FRAMEBUFFER_COMPLETE even"
+					+ " for a framebuffer with no attachments, so OpenGPU cannot verify its scene"
+					+ " framebuffers; they are being accepted unchecked. The known cause is"
+					+ " Angelica's SDL GPU backend (-Dangelica.sdlgpu.enable=true), which emulates"
+					+ " framebuffer objects. If screens render blank or corrupt, rule this out"
+					+ " first by running without that flag.");
 		}
 		return new int[] { fbo, tex };
 	}
