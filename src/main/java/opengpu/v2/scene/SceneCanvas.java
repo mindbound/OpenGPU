@@ -297,17 +297,52 @@ public final class SceneCanvas {
 	}
 
 	/**
-	 * Compares the VISIBLE LIST, not the replay state behind it.
+	 * Compares the visible list AND the replay state behind it — everything {@link #copy}
+	 * carries, which is the definition of "the same canvas".
 	 *
-	 * Deliberately narrow, and worth knowing what that costs: two canvases can be contentEqual
-	 * while holding different colour, transform or font tracking, and then diverge on their next
-	 * compaction. Callers use this as a convergence oracle, so it hides exactly the class of bug
-	 * that {@link #copy} carries comments about. Widening it is recorded in ROADMAP under
-	 * Defects; it is left alone here because doing it properly means auditing every caller that
-	 * currently passes, which is not this change.
+	 * WIDENED 2026-08-11. It previously compared the visible list alone, so two canvases could be
+	 * contentEqual while holding different colour, transform, font or push-depth tracking and then
+	 * diverge on their NEXT compaction. That is not a hypothetical divergence: {@link #copy}'s own
+	 * comments record both halves of it happening — a dropped {@code pushDepth} caused silent
+	 * post-resync compaction divergence (ORIGIN re-armed on one side only), and a dropped
+	 * {@code currentFont} would have the copy's next truncation re-emit the wrong font or none.
+	 * Every caller uses this as a CONVERGENCE ORACLE, so the narrow version certified as converged
+	 * exactly the state that was about to diverge, and the failure would surface later, somewhere
+	 * else, as a rendering difference with no failing assertion anywhere near it.
+	 *
+	 * The rule this now follows: {@code copy()} and {@code contentEquals()} must range over the
+	 * same fields. A copy that carries state the comparison ignores is a copy the oracle cannot
+	 * tell apart from one that lost it.
+	 *
+	 * {@code encodedBytes} is deliberately NOT compared, and that is not an oversight. It is
+	 * strictly derived from {@code visible} — every mutation keeps it in step (append increments,
+	 * clear zeroes it, truncation recomputes it) — so it can differ only when {@code visible}
+	 * already differs, and the term would never be the one that fires. A comparison that cannot
+	 * fail is worse than no comparison, because it reads like coverage.
+	 *
+	 * NO TEST ASSERTS THE INEQUALITY DIRECTLY, and it is not for want of trying: two canvases
+	 * cannot be driven to identical visible lists with differing replay state through the public
+	 * API, because every write that changes replay state also lands in {@code visible}
+	 * (SET_COLOR, SET_FONT and the transform ops all append). The divergence only exists when
+	 * state is TRANSPLANTED rather than replayed — {@code copy()}, snapshot restore — which is
+	 * why every test that covers it goes through a round trip.
+	 *
+	 * So this is verified by MUTATION, recorded here because a reverted widening would otherwise
+	 * leave a green suite. Dropping a field from {@code copy()} and running the suite, before and
+	 * after: {@code colorR} 1 → 4 failures, {@code transformTouched} 1 → 2, {@code pushDepth}
+	 * 1 → 2, {@code currentFont} 1 → 1 but firing at an earlier and more precise assertion. The
+	 * telling number is the BEFORE column: every one of those detections came from a single
+	 * hand-written test class, so the entire safety net for replay-state loss was one file that
+	 * happened to be written for it. It now also fails in persistence and swap-visibility tests
+	 * that were never written with this in mind.
 	 */
 	public boolean contentEquals(SceneCanvas other) {
 		return width == other.width && height == other.height
-				&& commandCap == other.commandCap && visible.equals(other.visible);
+				&& commandCap == other.commandCap && visible.equals(other.visible)
+				&& colorR == other.colorR && colorG == other.colorG
+				&& colorB == other.colorB && colorA == other.colorA
+				&& transformTouched == other.transformTouched
+				&& pushDepth == other.pushDepth
+				&& currentFont == other.currentFont;
 	}
 }

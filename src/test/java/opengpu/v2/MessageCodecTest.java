@@ -164,11 +164,15 @@ public class MessageCodecTest {
 		// currentFont: SceneMirror.applySnapshot installs snapshot.state.copy() as its working
 		// state, so a dropped font leaves the mirror believing the default is selected.
 		//
-		// THE ASSERTION HAS TO COME AFTER A LATER COMPACTION, not at the resync. contentEquals
-		// compares only the visible list, and at the moment of the resync the two lists are
-		// identical either way — the divergence appears when the NEXT covering fill truncates,
-		// because only one side then re-emits the SET_FONT. Asserting at the resync passes with
-		// the field dropped, which is exactly how this class of bug hides.
+		// THE ASSERTION USED TO HAVE TO COME AFTER A LATER COMPACTION, and no longer does —
+		// contentEquals was widened on 2026-08-11 to compare replay state, so a dropped
+		// currentFont is caught AT the resync. Verified by mutation: dropping it from
+		// SceneCanvas.copy() now fails the resync assertion below rather than the compaction one.
+		//
+		// Both assertions are kept. The resync one is the fast, precise report; the compaction one
+		// still checks the thing this test was originally written for, which is that the truncated
+		// list re-emits SET_FONT on both sides. They fail for different reasons and a change could
+		// break either alone.
 		ServerScene server = new ServerScene("scene-f");
 		int canvas = server.createCanvas(64, 64, 4096);
 		ArrayList<CanvasCommand> setup = new ArrayList<CanvasCommand>();
@@ -179,7 +183,7 @@ public class MessageCodecTest {
 
 		SceneMirror mirror = new SceneMirror("scene-f");
 		mirror.applySnapshot(SnapshotCodec.decode(SnapshotCodec.encode(server.snapshot())));
-		assertTrue("identical at the resync — which proves nothing on its own",
+		assertTrue("the mirror's replay state diverged at the resync — copy() dropped a field",
 				server.state().contentEquals(mirror.state()));
 
 		ArrayList<CanvasCommand> next = new ArrayList<CanvasCommand>();
