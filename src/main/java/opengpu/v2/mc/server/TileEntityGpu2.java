@@ -1443,8 +1443,18 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 		synchronized (sceneLock) {
 			requireScene();
 			// Collect first: freeNode mutates the map we would otherwise be iterating.
+			//
+			// DESCENDING, and that is load-bearing rather than cosmetic. A node may not be freed
+			// while it still has children (see DeltaApplier's NodeFree case for why: a freed
+			// parent leaves children holding an id that the snapshot decoder then sanitises to 0,
+			// diverging a live scene from its own save). A child's id is ALWAYS above its
+			// parent's, because parent ids are refused unless strictly lower — so descending
+			// order frees every child before its parent, and is the one order guaranteed never
+			// to hit that refusal. Ascending is guaranteed to hit it on the first parented group,
+			// half-clearing the scene, and this callback is what the Lua library calls from
+			// reset() and from connect(). Pinned by freeingInDescendingIdOrderNeverHitsTheRefusal.
 			java.util.List<Integer> doomed = new java.util.ArrayList<Integer>();
-			for (Integer id : scene.state().nodes.keySet()) {
+			for (Integer id : scene.state().nodes.descendingKeySet()) {
 				if (id.intValue() != implicitCanvasNode) {
 					doomed.add(id);
 				}
@@ -1858,9 +1868,12 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	// AbstractValue wrappers on this side: legacy A-03 was a non-static inner AbstractValue
 	// that OC could not reinstantiate on restore, and ids sidestep the whole class of hazard.
 	//
-	// NO createGroup(): NODE_GROUP is a wire type with no semantics yet. SceneNode has no
-	// parent field and there is no PROP_PARENT, so a group can hold nothing — transform
-	// parenting is Stage B. Exposing it now would ship a call that provably does nothing.
+	// NO createGroup() YET. As of the v5 bump SceneNode DOES carry `parent`, ServerScene.createNode
+	// accepts one, and the wire and the save both round-trip it — but the renderer still ignores
+	// NODE_GROUP (Canvas2dRenderer composes no parent transform), so a group would still hold
+	// nothing on screen. Exposing it now would ship a call that converges perfectly and draws
+	// nothing, which is the same defect the node-tint comment in Canvas2dRenderer.beginNode
+	// describes. It lands with the renderer half, not before.
 
 	/**
 	 * Draw into a canvas by submitting a whole packed command list in one call.

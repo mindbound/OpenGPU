@@ -317,15 +317,16 @@ public class PersistedVersionMigrationTest {
 	}
 
 	/**
-	 * The v4 seam. This is the test the 4 → 5 bump exists to be caught by, and the ONLY thing in
-	 * the suite that catches the specific way that gate can be written wrong.
+	 * The v4 seam, and the reason a fixture has to be pinned to a LITERAL version.
 	 *
-	 * Write {@code version >= 4} instead of {@code >= 5} in SnapshotCodec's node loop and nothing
-	 * else fails: v3 still decodes (3 is below both), v5 still round-trips (5 satisfies both), and
-	 * every test that builds its fixture from PROTOCOL_VERSION is by definition testing v5. Only a
-	 * fixture pinned to a LITERAL 4 puts a 58-byte record in front of a decoder that has been told
-	 * to read 62 — after which each node eats the next one's id as its parent and the whole run
-	 * dies at EOF, which on the real path is every pre-upgrade world deleted on first chunk load.
+	 * Write {@code version >= 4} instead of {@code >= 5} in SnapshotCodec's node loop and only the
+	 * two v4 tests fail — this one and {@link #restoreOrFreshMustNotDeleteAV4Scene}. Nothing else
+	 * can: v3 is below both gates, v5 satisfies both, and every fixture built from
+	 * PROTOCOL_VERSION is by definition testing v5. Only a fixture pinned to 4 puts a 58-byte
+	 * record in front of a decoder told to read 62, after which each node swallows the next one's
+	 * id as its parent. On the real path that is every pre-upgrade world deleted on first chunk
+	 * load, which is why the pair matters: this test catches it at the codec, and the other
+	 * catches it where the deletion actually happens.
 	 */
 	@Test
 	public void aV4StructureDecodesThroughThePersistencePath() throws Exception {
@@ -365,23 +366,64 @@ public class PersistedVersionMigrationTest {
 		StructureWriter w =
 				new StructureWriter(V2Wire.PROTOCOL_VERSION, "gpu-addr", EPOCH, 7, 900L, 1, 11);
 		w.resources(0);
-		w.nodes(6)
+		// Node 9 is written BEFORE node 4, and that ordering is the point rather than an
+		// accident. In an ascending blob a self-parent and a forward reference are ALSO absent at
+		// read time, so both would degrade even with the id check deleted, and the check would sit
+		// fully masked. Writing 9 first makes node 4's parent PRESENT and unparented, so only the
+		// "must be a lower id" rule can refuse it — the one shape that tells the two apart.
+		w.nodes(7)
 				.nodeV5(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0)   // a legal parent
 				.nodeV5(2, V2Wire.NODE_GROUP, 0, 1, 1, 0, 0xFFFFFFFF, 1)   // a legal child of it
 				.nodeV5(3, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 3)   // parents itself
-				.nodeV5(4, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 5)   // forward reference
+				.nodeV5(9, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0)   // present, unparented
+				.nodeV5(4, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 9)   // ...but 9 is above 4
 				.nodeV5(5, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 2)   // 2 is already a child
 				.nodeV5(10, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7); // 7 was never written
 
 		SceneSnapshot snap = SnapshotCodec.decodePersisted(w.done());
 
 		assertEquals("only the bad FIELD may degrade — no node may be dropped",
-				6, snap.state.nodes.size());
+				7, snap.state.nodes.size());
 		assertEquals("a legal parent must survive untouched", 1, snap.state.nodes.get(2).parent);
 		assertEquals("a node parented to itself", 0, snap.state.nodes.get(3).parent);
-		assertEquals("a forward reference", 0, snap.state.nodes.get(4).parent);
+		assertEquals("a parent that exists and is unparented, but is not a LOWER id",
+				0, snap.state.nodes.get(4).parent);
 		assertEquals("a second nesting level", 0, snap.state.nodes.get(5).parent);
 		assertEquals("a parent id that is absent", 0, snap.state.nodes.get(10).parent);
+	}
+
+	/**
+	 * The same bytes, two answers, on purpose — asserted here so the split reads as a decision
+	 * rather than as one path having been forgotten.
+	 *
+	 *   save    — sanitise. A CodecException reaches restoreOrFresh, which deletes the scene and
+	 *             its texture bodies, so refusing is the more destructive option.
+	 *   network — throw. Refusing costs a resync and nothing else, because the mirror already
+	 *             answers a failed apply with needsResync and the retry fetches a clean snapshot.
+	 *             It is also the ONLY path where the disagreement is detectable: silently zeroing
+	 *             the parent would leave the mirror rendering an ungrouped scene against a server
+	 *             that has the grouping, with no seq gap and no apply failure to reveal it.
+	 */
+	@Test
+	public void theNetworkPathRefusesAParentThatTheSaveToleratesQuietly() throws Exception {
+		StructureWriter w =
+				new StructureWriter(V2Wire.PROTOCOL_VERSION, "gpu-addr", EPOCH, 7, 900L, 1, 3);
+		w.resources(0);
+		w.nodes(2)
+				.nodeV5(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0)
+				.nodeV5(2, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7); // 7 is above 2
+		byte[] blob = w.done();
+
+		assertEquals("the save must degrade rather than refuse",
+				0, SnapshotCodec.decodePersisted(blob).state.nodes.get(2).parent);
+
+		try {
+			SnapshotCodec.decode(blob);
+			fail("the network path must refuse a parent the server could not have produced");
+		} catch (CodecException expected) {
+			assertTrue("expected the parent to be named, got: " + expected.getMessage(),
+					expected.getMessage().contains("parent"));
+		}
 	}
 
 	@Test

@@ -41,12 +41,16 @@ public abstract class Delta {
 			if (!(o instanceof NodeCreate))
 				return false;
 			NodeCreate d = (NodeCreate) o;
-			return nodeId == d.nodeId && nodeType == d.nodeType && ref == d.ref;
+			// parent included, and it has to be: these exist for codec round-trip tests, so
+			// leaving it out would make assertEquals(batch, decoded) structurally unable to see
+			// a parent dropped on the wire — the exact defect the round trip is there to catch.
+			return nodeId == d.nodeId && nodeType == d.nodeType && ref == d.ref
+					&& parent == d.parent;
 		}
 
 		@Override
 		public int hashCode() {
-			return (nodeId * 31 + nodeType) * 31 + ref;
+			return ((nodeId * 31 + nodeType) * 31 + ref) * 31 + parent;
 		}
 	}
 

@@ -41,7 +41,8 @@ public class BatchSizeBoundTest {
 	 * Encoded size of the widest delta a server can produce, derived rather than quoted.
 	 *
 	 * NodeProps: 1 type byte (written by encodeRaw) + 4 nodeId + 4 mask + 8 per set property.
-	 * Every other producible delta is smaller at a fixed size (NodeCreate 10, ResourceCreate 30,
+	 * Every other producible delta is smaller at a fixed size (NodeCreate 14 since v5 appended
+	 * `parent` to it — still far under the bound, which derives from NodeProps; ResourceCreate 30,
 	 * the frees 5) or carries a payload already bounded by its own per-batch allowance —
 	 * CanvasPublish and CanvasAppend by MAX_SUBMIT_BYTES_PER_BATCH, TextureWrite by
 	 * MAX_WRITE_BYTES_PER_BATCH — both of which are added to the budget once, below.

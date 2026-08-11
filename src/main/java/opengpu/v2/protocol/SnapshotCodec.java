@@ -131,32 +131,49 @@ public final class SnapshotCodec {
 	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4 };
 
 	/**
-	 * A persisted parent is arbitrary bytes, so it has to be checked — and on this path a check
-	 * that THROWS is {@code ScenePersistence.restoreOrFresh} calling {@code store.deleteScene}.
-	 * So it sanitises. Dropping to "no parent" costs a grouping; throwing costs the world.
+	 * Legality of a decoded parent, answered identically on both paths — and answered DIFFERENTLY
+	 * when it comes back "no". The asymmetry is the same one {@link #decodePersisted} exists for.
 	 *
-	 * Silent, deliberately, and with precedent: {@code ref} above gets no existence check either,
-	 * and a node pointing at a freed resource is simply skipped by the renderer. A degraded
-	 * grouping is the same class of loss.
+	 *   persisted — SANITISE to "no parent". A CodecException here is
+	 *               {@code ScenePersistence.restoreOrFresh} calling {@code store.deleteScene}, so
+	 *               throwing would answer "one node has a bad parent id" by destroying the scene
+	 *               and every texture body it owns. Dropping the grouping costs a grouping.
+	 *               Silent, with precedent: {@code ref} above gets no existence check either, and
+	 *               a node pointing at a freed resource is simply skipped by the renderer.
+	 *   network   — THROW. A snapshot frame that says something the server could not have
+	 *               produced is corruption, and refusing it costs nothing: the mirror is already
+	 *               built to answer a failed apply with needsResync, and the retry fetches a
+	 *               clean snapshot. Sanitising here would be strictly worse than on disk, because
+	 *               it is the one place the disagreement is DETECTABLE — a silently zeroed parent
+	 *               leaves the mirror rendering an ungrouped scene against a server that has the
+	 *               grouping, with no seq gap and no apply failure to reveal it.
 	 *
-	 * Three refusals, each O(1), and together they ARE the acyclicity argument — there is no
-	 * traversal and no visited set anywhere in this codec:
+	 * Three conditions, each O(1). There is no traversal and no visited set anywhere in this
+	 * codec, and the one that carries the acyclicity argument is the LAST one, not the first:
 	 *
-	 *   parent >= id  — self-parenting and forward references. Nodes are encoded in ascending id
-	 *                   order ({@code SceneState.nodes} is a TreeMap), so any legal parent is
-	 *                   already in the map by the time its child is read; an id at or above this
-	 *                   one either is this node or does not exist yet.
-	 *   absent        — freed before the save, or an id crafted from nothing.
+	 *   parent >= id  — self-parenting and forward references. Nodes are ENCODED in ascending id
+	 *                   order ({@code SceneState.nodes} is a TreeMap), but a crafted blob need not
+	 *                   be, so this is checked rather than assumed.
+	 *   absent        — freed before the save, or an id crafted from nothing. Order-dependent, and
+	 *                   only downward: a parent not yet inserted degrades, never accepts.
 	 *   grandparent   — Stage B allows ONE nesting level, so a parent must itself be unparented.
-	 *                   This is also what refuses a two-cycle (5→7, 7→5) by reading one field.
+	 *                   THIS is what makes cycles impossible, on its own and regardless of order:
+	 *                   every member of a cycle must both have a parent and be one, and this
+	 *                   refuses exactly that. `parent` being final is what stops a node acquiring
+	 *                   one later. The other two conditions are belt and braces over it.
 	 */
-	private static int sanitizeParent(SceneState state, int id, int parent) {
-		if (parent == 0 || parent >= id)
-			return 0;
-		SceneNode p = state.nodes.get(parent);
-		if (p == null || p.parent != 0)
-			return 0;
-		return parent;
+	private static int resolveParent(SceneState state, int id, int parent, boolean persisted)
+			throws CodecException {
+		boolean legal = parent == 0 || parent < id;
+		if (legal && parent != 0) {
+			SceneNode p = state.nodes.get(parent);
+			legal = p != null && p.parent == 0;
+		}
+		if (legal)
+			return parent;
+		if (!persisted)
+			throw new CodecException("Node " + id + " has an illegal parent " + parent);
+		return 0;
 	}
 
 	/**
@@ -290,7 +307,8 @@ public final class SnapshotCodec {
 				int parent = version >= 5 ? in.readInt() : 0;
 				if (state.nodes.containsKey(id))
 					throw new CodecException("Duplicate node id " + id);
-				SceneNode node = new SceneNode(id, type, ref, sanitizeParent(state, id, parent));
+				SceneNode node = new SceneNode(id, type, ref,
+						resolveParent(state, id, parent, persisted));
 				node.x = x;
 				node.y = y;
 				node.rot = rot;

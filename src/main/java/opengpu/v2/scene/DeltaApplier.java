@@ -54,10 +54,15 @@ public final class DeltaApplier {
 			// programs that had come to rely on it.
 			if (!state.nodes.containsKey(d.nodeId))
 				throw new IllegalStateException("Freeing unknown node " + d.nodeId);
-			for (SceneNode child : state.nodes.values()) {
+			// Only the TAIL can hold children: a parent id is refused unless strictly lower than
+			// its child's, so nothing at or below this id can be parented to it. That keeps the
+			// common case cheap — freeing in descending order, as clearNodes does, leaves an
+			// empty tail and costs O(1) rather than a full scan per free, which on a 4096-node
+			// clear was the difference between one pass and ~8M comparisons under the scene lock.
+			for (SceneNode child : state.nodes.tailMap(Integer.valueOf(d.nodeId), false).values()) {
 				if (child.parent == d.nodeId)
 					throw new IllegalStateException("Node " + d.nodeId + " still has child "
-							+ child.id + "; free the children first");
+							+ child.id + "; free the children first, or free in descending id order");
 			}
 			state.nodes.remove(d.nodeId);
 		} else if (delta instanceof Delta.NodeProps) {

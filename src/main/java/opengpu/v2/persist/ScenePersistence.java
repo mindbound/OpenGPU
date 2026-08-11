@@ -180,11 +180,18 @@ public final class ScenePersistence {
 		// CodecException by deleting the scene's stored bodies, so every pre-upgrade world
 		// would lose its textures the first time it loaded.
 		//
-		// TWO KINDS OF OLD SAVE, and they need different handling:
+		// THREE KINDS OF OLD SAVE, and they need different handling. Which kind a future bump
+		// produces is the question the extension policy makes it answer; this is the call site
+		// that acts on the answer:
 		//   v2  — a genuinely different layout (one content hash where v3 carries three
-		//         fields), so it needs its own decoder.
+		//         fields), so it needs its own decoder. That is what a MOVED field costs.
 		//   v3  — the same layout under an older version number, so decodePersisted reads it
 		//         directly. The 3 -> 4 bump appended an op and moved no field.
+		//   v4  — the same layout MINUS a field appended after it. decodePersisted reads it too,
+		//         but only because its node loop gates the v5 `parent` read on the version, so a
+		//         v4 record is consumed at its own 58-byte width. Nothing here dispatches on that
+		//         — the gate is inside the decoder — which is exactly why it is worth naming at
+		//         the one place that chooses a decoder.
 		// decodePersisted, not decode: the strict check belongs on the NETWORK path, where the
 		// peer can be told to upgrade. Here, refusing means deleting the world's scenes.
 		SceneSnapshot decoded =

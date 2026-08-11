@@ -9,10 +9,14 @@ import static org.junit.Assert.fail;
 import org.junit.Test;
 
 import opengpu.v2.protocol.BatchCodec;
+import opengpu.v2.protocol.Delta;
 import opengpu.v2.protocol.SceneBatch;
+import opengpu.v2.protocol.SnapshotCodec;
 import opengpu.v2.protocol.V2Wire;
+import opengpu.v2.scene.DeltaApplier;
 import opengpu.v2.scene.SceneMirror;
 import opengpu.v2.scene.SceneNode;
+import opengpu.v2.scene.SceneState;
 import opengpu.v2.scene.ServerScene;
 
 /**
@@ -241,10 +245,71 @@ public class SceneGraphTest {
 		// And the persisted/snapshot path, which is a different encoder from the delta above.
 		// contentEquals now compares parent, so a snapshot that dropped it would fail here
 		// rather than silently producing an unparented scene on every resync.
-		opengpu.v2.scene.SceneState restored = opengpu.v2.protocol.SnapshotCodec
-				.decode(opengpu.v2.protocol.SnapshotCodec.encode(server.snapshot())).state;
+		SceneState restored = SnapshotCodec.decode(SnapshotCodec.encode(server.snapshot())).state;
 		assertEquals(group, restored.nodes.get(child).parent);
 		assertTrue(server.state().contentEquals(restored));
+	}
+
+	/**
+	 * The mirror's parent validation, driven directly, because nothing else reaches it.
+	 *
+	 * {@code BatchCodec} decodes a NodeCreate without looking at its parent at all, so
+	 * DeltaApplier is the ONLY thing standing between a corrupt or hostile frame and a mirror
+	 * state the server could never have produced. Every other test here goes through
+	 * {@code ServerScene.createNode}, which pre-validates — so it can never deliver an illegal
+	 * parent this far, and these three throws would sit uncovered while looking tested.
+	 */
+	@Test
+	public void theMirrorPathRefusesAnIllegalParentItself() {
+		SceneState state = new SceneState();
+		DeltaApplier.apply(state, new Delta.NodeCreate(1, V2Wire.NODE_GROUP, 0));
+		DeltaApplier.apply(state, new Delta.NodeCreate(2, V2Wire.NODE_GROUP, 0, 1));
+
+		// Each of the three lands on a DIFFERENT branch, which the ids are chosen to force:
+		// 5 is absent but BELOW 10, so it gets past the id check to the lookup.
+		expectRefused(state, new Delta.NodeCreate(10, V2Wire.NODE_GROUP, 0, 5));
+		// 7 is above 3, so the id check takes it before any lookup happens.
+		expectRefused(state, new Delta.NodeCreate(3, V2Wire.NODE_GROUP, 0, 7));
+		// 2 exists and is below 3, but is itself a child — the one-nesting-level branch.
+		expectRefused(state, new Delta.NodeCreate(3, V2Wire.NODE_GROUP, 0, 2));
+
+		assertEquals("a refused delta must not leave a node behind", 2, state.nodes.size());
+	}
+
+	private static void expectRefused(SceneState state, Delta delta) {
+		try {
+			DeltaApplier.apply(state, delta);
+			fail("expected " + delta + " to be refused");
+		} catch (IllegalStateException expected) {
+			// intended: the mirror answers this with needsResync and a snapshot repairs it
+		}
+	}
+
+	@Test
+	public void freeingInDescendingIdOrderNeverHitsTheRefusal() {
+		// The order clearNodes must use, pinned here because clearNodes itself lives in
+		// TileEntityGpu2 and no JVM test can load it (the OC API is compileOnly). Ascending order
+		// is GUARANTEED to hit the child refusal rather than merely likely to, because a parent's
+		// id is always the lower one — so a bulk free that walks a TreeMap forwards breaks on the
+		// first parented group and half-clears the scene.
+		ServerScene server = new ServerScene(SCENE);
+		withDisplay(server);
+		int group = server.createNode(V2Wire.NODE_GROUP, 0);
+		int child = server.createNode(V2Wire.NODE_GROUP, 0, group);
+		assertTrue("the child must hold the higher id — the ordering argument rests on it",
+				child > group);
+
+		try {
+			server.freeNode(group);
+			fail("ascending order must hit the refusal; if it no longer does, clearNodes'"
+					+ " descending order has stopped being load-bearing and its comment is stale");
+		} catch (IllegalStateException expected) {
+			// intended
+		}
+
+		server.freeNode(child);
+		server.freeNode(group);
+		assertFalse("descending order must free both", server.state().nodes.containsKey(group));
 	}
 
 	@Test
