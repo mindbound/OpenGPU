@@ -41,9 +41,17 @@ public final class DisplayNode {
 	/**
 	 * Whether the remembered (resource, node) pair still describes the display canvas.
 	 *
-	 * ALL THREE CONDITIONS, and the third is the one that was missing: the node must exist, be a
-	 * canvas node, and point at <b>that</b> resource. Checking existence alone accepts any node that
-	 * happens to hold the id.
+	 * FOUR CONDITIONS. The node must exist, be a canvas node, point at <b>that</b> resource, and be
+	 * <b>unparented</b>. Checking existence alone accepts any node that happens to hold the id.
+	 *
+	 * <b>The parent condition was missing from the first version of this fix</b>, which called
+	 * itself "ALL THREE CONDITIONS" — a review caught the count. It is not decoration: the display
+	 * node defines the input coordinate space, and {@code setNodeTransform} refuses to transform it
+	 * precisely so the picture and its clicks cannot disagree. A <i>parented</i> display node
+	 * inherits its parent's whole TRS through the fold, and <b>nothing guards the parent</b> — so
+	 * the exact divergence that refusal exists to prevent is reachable one level up. A display node
+	 * this build creates is always unparented ({@code createNode} with no parent), so requiring it
+	 * costs nothing and closes the hole.
 	 *
 	 * @param resourceId the remembered implicit canvas resource id, or 0 if none is remembered
 	 * @param nodeId the remembered implicit canvas node id
@@ -57,7 +65,35 @@ public final class DisplayNode {
 			return false;
 		}
 		SceneNode node = state.nodes.get(Integer.valueOf(nodeId));
-		return node != null && node.type == V2Wire.NODE_CANVAS && node.ref == resourceId;
+		return node != null && node.type == V2Wire.NODE_CANVAS && node.ref == resourceId
+				&& node.parent == 0;
+	}
+
+	/**
+	 * The node a stale server should ADOPT as its display, or 0 if there is none to adopt.
+	 *
+	 * Extracted for the reason {@link #stillValid} was: the composition "adopt the client's pick
+	 * when it is itself valid, otherwise allocate" lived inline in a class that needs Minecraft to
+	 * load, so no test could reach it — and shipping a decision without a vector is exactly what
+	 * this file's history is a record of.
+	 *
+	 * <b>Why adopt at all.</b> Allocating a replacement hands out a HIGHER node id while the stale
+	 * lower-id canvas node survives, so {@code displayCanvas()} — which picks the lowest — keeps
+	 * choosing the old one, and {@code setResolution}'s cross-check then fails for the rest of the
+	 * session. Adopting makes the server's remembered id and the client's scan agree by
+	 * construction instead of by luck.
+	 *
+	 * Returns 0 when the client's pick is not itself a valid display node — notably when it is
+	 * PARENTED, since the scan does not test the parent. The caller then allocates, and that
+	 * residual case is stated at the call site rather than hidden here.
+	 */
+	public static int adoptableNodeId(SceneState state) {
+		int candidate = displayNodeId(state);
+		if (candidate == 0) {
+			return 0;
+		}
+		SceneNode node = state.nodes.get(Integer.valueOf(candidate));
+		return node != null && stillValid(state, node.ref, candidate) ? candidate : 0;
 	}
 
 	/**

@@ -744,12 +744,12 @@ public class IrValidatorTest {
 		// a documented error ... so the refusal can name them", and the OUT refusal interpolated the
 		// raw int -- owning `visible` came back as "stage 6 has no property 8".
 		//
-		// THE MESSAGE ITSELF CANNOT BE VECTORED YET, and a mutation sweep proved it rather than my
-		// assuming it: validate() refuses any stage that is not open BEFORE it reaches the OUT check,
-		// so the name-bearing branch is unreachable while the animator is shut. Removing the name
-		// from the message fails nothing. What is pinnable now is the DATA the message will use, and
-		// that these two ids are typeless while being named -- which is the whole reason the raw int
-		// was uninformative.
+		// "THE MESSAGE CANNOT BE VECTORED YET" WAS FALSE, and it was stated here, in the commit
+		// message, and to the project owner. A mutation survived and I read that as proof the branch
+		// was dead; it proved only that no test covered it. The OUT check is reachable at every OPEN
+		// stage -- nothing upstream filters an unknown property id (IrStructure range-checks the
+		// wire's 16 bits, IrCodec the u8 namespace, both deferring the table to here) -- so a
+		// material-stage OUT to property 5 reaches it today. See theRefusalOnlyClaimsAReservation.
 		assertEquals("visible", SurfaceTable.propertyName(OcslWire.STAGE_ANIMATOR,
 				OcslWire.PROP_ANIM_VISIBLE));
 		assertEquals("z", SurfaceTable.propertyName(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_Z));
@@ -762,10 +762,45 @@ public class IrValidatorTest {
 		assertEquals("x", SurfaceTable.propertyName(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_X));
 		assertNotNull(SurfaceTable.propertyType(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_X));
 
-		// THE OBLIGATION, enforced. When the animator surface opens, the refusal message becomes
-		// reachable and must get a vector asserting it contains "visible" rather than "8".
-		assertFalse("The animator surface is now OPEN. IrValidator's OUT refusal is reachable at that"
-				+ " stage: write the message vector asserting the property is NAMED, and delete this"
-				+ " assertion.", SurfaceTable.isOpen(OcslWire.STAGE_ANIMATOR));
+		// THE OBLIGATION, enforced. When the animator surface opens, the RESERVED branch below
+		// becomes reachable for z/visible and must get its own vector.
+		assertFalse("The animator surface is now OPEN. Write the vector asserting an OUT to z or"
+				+ " visible is refused by NAME, and delete this assertion.",
+				SurfaceTable.isOpen(OcslWire.STAGE_ANIMATOR));
+	}
+
+	@Test
+	public void theRefusalOnlyClaimsAReservationWhereOneExists() throws Exception {
+		// THE REGRESSION, given a vector. The first version of the naming fix gated on
+		// `propertyName(...) != null` -- and propertyName is TOTAL, every arm falling back to
+		// "prop" + id. So the guard was a tautology and every unknown property at every OPEN stage
+		// was told it was "reserved but not ownable in v1", with a synthesized spelling presented as
+		// if this table published it. Reachable today; it shipped; a review found it.
+		try {
+			IrValidator.validate(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 1,
+					new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+					new IrOp(OcslWire.OP_OUT, -1, 5, W)));
+			fail("property 5 has no row at the material stage and must be refused");
+		} catch (ValidationException expected) {
+			String m = expected.getMessage();
+			assertTrue("it says the property does not exist: " + m, m.contains("has no property 5"));
+			assertTrue("and does NOT claim a reservation for an unallocated id: " + m,
+					!m.contains("reserved"));
+			assertTrue("nor invent a spelling the table does not publish: " + m,
+					!m.contains("prop5"));
+		}
+
+		// Non-vacuity, and it is the whole point: propertyName really does answer for that id, so a
+		// null-guard could never have suppressed the text. This is the assertion whose absence let
+		// the regression through.
+		assertEquals("prop5", SurfaceTable.propertyName(OcslWire.STAGE_PIXEL_MATERIAL, 5));
+		assertTrue("and the predicate that replaced the null-guard says no",
+				!SurfaceTable.isReservedUnownable(OcslWire.STAGE_PIXEL_MATERIAL, 5));
+		assertTrue("while saying yes for the two ids that are genuinely reserved",
+				SurfaceTable.isReservedUnownable(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_Z)
+						&& SurfaceTable.isReservedUnownable(OcslWire.STAGE_ANIMATOR,
+								OcslWire.PROP_ANIM_VISIBLE));
+		assertTrue("and no for an ownable animator property",
+				!SurfaceTable.isReservedUnownable(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_X));
 	}
 }

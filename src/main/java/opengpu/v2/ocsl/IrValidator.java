@@ -318,16 +318,26 @@ public final class IrValidator {
 				int property = op.operand(0);
 				OcslType expected = SurfaceTable.propertyType(stage, property);
 				if (expected == null) {
-					// NAMED WHERE A NAME EXISTS. SurfaceTable's own javadoc promises that the ids
-					// reserved-but-not-ownable in v1 are "refused with a documented error ... so the
-					// refusal can name them" -- and this message interpolated the raw int, so owning
-					// `visible` was refused as "stage 6 has no property 8" while propertyName had
-					// "visible" available the whole time. ANIM-15(c)'s only surviving obligation:
-					// the check was already in the right place, the diagnostic was not.
-					String name = SurfaceTable.propertyName(stage, property);
+					// NAMED ONLY WHERE THE ID IS ACTUALLY RESERVED. SurfaceTable's javadoc promises
+					// that the reserved-but-unownable ids are "refused with a documented error ...
+					// so the refusal can name them", and this message used to interpolate the raw
+					// int -- owning `visible` came back as "stage 6 has no property 8".
+					//
+					// THE FIRST FIX WAS WORSE THAN THE DEFECT, and an adversarial review caught it
+					// after it shipped. It gated the name on `propertyName(...) != null`, and
+					// propertyName is TOTAL: every arm falls back to "prop" + id. So the guard was a
+					// tautology and EVERY unknown property at EVERY open stage was labelled
+					// "reserved but not ownable in v1" -- "stage 1 has no property 5 (prop5,
+					// reserved but not ownable in v1)", asserting a reservation for an unallocated
+					// id and passing off a synthesized placeholder as a published spelling. The
+					// previous message was merely terse; that one was false, and reachable today.
+					if (SurfaceTable.isReservedUnownable(stage, property)) {
+						throw new ValidationException(i, "stage " + (stage & 0xFF) + " reserves "
+								+ SurfaceTable.propertyName(stage, property) + " (property "
+								+ property + ") but it is not ownable in v1");
+					}
 					throw new ValidationException(i, "stage " + (stage & 0xFF)
-							+ " has no property " + property
-							+ (name != null ? " (" + name + ", reserved but not ownable in v1)" : ""));
+							+ " has no property " + property);
 				}
 				OcslType actual = readType(program, types, written, op, 1, i, stage);
 				if (actual != expected) {

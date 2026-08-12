@@ -79,6 +79,30 @@ public strictfp class DisplayNodeTest {
 	}
 
 	@Test
+	public void aParentedDisplayNodeIsRefused() throws Exception {
+		// THE FOURTH CONDITION, missing from the first version of this fix -- which called itself
+		// "ALL THREE CONDITIONS" and a review counted them. The display node defines the input
+		// coordinate space, and setNodeTransform refuses to transform it so the picture and its
+		// clicks cannot disagree. A PARENTED display node inherits its parent's whole TRS through
+		// the fold and NOTHING GUARDS THE PARENT, so the divergence that refusal exists to prevent
+		// is reachable one level up.
+		SceneState state = new SceneState();
+		state.resources.put(Integer.valueOf(RES), new ResourceInfo(RES, V2Wire.RES_CANVAS, 8, 8, 0));
+		state.nodes.put(Integer.valueOf(1), new SceneNode(1, V2Wire.NODE_GROUP, 0, 0));
+		state.nodes.put(Integer.valueOf(NODE), new SceneNode(NODE, V2Wire.NODE_CANVAS, RES, 1));
+
+		assertFalse("a display node with a parent is not a valid display node",
+				DisplayNode.stillValid(state, RES, NODE));
+		assertTrue("and it passes all three of the other conditions, which is why it slipped through",
+				state.nodes.get(Integer.valueOf(NODE)).type == V2Wire.NODE_CANVAS
+						&& state.nodes.get(Integer.valueOf(NODE)).ref == RES);
+
+		// The same node unparented is valid, so the refusal is the parent and nothing else.
+		SceneState unparented = sceneWith(V2Wire.NODE_CANVAS, RES, V2Wire.RES_CANVAS);
+		assertTrue(DisplayNode.stillValid(unparented, RES, NODE));
+	}
+
+	@Test
 	public void aMissingNodeIsRefused() throws Exception {
 		SceneState state = sceneWith(V2Wire.NODE_CANVAS, RES, V2Wire.RES_CANVAS);
 		assertFalse("a node id that no longer exists is refused",
@@ -111,6 +135,45 @@ public strictfp class DisplayNodeTest {
 		// And a canvas node whose ref does not resolve is skipped, not returned.
 		state.nodes.put(Integer.valueOf(0), new SceneNode(0, V2Wire.NODE_CANVAS, 555, 0));
 		assertEquals("an unresolvable ref is skipped", 2, DisplayNode.displayNodeId(state));
+	}
+
+	@Test
+	public void aStaleServerAdoptsTheNodeClientsAlreadyDisplay() throws Exception {
+		// The recovery decision, extracted so it has a vector at all. Allocating a replacement hands
+		// out a HIGHER id while the stale lower-id canvas node survives, so displayCanvas() keeps
+		// picking the old one and setResolution's cross-check then fails permanently. Adopting is
+		// what makes the two mechanisms agree.
+		SceneState state = new SceneState();
+		state.resources.put(Integer.valueOf(RES), new ResourceInfo(RES, V2Wire.RES_CANVAS, 8, 8, 0));
+		state.nodes.put(Integer.valueOf(2), new SceneNode(2, V2Wire.NODE_CANVAS, RES, 0));
+		state.nodes.put(Integer.valueOf(8), new SceneNode(8, V2Wire.NODE_CANVAS, RES, 0));
+
+		assertEquals("the adopted node is the one clients display", 2,
+				DisplayNode.adoptableNodeId(state));
+		assertTrue("adopting 8 would leave node 2 shadowing it, which is the failure",
+				DisplayNode.adoptableNodeId(state) != 8);
+		assertTrue("and what is adopted is itself valid",
+				DisplayNode.stillValid(state, RES, DisplayNode.adoptableNodeId(state)));
+	}
+
+	@Test
+	public void thereIsNothingToAdoptWhenTheClientsPickIsItselfInvalid() throws Exception {
+		// The residual, pinned rather than assumed. displayCanvas() does not test the parent, so its
+		// pick can be a PARENTED canvas node -- which is not a valid display node. Adoption must
+		// refuse it (the caller then allocates), and this vector is what stops a future "just adopt
+		// whatever the scan returns" simplification from reintroducing a parented display node.
+		SceneState state = new SceneState();
+		state.resources.put(Integer.valueOf(RES), new ResourceInfo(RES, V2Wire.RES_CANVAS, 8, 8, 0));
+		state.nodes.put(Integer.valueOf(1), new SceneNode(1, V2Wire.NODE_GROUP, 0, 0));
+		state.nodes.put(Integer.valueOf(2), new SceneNode(2, V2Wire.NODE_CANVAS, RES, 1));
+
+		assertEquals("the scan still picks it, because it does not look at the parent", 2,
+				DisplayNode.displayNodeId(state));
+		assertEquals("but there is nothing adoptable", 0, DisplayNode.adoptableNodeId(state));
+		assertTrue("adopting the scan's pick blindly would give 2", DisplayNode.adoptableNodeId(state) != 2);
+
+		// And an empty scene has nothing to adopt either, without throwing.
+		assertEquals(0, DisplayNode.adoptableNodeId(new SceneState()));
 	}
 
 	@Test

@@ -394,6 +394,20 @@ public final class SurfaceTable {
 	 * {@code COLOR} at a pixel stage and {@code x} at the animator. The stage-free version returned
 	 * "COLOR" for the animator's x — a diagnostic naming a property from a different surface.
 	 */
+	/**
+	 * Whether this id is RESERVED-BUT-NOT-OWNABLE — held with a published name and no type.
+	 *
+	 * Exactly two, and the predicate exists because a diagnostic asserted the property of all of
+	 * them. {@link #propertyName} is TOTAL — every arm falls back to {@code "prop" + id} — so a
+	 * {@code name != null} test is a tautology, and a refusal built on one told an author that
+	 * property 5 of the material stage was "reserved but not ownable in v1" while inventing the
+	 * spelling {@code prop5} as though this table published it. Unallocated is not reserved.
+	 */
+	public static boolean isReservedUnownable(byte stage, int propertyId) {
+		return stage == OcslWire.STAGE_ANIMATOR
+				&& (propertyId == OcslWire.PROP_ANIM_Z || propertyId == OcslWire.PROP_ANIM_VISIBLE);
+	}
+
 	public static String propertyName(byte stage, int propertyId) {
 		if (stage == OcslWire.STAGE_ANIMATOR) {
 			switch (propertyId) {

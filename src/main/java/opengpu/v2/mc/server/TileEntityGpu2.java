@@ -308,6 +308,31 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 			if (DisplayNode.stillValid(scene.state(), implicitCanvasRes, implicitCanvasNode)) {
 				return;
 			}
+			// ADOPT BEFORE ALLOCATING, and this is the half that makes the stricter check safe.
+			// Allocating a replacement hands out a HIGHER node id while the stale lower-id canvas
+			// node survives -- so displayCanvas(), which picks the lowest, keeps choosing the old
+			// one and setResolution's cross-check then throws "the drawing canvas is not the display
+			// canvas" for the rest of the session. Tightening the validity test made that
+			// pre-existing recovery path reachable far more often, which is a new check making a
+			// dormant broken path live.
+			//
+			// Re-syncing to the node the CLIENT would pick makes the server's remembered id and the
+			// client's scan agree by construction, which is the divergence DisplayNode documents.
+			int adopted = DisplayNode.adoptableNodeId(scene.state());
+			if (adopted != 0) {
+				int adoptedRes = scene.state().nodes.get(adopted).ref;
+				OpenGPU.logger.warn("GPU " + scene.sceneId + ": persisted implicit canvas ids"
+						+ " are stale; adopting node " + adopted + " (canvas " + adoptedRes
+						+ "), which is the one clients already display");
+				implicitCanvasRes = adoptedRes;
+				implicitCanvasNode = adopted;
+				return;
+			}
+			// RESIDUAL, stated rather than hidden: if a canvas node exists but is not itself valid
+			// -- a PARENTED one, which displayCanvas() would still pick because it does not test the
+			// parent -- a fresh allocation is shadowed by it and the cross-check still throws.
+			// Closing that means making displayCanvas() skip parented nodes, which is shared
+			// client-side scene code and a wider change than this one.
 			OpenGPU.logger.warn("GPU " + scene.sceneId
 					+ ": persisted implicit canvas ids are stale; creating a fresh canvas");
 		}
