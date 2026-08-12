@@ -147,3 +147,15 @@ tasks.register<JavaExec>("ocslGolden") {
     mainClass.set("opengpu.v2.ocsl.OcslGoldenGenerator")
     args("src/test/resources/ocsl/golden-vectors.txt")
 }
+
+// Measure the CPU-measured column of the OCSL op weight table. Manual, like ocslGolden:
+//   ./gradlew ocslWeights
+//
+// NOT wired into `check`. A timing assertion in CI is a flaky test that eventually gets muted,
+// and the deliverable here is a table a person reads and argues with, not a pass/fail.
+tasks.register<JavaExec>("ocslWeights") {
+    group = "verification"
+    description = "Measure per-op CPU cost on the OCSL VM (prints a table; freezes nothing)"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("opengpu.v2.ocsl.OcslWeightBench")
+}
