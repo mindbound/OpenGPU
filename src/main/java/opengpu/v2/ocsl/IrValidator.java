@@ -39,6 +39,48 @@ public final class IrValidator {
 	public static final int MAX_STRUCTURAL_OPS = 256;
 	/** Texture fetches, post-unroll, user tier. */
 	public static final int MAX_FETCHES = 16;
+
+	/**
+	 * The fetch cap AT A STAGE — ANIM-16, which asks for the animator's caps to be stated rather
+	 * than inherited.
+	 *
+	 * The animator's is <b>0</b>, and that is a rule and not a description: no sampler exists in its
+	 * register set, so a fetch there names a resource the surface has no way to bind. Inheriting 16
+	 * would have let an animator sample any slot except the built-in `input` one — the slot-0 guard
+	 * below is the only sampler check that is stage-aware, and it does not cover slots 1..15.
+	 *
+	 * Written now, while the stage is still refused, so it is live the moment the surface opens
+	 * rather than being a prose obligation someone has to remember at that point.
+	 */
+	public static int maxFetches(byte stage) {
+		return stage == OcslWire.STAGE_ANIMATOR ? 0 : MAX_FETCHES;
+	}
+
+	/**
+	 * The uniform-component budget AT A STAGE — the other half of ANIM-16.
+	 *
+	 * 64 is the <b>GL</b> floor: GLSL 1.20 on 2006-era parts guarantees little more, and it is the
+	 * number every pixel-family program is priced against. <b>It does not apply at the animator
+	 * stage</b>, because no animator program is ever lowered to GLSL — it evaluates on the CPU VM to
+	 * produce property values, and the frame it needs is bounded by A5's frame-width cap instead.
+	 * ANIM-16 asks for one of these two answers explicitly; this is the second.
+	 *
+	 * And the sentence ANIM-16 says is "the difference between 12/64 and 44/64": <b>the node's
+	 * property input registers do NOT charge against this budget.</b> They are built-in registers
+	 * at fixed ids, not declared uniforms — the budget counts what a program DECLARES.
+	 *
+	 * <b>The VALUE is 64 everywhere, and only the REASON differs</b> — a first draft returned
+	 * {@code MAX_FRAME_WIDTH} here and published "1024" for the animator, which was wrong twice
+	 * over. It contradicted {@code maxUniforms 64} in the same artifact, making 1024 unreachable;
+	 * and it could never fire, because v1 uniforms are float-typed, so components equal slots and
+	 * {@link SurfaceTable#MAX_UNIFORMS} refuses first. The two caps coincide in v1 by accident of
+	 * the type system. They diverge the moment typed uniforms land — and at that point the pixel
+	 * family stays pinned to the GL floor while the animator does not, which is the distinction
+	 * ANIM-16 asked to be stated rather than the number.
+	 */
+	public static int maxUniformComponentsAt(byte stage) {
+		return MAX_UNIFORM_COMPONENTS;
+	}
 	/** Uniform COMPONENTS, against the GL 2.1 minimum of 64 fragment components. */
 	public static final int MAX_UNIFORM_COMPONENTS = 64;
 	/** Product of all loop trip counts. Equal to the op cap and therefore non-binding today. */
@@ -148,9 +190,10 @@ public final class IrValidator {
 			}
 		}
 		int uniformComponents = uniformCount;
-		if (uniformComponents > MAX_UNIFORM_COMPONENTS) {
+		if (uniformComponents > maxUniformComponentsAt(stage)) {
 			throw new ValidationException(-1, "uses " + uniformComponents
-					+ " uniform components, over the cap of " + MAX_UNIFORM_COMPONENTS);
+					+ " uniform components, over this stage's cap of "
+					+ maxUniformComponentsAt(stage));
 		}
 
 		boolean[] written = new boolean[regCount];
@@ -254,9 +297,10 @@ public final class IrValidator {
 							+ " only the effect and post-chain surfaces have");
 				}
 				fetches += multiplier;
-				if (fetches > MAX_FETCHES) {
+				if (fetches > maxFetches(stage)) {
 					throw new ValidationException(i, "program performs " + fetches
-							+ " fetches post-unroll, over the cap of " + MAX_FETCHES);
+							+ " fetches post-unroll, over this stage's cap of "
+							+ maxFetches(stage));
 				}
 			}
 
@@ -269,7 +313,7 @@ public final class IrValidator {
 				}
 				OcslType actual = readType(program, types, written, op, 1, i, stage);
 				if (actual != expected) {
-					throw new ValidationException(i, "OUT " + SurfaceTable.propertyName(property)
+					throw new ValidationException(i, "OUT " + SurfaceTable.propertyName(stage, property)
 							+ " expects " + expected.display() + ", got " + actual.display());
 				}
 				if (!tripStack.isEmpty()) {
@@ -279,7 +323,7 @@ public final class IrValidator {
 				Integer previous = outsByProperty.put(Integer.valueOf(property), Integer.valueOf(i));
 				if (previous != null) {
 					throw new ValidationException(i, "property "
-							+ SurfaceTable.propertyName(property) + " already written at op "
+							+ SurfaceTable.propertyName(stage, property) + " already written at op "
 							+ previous);
 				}
 				continue;
@@ -293,7 +337,7 @@ public final class IrValidator {
 		for (int required : SurfaceTable.requiredProperties(stage)) {
 			if (!outsByProperty.containsKey(Integer.valueOf(required))) {
 				throw new ValidationException(-1, "program never writes "
-						+ SurfaceTable.propertyName(required) + "; every program on this surface"
+						+ SurfaceTable.propertyName(stage, required) + "; every program on this surface"
 						+ " must produce it");
 			}
 		}

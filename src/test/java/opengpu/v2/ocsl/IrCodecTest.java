@@ -173,8 +173,15 @@ public class IrCodecTest {
 
 	@Test
 	public void refusesTheAnimatorStageByNameAndPointsAtItsDryRun() throws Exception {
-		byte[] blob = enc(program(OcslWire.STAGE_ANIMATOR, new float[] { 1.0f }, 1,
+		// THE STAGE BYTE IS PATCHED INTO A VALID BLOB rather than encoded, because `encode()` now
+		// refuses the animator too -- IrStructure gained the reserved-stage check its own javadoc
+		// had always claimed, closing the last case where encode() emitted bytes decode() rejects.
+		// That makes patching the only way to produce this blob, and it is the more faithful test:
+		// the decoder is the security boundary, so what it must refuse is bytes from an encoder we
+		// do not control -- a hostile one, or simply an older build from before the tripwire.
+		byte[] blob = enc(program(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, 1,
 				new IrOp(OcslWire.OP_OUT, -1, 0, OcslWire.OPERAND_CONST_FLAG)));
+		blob[6] = OcslWire.STAGE_ANIMATOR; // 4-byte magic, 2-byte version, then the stage
 		try {
 			IrCodec.decode(blob, IrCodec.Source.TRANSIENT);
 			fail("the animator stage must be refused while its amendments are pending");
@@ -183,6 +190,30 @@ public class IrCodecTest {
 			// satisfy a laxer assertion while the tripwire and its pointer never existed.
 			assertTrue("the refusal must carry the pointer, got: " + e.getMessage(),
 					e.getMessage().contains("OCSL-ANIMATOR-DRYRUN"));
+		}
+	}
+
+	/**
+	 * The encoder refuses the reserved surfaces too, which is the half that was missing.
+	 *
+	 * {@code IrStructure}'s javadoc listed "a reserved stage" among the things {@code encode()}
+	 * emitted and {@code decode()} then refused, and implemented every item on that list except
+	 * that one — so a hand-built animator program encoded to a valid 36-byte blob no decoder would
+	 * take back. Both surfaces are checked: compute is in the identical state and was equally open.
+	 */
+	@Test
+	public void encodeRefusesTheReservedSurfacesRatherThanEmittingUndecodableBytes() throws Exception {
+		byte[] stages = { OcslWire.STAGE_ANIMATOR, OcslWire.STAGE_COMPUTE };
+		for (int i = 0; i < stages.length; i++) {
+			try {
+				enc(program(stages[i], new float[] { 1.0f }, 1,
+						new IrOp(OcslWire.OP_OUT, -1, 0, OcslWire.OPERAND_CONST_FLAG)));
+				fail("encode() must refuse reserved stage " + (stages[i] & 0xFF)
+						+ " rather than emit bytes that no decoder accepts");
+			} catch (CodecException e) {
+				assertTrue("the refusal should say the surface is reserved, got: " + e.getMessage(),
+						e.getMessage().contains("RESERVED"));
+			}
 		}
 	}
 

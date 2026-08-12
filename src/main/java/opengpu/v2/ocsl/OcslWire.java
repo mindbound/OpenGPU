@@ -56,6 +56,27 @@ public final class OcslWire {
 	/** The pixel family's only output. Its surfaces accept exactly one OUT, targeting this. */
 	public static final int PROP_COLOR = 0;
 
+	// The ANIMATOR surface's output namespace (ANIM-2, assigned 2026-08-12). A SEPARATE namespace
+	// from the pixel family's -- property ids are per-surface, so id 0 is COLOR there and `x` here,
+	// and there is no collision to resolve. Assigned while the stage is still refused, because
+	// these ids persist into ownership declarations in NBT: a rename later is a save migration.
+	public static final int PROP_ANIM_X = 0;
+	public static final int PROP_ANIM_Y = 1;
+	public static final int PROP_ANIM_SX = 2;
+	public static final int PROP_ANIM_SY = 3;
+	public static final int PROP_ANIM_ROT2D = 4;
+	/** vec4. Split from rot2d so every id has exactly one type and the OUT check stays decidable. */
+	public static final int PROP_ANIM_ROT3D = 5;
+	/** vec4, RGBA, normalized 0..1. The ARGB int packing is wire/storage only and never reaches IR. */
+	public static final int PROP_ANIM_TINT = 6;
+	/** Reserved, NOT ownable in v1: an int that does not interpolate. Refused at attach, by name. */
+	public static final int PROP_ANIM_Z = 7;
+	/** Reserved, NOT ownable in v1: IR bool is conditions-only, with no bool register or output. */
+	public static final int PROP_ANIM_VISIBLE = 8;
+	/** Stage C's 3D translate/scale on the z axis. */
+	public static final int PROP_ANIM_TZ = 9;
+	public static final int PROP_ANIM_SZ = 10;
+
 	// ---------------------------------------------------------------- operand tagging
 	// An operand is a register index or a constant-pool index, distinguished by the top bit. The
 	// accounting rule makes constant-pool references FREE, which only works if a constant can BE

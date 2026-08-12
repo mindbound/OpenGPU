@@ -41,16 +41,85 @@
 7 outputResolution - - - vec2 - - -
 8 timePeriod - - - - - - -
 9 normal - - - - - - -
+10 builtin10 - - - - - - -
+11 builtin11 - - - - - - -
+12 builtin12 - - - - - - -
+13 builtin13 - - - - - - -
+14 builtin14 - - - - - - -
+15 builtin15 - - - - - - -
+16 anim.x - - - - - - -
+17 anim.y - - - - - - -
+18 anim.sx - - - - - - -
+19 anim.sy - - - - - - -
+20 anim.rot2d - - - - - - -
+21 anim.rot3d - - - - - - -
+22 anim.tint - - - - - - -
+23 anim.tz - - - - - - -
+24 anim.sz - - - - - - -
+25 anim.nodeSeed - - - - - - -
+26 anim.sinceAttach - - - - - - -
+27 anim.parent.x - - - - - - -
+28 anim.parent.y - - - - - - -
+29 anim.parent.sx - - - - - - -
+30 anim.parent.sy - - - - - - -
+31 anim.parent.rot2d - - - - - - -
+32 anim.parent.rot3d - - - - - - -
+33 anim.parent.tint - - - - - - -
+34 anim.parent.tz - - - - - - -
+35 anim.parent.sz - - - - - - -
+36 builtin36 - - - - - - -
+37 builtin37 - - - - - - -
+38 builtin38 - - - - - - -
+39 builtin39 - - - - - - -
+40 builtin40 - - - - - - -
+41 builtin41 - - - - - - -
+42 builtin42 - - - - - - -
+43 builtin43 - - - - - - -
+44 builtin44 - - - - - - -
+45 builtin45 - - - - - - -
+46 builtin46 - - - - - - -
+47 builtin47 - - - - - - -
 
-[properties] id name type required-by
-# What OUT's `property` operand means. Absent from the first cut, which left a
-# second backend knowing OUT takes a property and not that 0 is COLOR.
-0 COLOR vec4 material,effect,post,bake
+[properties] stage id name type required
+# What OUT's `property` operand means, in the stage's OWN namespace.
+# required: the stage refuses a program that does not write it.
+material 0 COLOR vec4 yes
+effect 0 COLOR vec4 yes
+post 0 COLOR vec4 yes
+bake 0 COLOR vec4 yes
+animator 0 x float no
+animator 1 y float no
+animator 2 sx float no
+animator 3 sy float no
+animator 4 rot2d float no
+animator 5 rot3d vec4 no
+animator 6 tint vec4 no
+animator 9 tz float no
+animator 10 sz float no
+# Animator ids with NO row are reserved without a type, deliberately: `z` (int)
+# and `visible` (bool) are not ownable in v1 -- neither interpolates, and IR bool
+# is conditions-only -- so their ids are held but no OUT may target them.
+animator 7 z reserved no
+animator 8 visible reserved no
 
 [slots] name value
 # Sampler bindings are their own namespace, not registers.
 inputSlot 0
 inputSamplerStages effect,post
+
+[stage-caps] stage fetches uniformComponents
+# fetches 0 at the animator is a RULE: no sampler exists in its register set, so
+# a fetch names a resource the surface cannot bind. The 64-component uniform
+# budget is the GL floor and does not apply where nothing is lowered to GLSL;
+# the animator is bounded by the frame-width cap instead. Node property input
+# registers do NOT charge against either -- they are built-ins, not declarations.
+material 16 64
+effect 16 64
+post 16 64
+bake 16 64
+vertex 16 64
+animator 0 64
+compute 16 64
 
 [constructors] op operands result charge
 # The shapes amendment 4 pins. `f` is a float operand, `vN` a vector of width N.
@@ -118,9 +187,9 @@ CONS4_V2V2 v2,v2 v4 1
 [blocks] name base limit
 # Half-open [base, limit). Claimed now, assigned later.
 light 10 16
-animator 16 32
-uniform 32 96
-working 96 512
+animator 16 48
+uniform 48 112
+working 112 512
 
 [caps] name value
 # Most of these may be RAISED under the monotonicity rule and never lowered once

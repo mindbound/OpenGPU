@@ -8,10 +8,18 @@ package opengpu.v2.ocsl;
  *
  * REGISTER IDS. The index space an operand names is laid out in three fixed blocks:
  * <pre>
- *   0  .. 31   built-in input registers   (reserved for EVERY surface, applicability per surface)
- *   32 .. 95   user uniforms              (64 slots, declaration order)
- *   96 ..      working registers          (written by ops)
+ *   0  .. 47   built-in input registers   (reserved for EVERY surface, applicability per surface)
+ *     0  ..  9   the shared inputs: uv, position, tint, time, … timePeriod, normal
+ *     10 .. 15   light parameters         (Stage C/D, block claimed, ids unassigned)
+ *     16 .. 47   the ANIMATOR block       (ANIM-2: 16..24 own, 25..26 per-node, 27..35 parent)
+ *   48 .. 111  user uniforms              (64 slots, declaration order)
+ *   112 ..     working registers          (written by ops)
  * </pre>
+ * <b>These numbers moved on 2026-08-12</b> and this diagram did not, for long enough to be worth
+ * recording: it still read 0..31 / 32..95 / 96.. while the constants forty lines below said
+ * otherwise. The generated {@code surface-tables.txt} was right the whole time — it is derived —
+ * so the freeze test stayed green while the prose a human actually reads was wrong, which is a
+ * neat demonstration that a generated artifact does not protect the hand-written text beside it.
  * User uniforms deliberately do NOT begin immediately after whatever built-ins a surface happens
  * to use. That was the specific trap the design called out: pack them tight and every surface has a
  * different uniform base, adding a built-in shifts every uniform id in every saved blob, and a
@@ -30,11 +38,36 @@ public final class SurfaceTable {
 
 	// ---------------------------------------------------------------- register blocks
 
+	/**
+	 * WIDENED 2026-08-12, while it was still free, and it will never be free again.
+	 *
+	 * Assigning ANIM-2's reservation set revealed that the animator block as first drawn (16..32)
+	 * held it EXACTLY — 7 readable raw properties, `nodeSeed`, `sinceAttach`, and a 7-id parent read
+	 * block is 16 of 16 — with no room for Stage C's 3D `tz`/`sz` reads or their parent
+	 * counterparts. The block had been sized before the amendment enumerated what had to go in it.
+	 *
+	 * So the built-in span is now 0..48 and the animator block 16..48. This moves `UNIFORM_BASE`
+	 * and `WORKING_BASE`, which renumbers every uniform and working register — a change that is
+	 * costless today and a format-version bump plus an NBT migration after the first surface ships,
+	 * because `FORMAT_VERSION` is 0 and {@link IrCodec} refuses format 0 from any persisted source.
+	 * There is no blob anywhere to invalidate. That window is the whole reason to do it now.
+	 *
+	 * The uniform block keeps its 64 slots. The working span drops 416 → 400 — and the first draft
+	 * of this note claimed that "cannot bind, since every op allocates at most one register", which
+	 * is FALSE and was measured false. {@code FOR} allocates a register and charges ZERO
+	 * ({@code OcslWire} gives it {@code hasDst=true} with {@code structuralCharge=0}, because the
+	 * structural count is post-unroll and unrolled GLSL emits nothing for loop control), so a
+	 * program of {@code FOR 1 / ADD / ENDFOR} triples allocates two registers per charged op. 199
+	 * such triples validate at 201 structural ops using 399 working registers; 200 are refused for
+	 * declaring 513. The register span therefore binds at around 200 charged ops, and this widening
+	 * cost <b>16 reachable working registers</b>. Not a format break — nothing has been written —
+	 * but the next person judging whether a widening is free should not inherit the wrong reason.
+	 */
 	public static final int BUILTIN_BASE = 0;
-	public static final int BUILTIN_LIMIT = 32;
-	public static final int UNIFORM_BASE = 32;
-	public static final int UNIFORM_LIMIT = 96;
-	public static final int WORKING_BASE = 96;
+	public static final int BUILTIN_LIMIT = 48;
+	public static final int UNIFORM_BASE = 48;
+	public static final int UNIFORM_LIMIT = 112;
+	public static final int WORKING_BASE = 112;
 
 	public static final int MAX_UNIFORMS = UNIFORM_LIMIT - UNIFORM_BASE;
 
@@ -74,12 +107,96 @@ public final class SurfaceTable {
 	public static final int REG_LIGHT_BASE = 10;
 	public static final int REG_LIGHT_LIMIT = 16;
 	/**
-	 * Reserved for the deferred animator surface. Its property table is one of the 18 pending
-	 * amendments, so nothing here is assigned yet — but the BLOCK is, so that when the surface
-	 * is taken up its ids do not have to be carved out of space something else has taken.
+	 * The animator surface's input registers — ASSIGNED 2026-08-12 (ANIM-2), still UNREADABLE.
+	 *
+	 * The ids are frozen here and published in {@code surface-tables.txt}; nothing reads them,
+	 * because {@link #builtinType} returns null for {@code STAGE_ANIMATOR} and {@link IrCodec}
+	 * still refuses the stage by name. That split is deliberate and is exactly what ANIM-2 costs:
+	 * "a table; zero ops". The surface opens when the amendments that give these registers MEANING
+	 * land — composition (ANIM-3), time (ANIM-4), lifecycle (ANIM-15/17) — and opening it is a
+	 * behaviour change, not an id change, because the ids are settled now.
+	 *
+	 * Per ANIM-7 the readable value is the RAW server-set property, never the animator-composed one
+	 * (self-referential for an owned property) and never the interpolated display transform (that
+	 * is the composition base, renderer behaviour, carrying no purity claim). The consequence is
+	 * documented rather than hidden: a program reading {@code x} reads a value up to one
+	 * interpolation window out of step with the base its output lands on, so <b>{@code x} is not
+	 * "where I am drawn"</b>.
 	 */
 	public static final int REG_ANIMATOR_BASE = 16;
-	public static final int REG_ANIMATOR_LIMIT = 32;
+
+	/** The node's own raw server-set TRS and tint, in the same order as the property table. */
+	public static final int REG_ANIM_X = 16;
+	public static final int REG_ANIM_Y = 17;
+	public static final int REG_ANIM_SX = 18;
+	public static final int REG_ANIM_SY = 19;
+	public static final int REG_ANIM_ROT2D = 20;
+	/** vec4. A quaternion at the wire/API level; a SEPARATE id from rot2d so every id has one type. */
+	public static final int REG_ANIM_ROT3D = 21;
+	/** vec4, RGBA, 0..1 — bit-for-bit the pixel stage's tint shape. ARGB packing never reaches IR. */
+	public static final int REG_ANIM_TINT = 22;
+
+	/**
+	 * A stable bit-mix of the server-allocated node id: replicated by construction, pure, zero ops.
+	 *
+	 * This is what makes a curated preset de-phaseable with no authoring and no Lua call. Without
+	 * it a preset attached to a field of nodes runs in exact lockstep — ANIM-2's "200 debris sprites
+	 * shaking on the same frame" — and both workarounds are defective: baking a position read in
+	 * makes the preset permanently position-de-phased and identical for co-located nodes, and a
+	 * per-node `phase` uniform costs N set-calls against the design's own "animating N nodes must
+	 * not cost N direct calls" rule.
+	 */
+	/** Stage C's 3D translate/scale on the z axis — contiguous with the node's own 2D TRS above. */
+	public static final int REG_ANIM_TZ = 23;
+	public static final int REG_ANIM_SZ = 24;
+	/** One past the node's own property reads: [16, 25). */
+	public static final int REG_ANIM_OWN_LIMIT = 25;
+
+	public static final int REG_ANIM_NODE_SEED = 25;
+
+	/**
+	 * {@code min(renderClock − the replicated tick this attachment became active, CAP)} — ANIM-6.
+	 *
+	 * RESERVED, and the amendment's own framing is why: either answer was cheap on 2026-08-12 and
+	 * only one stays available after the table is published. Host-computed from state the design
+	 * already persists, so purity is untouched — exactly as external an input as {@code time}, and
+	 * every client derives the same value from the same replicated stamp. SATURATING is the
+	 * load-bearing word: monotone AND settling, the one property a wrapped clock structurally
+	 * cannot have. Refusing it would have meant striking "easing" from the design; reserving it
+	 * costs one id and no ops, and turns ease/one-shot/decay into 3–5 op programs.
+	 */
+	public static final int REG_ANIM_SINCE_ATTACH = 26;
+
+	/**
+	 * Parent property reads — ONE nesting level, a CONTIGUOUS fixed-size block, no traversal.
+	 *
+	 * Fixed-size and one level on purpose: a traversal would make a program's cost depend on scene
+	 * shape, which no static op count could express.
+	 *
+	 * CONTIGUOUS is a correction, made while the ids were still free. The first draft put the
+	 * parent's 2D properties at 25..31 and then the NODE'S OWN `tz`/`sz` at 32..33 before the
+	 * parent's at 34..35 — so the parent range had the node's own registers sitting inside it. Host
+	 * fill code writing the natural {@code for (i) frame[PARENT_BASE + i] = parentProps[i]} would
+	 * have landed the parent's 8th and 9th values on the node's own z-translate and z-scale: a node
+	 * whose own depth silently became its parent's, with nothing to catch it. The block now runs
+	 * [27, 36) in the same order as the node's own [16, 25), so index i means the same property in
+	 * both, and {@link #REG_ANIM_PARENT_LIMIT} exists so the loop bound is a constant rather than
+	 * arithmetic on the last member.
+	 */
+	public static final int REG_ANIM_PARENT_BASE = 27;
+	public static final int REG_ANIM_PARENT_X = 27;
+	public static final int REG_ANIM_PARENT_Y = 28;
+	public static final int REG_ANIM_PARENT_SX = 29;
+	public static final int REG_ANIM_PARENT_SY = 30;
+	public static final int REG_ANIM_PARENT_ROT2D = 31;
+	public static final int REG_ANIM_PARENT_ROT3D = 32;
+	public static final int REG_ANIM_PARENT_TINT = 33;
+	public static final int REG_ANIM_PARENT_TZ = 34;
+	public static final int REG_ANIM_PARENT_SZ = 35;
+	public static final int REG_ANIM_PARENT_LIMIT = 36;
+
+	/** 36..47 stay unassigned: headroom bought while it was free. */
+	public static final int REG_ANIMATOR_LIMIT = 48;
 
 	// ---------------------------------------------------------------- slots
 	// Sampler bindings are their own namespace. Slot 0 is the built-in `input` sampler at the
@@ -178,6 +295,28 @@ public final class SurfaceTable {
 			// to before anything reads it.
 			case REG_TIME_PERIOD: return "timePeriod";
 			case REG_NORMAL: return "normal";
+			// The animator block. Named while still unreadable, because the frozen table publishes
+			// them and a reserved id whose name is "builtin23" is a reservation nobody can cite.
+			case REG_ANIM_X: return "anim.x";
+			case REG_ANIM_Y: return "anim.y";
+			case REG_ANIM_SX: return "anim.sx";
+			case REG_ANIM_SY: return "anim.sy";
+			case REG_ANIM_ROT2D: return "anim.rot2d";
+			case REG_ANIM_ROT3D: return "anim.rot3d";
+			case REG_ANIM_TINT: return "anim.tint";
+			case REG_ANIM_NODE_SEED: return "anim.nodeSeed";
+			case REG_ANIM_SINCE_ATTACH: return "anim.sinceAttach";
+			case REG_ANIM_PARENT_X: return "anim.parent.x";
+			case REG_ANIM_PARENT_Y: return "anim.parent.y";
+			case REG_ANIM_PARENT_SX: return "anim.parent.sx";
+			case REG_ANIM_PARENT_SY: return "anim.parent.sy";
+			case REG_ANIM_PARENT_ROT2D: return "anim.parent.rot2d";
+			case REG_ANIM_PARENT_ROT3D: return "anim.parent.rot3d";
+			case REG_ANIM_PARENT_TINT: return "anim.parent.tint";
+			case REG_ANIM_TZ: return "anim.tz";
+			case REG_ANIM_SZ: return "anim.sz";
+			case REG_ANIM_PARENT_TZ: return "anim.parent.tz";
+			case REG_ANIM_PARENT_SZ: return "anim.parent.sz";
 			default: return "builtin" + reg;
 		}
 	}
@@ -200,16 +339,95 @@ public final class SurfaceTable {
 			case OcslWire.STAGE_BAKE:
 				// The pixel family's whole property table: one row.
 				return propertyId == OcslWire.PROP_COLOR ? OcslType.VEC4 : null;
+			case OcslWire.STAGE_ANIMATOR:
+				return animatorPropertyType(propertyId);
 			default:
 				return null;
 		}
 	}
 
-	public static String propertyName(int propertyId) {
+	/**
+	 * ANIM-2's table, one row per animator-writable property.
+	 *
+	 * Published even though the stage is refused, because these ids are the half of the reserved-id
+	 * deliverable that was missing: the animator is the one surface whose OUTPUTS are named, and
+	 * nothing reserved ids for them, stated their encoding, or fixed their spelling. The record
+	 * already showed the spelling drifting — OCSL-POSTER writes `rotation`, the shipped field and
+	 * the `setTransform` callback both write `rot` — and ownership declarations persist to NBT, so
+	 * a rename later is a save migration rather than a docs change.
+	 *
+	 * {@code z} and {@code visible} carry ids and are NOT ownable in v1: {@code z} is an int and
+	 * {@code visible} a boolean, neither interpolates, and IR bool is conditions-only with no bool
+	 * register or output anywhere — so {@code setAnimator(id, {"visible"})} is a legal-looking call
+	 * with no possible meaning. They are refused at attach with a documented error rather than
+	 * silently absent, so the refusal can name them.
+	 *
+	 * {@code ref} and {@code parent} get no row at all: ANIM-2 makes them explicitly not readable.
+	 */
+	private static OcslType animatorPropertyType(int propertyId) {
+		switch (propertyId) {
+			case OcslWire.PROP_ANIM_X:
+			case OcslWire.PROP_ANIM_Y:
+			case OcslWire.PROP_ANIM_SX:
+			case OcslWire.PROP_ANIM_SY:
+			case OcslWire.PROP_ANIM_ROT2D:
+				return OcslType.FLOAT;
+			case OcslWire.PROP_ANIM_ROT3D:
+			case OcslWire.PROP_ANIM_TINT:
+				return OcslType.VEC4;
+			case OcslWire.PROP_ANIM_TZ:
+			case OcslWire.PROP_ANIM_SZ:
+				return OcslType.FLOAT;
+			// PROP_ANIM_Z and PROP_ANIM_VISIBLE deliberately have NO type: their ids are reserved
+			// so nothing else takes them, and a typed row would advertise an OUT that must then be
+			// refused somewhere less obvious than here.
+			default:
+				return null;
+		}
+	}
+
+	/**
+	 * STAGE-AWARE, and it has to be: property ids are a per-surface namespace, so id 0 is
+	 * {@code COLOR} at a pixel stage and {@code x} at the animator. The stage-free version returned
+	 * "COLOR" for the animator's x — a diagnostic naming a property from a different surface.
+	 */
+	public static String propertyName(byte stage, int propertyId) {
+		if (stage == OcslWire.STAGE_ANIMATOR) {
+			switch (propertyId) {
+				case OcslWire.PROP_ANIM_X: return "x";
+				case OcslWire.PROP_ANIM_Y: return "y";
+				case OcslWire.PROP_ANIM_SX: return "sx";
+				case OcslWire.PROP_ANIM_SY: return "sy";
+				case OcslWire.PROP_ANIM_ROT2D: return "rot2d";
+				case OcslWire.PROP_ANIM_ROT3D: return "rot3d";
+				case OcslWire.PROP_ANIM_TINT: return "tint";
+				case OcslWire.PROP_ANIM_Z: return "z";
+				case OcslWire.PROP_ANIM_VISIBLE: return "visible";
+				case OcslWire.PROP_ANIM_TZ: return "tz";
+				case OcslWire.PROP_ANIM_SZ: return "sz";
+				default: return "prop" + propertyId;
+			}
+		}
 		return propertyId == OcslWire.PROP_COLOR ? "COLOR" : ("prop" + propertyId);
 	}
 
-	/** Every property this stage requires an OUT for. The pixel family requires exactly COLOR. */
+	/**
+	 * Every property this stage requires an OUT for. The pixel family requires exactly COLOR.
+	 *
+	 * <b>DO NOT use an empty result as "this stage is not implemented".</b> Two call sites do
+	 * ({@link IrValidator} and {@link OcslBuilder#forStage}), and it has been correct only because
+	 * every implemented surface so far happens to mandate an output. The animator breaks it: ANIM-1
+	 * and ANIM-2 make its OUT set variable per program and the sole ownership declaration, so
+	 * {@code requiredProperties(STAGE_ANIMATOR)} must stay <b>empty forever</b> — an animator that
+	 * owns only {@code x} writes only {@code x}.
+	 *
+	 * The trap that leaves is concrete: whoever opens the surface implements {@code builtinType}
+	 * for it, finds {@code validate()} still refusing, and clears the gate by making this method
+	 * return a property — forcing every animator program to own it, directly against ANIM-2. The
+	 * two questions need separating at that point. They are not separated now because the animator
+	 * is the only surface that distinguishes them and it is still shut; {@link IrStructure} refuses
+	 * it by name, which is the gate that actually means "reserved".
+	 */
 	public static int[] requiredProperties(byte stage) {
 		switch (stage) {
 			case OcslWire.STAGE_PIXEL_MATERIAL:

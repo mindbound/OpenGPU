@@ -73,6 +73,20 @@ public final class IrStructure {
 			throw new StructureException(-1, "Stage " + (stage & 0xFF) + " is not a stage this"
 					+ " build knows");
 		}
+		// AND the reserved ones, which this class's own javadoc already listed among the things
+		// encode() emitted and decode() then refused -- "a non-canonical swizzle, a uniform named
+		// `my name`, a 1025-entry pool, A RESERVED STAGE". Every other item on that list was
+		// implemented here; this one was not, so `encode()` happily produced a 36-byte animator
+		// blob that no decoder would take back. Reserved-but-known is exactly the state the
+		// animator and compute surfaces are in: their ids are frozen so nothing else claims them,
+		// and no program on them may exist yet.
+		if (stage == OcslWire.STAGE_ANIMATOR || stage == OcslWire.STAGE_COMPUTE) {
+			throw new StructureException(-1, "Stage " + (stage & 0xFF) + " ("
+					+ (stage == OcslWire.STAGE_ANIMATOR ? "animator" : "compute")
+					+ ") is RESERVED: its register and property ids are frozen so nothing else"
+					+ " takes them, but no program on this surface may be built, encoded or run"
+					+ " yet. Opening it is a deliberate act, not a side effect");
+		}
 	}
 
 	private static void checkPool(IrProgram program) throws StructureException {

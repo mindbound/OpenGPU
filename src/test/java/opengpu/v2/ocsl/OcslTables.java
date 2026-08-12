@@ -142,18 +142,15 @@ public final class OcslTables {
 		line(out, "# An id present with - everywhere is RESERVED AND UNREADABLE, and deliberately so.");
 		line(out, "# Rows are DERIVED by scanning the id space against builtinType at every stage, so");
 		line(out, "# a register added anywhere appears here whether or not anyone listed it.");
-		for (int reg = 0; reg < SurfaceTable.UNIFORM_BASE; reg++) {
-			boolean readableSomewhere = false;
-			for (int s = 0; s < stages.length; s++) {
-				readableSomewhere |= SurfaceTable.builtinType(stages[s], reg) != null;
-			}
-			// Reserved-and-unreadable ids are carried explicitly; that is the entire content of a
-			// reservation. Everything below the light block is either assigned or reserved, and the
-			// blocks above it are described by [blocks] rather than row by row.
-			boolean reserved = reg < SurfaceTable.REG_LIGHT_BASE;
-			if (!readableSomewhere && !reserved) {
-				continue;
-			}
+		// EVERY id in the built-in span, with no predicate deciding which are interesting.
+		//
+		// Reserved-and-unreadable ids are the entire content of a reservation, so they are carried
+		// explicitly -- a row of all dashes is the point, not an omission. The predicate that used
+		// to select rows bounded on the LAST id anyone had assigned, which meant an id claimed in
+		// the animator's 36..47 headroom, or anywhere in the light block at 10..15, rendered this
+		// file byte-identical. That is exactly the mutation class the header claims to cover, so
+		// the selection is gone: 48 rows, always, named or not.
+		for (int reg = 0; reg < SurfaceTable.BUILTIN_LIMIT; reg++) {
 			StringBuilder row = new StringBuilder();
 			row.append(reg).append(' ').append(SurfaceTable.builtinName(reg));
 			for (int s = 0; s < stages.length; s++) {
@@ -165,30 +162,34 @@ public final class OcslTables {
 		line(out, "");
 	}
 
-	/** TABLE 1b — the property id namespace, which OUT's `property` operand indexes. */
+	/**
+	 * TABLE 1b — the property id namespace, which OUT's `property` operand indexes.
+	 *
+	 * PER STAGE, and it has to be: property ids are a per-surface namespace, so id 0 is `COLOR` at
+	 * a pixel stage and `x` at the animator. Rendering them in one flat list would have printed the
+	 * animator's `x` under the name `COLOR`.
+	 */
 	private static void propertyTable(StringBuilder out) {
 		byte[] stages = knownStages();
-		line(out, "[properties] id name type required-by");
-		line(out, "# What OUT's `property` operand means. Absent from the first cut, which left a");
-		line(out, "# second backend knowing OUT takes a property and not that 0 is COLOR.");
-		for (int prop = 0; prop < 8; prop++) {
-			StringBuilder carriers = new StringBuilder();
-			OcslType type = null;
-			for (int s = 0; s < stages.length; s++) {
+		line(out, "[properties] stage id name type required");
+		line(out, "# What OUT's `property` operand means, in the stage's OWN namespace.");
+		line(out, "# required: the stage refuses a program that does not write it.");
+		for (int s = 0; s < stages.length; s++) {
+			for (int prop = 0; prop < 32; prop++) {
 				OcslType t = SurfaceTable.propertyType(stages[s], prop);
 				if (t == null) {
 					continue;
 				}
-				type = t;
-				if (isRequired(stages[s], prop)) {
-					carriers.append(carriers.length() > 0 ? "," : "").append(stageName(stages[s]));
-				}
-			}
-			if (type != null) {
-				line(out, prop + " " + SurfaceTable.propertyName(prop) + " " + type.display() + " "
-						+ (carriers.length() > 0 ? carriers.toString() : "-"));
+				line(out, stageName(stages[s]) + " " + prop + " "
+						+ SurfaceTable.propertyName(stages[s], prop) + " " + t.display() + " "
+						+ (isRequired(stages[s], prop) ? "yes" : "no"));
 			}
 		}
+		line(out, "# Animator ids with NO row are reserved without a type, deliberately: `z` (int)");
+		line(out, "# and `visible` (bool) are not ownable in v1 -- neither interpolates, and IR bool");
+		line(out, "# is conditions-only -- so their ids are held but no OUT may target them.");
+		line(out, "animator " + OcslWire.PROP_ANIM_Z + " z reserved no");
+		line(out, "animator " + OcslWire.PROP_ANIM_VISIBLE + " visible reserved no");
 		line(out, "");
 	}
 
@@ -216,6 +217,20 @@ public final class OcslTables {
 		line(out, "inputSlot " + SurfaceTable.SLOT_INPUT);
 		line(out, "inputSamplerStages "
 				+ (withInput.length() > 0 ? withInput.toString() : "-"));
+		line(out, "");
+
+		// ANIM-16: the animator's caps STATED rather than inherited. Rendered per stage because
+		// two of them differ there, and "inherited" was exactly the thing the amendment refused.
+		line(out, "[stage-caps] stage fetches uniformComponents");
+		line(out, "# fetches 0 at the animator is a RULE: no sampler exists in its register set, so");
+		line(out, "# a fetch names a resource the surface cannot bind. The 64-component uniform");
+		line(out, "# budget is the GL floor and does not apply where nothing is lowered to GLSL;");
+		line(out, "# the animator is bounded by the frame-width cap instead. Node property input");
+		line(out, "# registers do NOT charge against either -- they are built-ins, not declarations.");
+		for (int s = 0; s < stages.length; s++) {
+			line(out, stageName(stages[s]) + " " + IrValidator.maxFetches(stages[s]) + " "
+					+ IrValidator.maxUniformComponentsAt(stages[s]));
+		}
 		line(out, "");
 	}
 

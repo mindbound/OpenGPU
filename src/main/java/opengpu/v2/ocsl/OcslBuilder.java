@@ -564,10 +564,16 @@ public final class OcslBuilder {
 		// refused inside build() with a message blaming the builder for the author's program. The
 		// multiplier is already maintained here; not using it was the whole bug.
 		fetches += multiplier;
-		if (fetches > IrValidator.MAX_FETCHES) {
+		// THE STAGE'S cap, not the global one. This read IrValidator.MAX_FETCHES while the
+		// validator had moved to a per-stage cap, which is the builder/validator divergence this
+		// file exists to prevent -- and it would have surfaced exactly where the comment above says
+		// it already surfaced once: build() refusing a program the builder accepted call-by-call,
+		// with a message blaming the implementation for the author's program. At the animator
+		// (fetch cap 0) every single tap would have taken that path.
+		if (fetches > IrValidator.maxFetches(stage)) {
 			throw new BuildException("program performs " + fetches + " fetches post-unroll, over"
-					+ " the cap of " + IrValidator.MAX_FETCHES + "; a tap inside a loop of n costs"
-					+ " n fetches");
+					+ " this stage's cap of " + IrValidator.maxFetches(stage)
+					+ "; a tap inside a loop of n costs n fetches");
 		}
 		return emit(OcslWire.OP_SAMPLE, OcslType.VEC4, tintDependent(uv.operand),
 				slot, uv.operand);
@@ -586,7 +592,7 @@ public final class OcslBuilder {
 			throw new BuildException("stage " + (stage & 0xFF) + " has no property " + propertyId);
 		}
 		if (value.type != expected) {
-			throw new BuildException("OUT " + SurfaceTable.propertyName(propertyId) + " expects "
+			throw new BuildException("OUT " + SurfaceTable.propertyName(stage, propertyId) + " expects "
 					+ expected.display() + ", got " + value.type.display());
 		}
 		if (!tripStack.isEmpty()) {
@@ -595,7 +601,7 @@ public final class OcslBuilder {
 		}
 		for (int i = 0; i < ops.size(); i++) {
 			if (ops.get(i).opcode == OcslWire.OP_OUT && ops.get(i).operand(0) == propertyId) {
-				throw new BuildException("property " + SurfaceTable.propertyName(propertyId)
+				throw new BuildException("property " + SurfaceTable.propertyName(stage, propertyId)
 						+ " is already written");
 			}
 		}
