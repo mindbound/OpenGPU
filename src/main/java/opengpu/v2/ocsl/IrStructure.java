@@ -124,29 +124,40 @@ public final class IrStructure {
 					+ " exceeds the cap of " + OcslWire.MAX_NAMES);
 		}
 		for (int i = 0; i < names.size(); i++) {
-			String name = names.get(i);
-			if (name == null) {
-				throw new StructureException(-1, "Name " + i + " is null");
-			}
-			if (name.isEmpty()) {
-				throw new StructureException(-1, "Name " + i + " is empty");
-			}
-			if (name.length() > OcslWire.MAX_NAME_LENGTH) {
-				throw new StructureException(-1, "Name " + i + " is " + name.length()
-						+ " characters, over the cap of " + OcslWire.MAX_NAME_LENGTH);
-			}
-			char first = name.charAt(0);
-			if (first >= '0' && first <= '9') {
-				throw new StructureException(-1, "Name " + i + " starts with a digit");
-			}
-			for (int c = 0; c < name.length(); c++) {
-				char ch = name.charAt(c);
-				boolean ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
-						|| (ch >= '0' && ch <= '9') || ch == '_';
-				if (!ok) {
-					throw new StructureException(-1, "Name " + i + " has a character outside"
-							+ " [A-Za-z0-9_] at position " + c);
-				}
+			checkName(i, names.get(i));
+		}
+	}
+
+	/**
+	 * One uniform name against the wire's rule.
+	 *
+	 * Public so the BUILDER can apply it at the point of declaration. It used to be reachable only
+	 * through a finished program, so an author writing {@code uniform("my name")} got no complaint
+	 * until build time and then got one phrased as an internal defect. A rule the author can break
+	 * should be checked where they break it.
+	 */
+	public static void checkName(int i, String name) throws StructureException {
+		if (name == null) {
+			throw new StructureException(-1, "Name " + i + " is null");
+		}
+		if (name.isEmpty()) {
+			throw new StructureException(-1, "Name " + i + " is empty");
+		}
+		if (name.length() > OcslWire.MAX_NAME_LENGTH) {
+			throw new StructureException(-1, "Name " + i + " is " + name.length()
+					+ " characters, over the cap of " + OcslWire.MAX_NAME_LENGTH);
+		}
+		char first = name.charAt(0);
+		if (first >= '0' && first <= '9') {
+			throw new StructureException(-1, "Name " + i + " starts with a digit");
+		}
+		for (int c = 0; c < name.length(); c++) {
+			char ch = name.charAt(c);
+			boolean ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
+					|| (ch >= '0' && ch <= '9') || ch == '_';
+			if (!ok) {
+				throw new StructureException(-1, "Name " + i + " has a character outside"
+						+ " [A-Za-z0-9_] at position " + c);
 			}
 		}
 	}
