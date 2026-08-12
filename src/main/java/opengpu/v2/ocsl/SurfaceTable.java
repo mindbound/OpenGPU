@@ -172,6 +172,11 @@ public final class SurfaceTable {
 			case REG_RESOLUTION: return "resolution";
 			case REG_NODE_SIZE: return "nodeSize";
 			case REG_OUTPUT_RESOLUTION: return "outputResolution";
+			// Reserved-and-unreadable ids still need names. Without this case the validator's
+			// diagnostics called register 8 `builtin8` while every design document, the roadmap and
+			// the frozen table call it `timePeriod` -- the id whose whole purpose is to be referred
+			// to before anything reads it.
+			case REG_TIME_PERIOD: return "timePeriod";
 			case REG_NORMAL: return "normal";
 			default: return "builtin" + reg;
 		}

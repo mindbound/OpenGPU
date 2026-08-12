@@ -74,7 +74,13 @@ public final class OcslWire {
 	public static final int KIND_PROPERTY = 2;
 	/** A resource slot index for sample(). */
 	public static final int KIND_SLOT = 3;
-	/** A swizzle mask: 2 bits per component, packed low-to-high, with the length in bits 8-9. */
+	/**
+	 * A swizzle mask: 2 bits per component, packed low-to-high, with {@code length - 1} in bits 8-9.
+	 *
+	 * LENGTH MINUS ONE, because a swizzle is 1..4 components and two bits hold 0..3. Both places
+	 * that described this said "the length in bits 8-9", which is off by one and would have an
+	 * independent implementer emit every swizzle a component short.
+	 */
 	public static final int KIND_SWIZZLE = 4;
 
 	// ---------------------------------------------------------------- opcodes
@@ -305,7 +311,7 @@ public final class OcslWire {
 		return stage >= STAGE_PIXEL_MATERIAL && stage <= STAGE_COMPUTE;
 	}
 
-	/** Pack a swizzle: components low-to-high, 2 bits each, length in bits 8-9. */
+	/** Pack a swizzle: components low-to-high, 2 bits each, {@code length - 1} in bits 8-9. */
 	public static int packSwizzle(int... components) {
 		if (components.length < 1 || components.length > 4)
 			throw new IllegalArgumentException("swizzle length must be 1..4");

@@ -148,6 +148,18 @@ tasks.register<JavaExec>("ocslGolden") {
     args("src/test/resources/ocsl/golden-vectors.txt")
 }
 
+// Rewrite the freeze-gated table file. Manual, like ocslGolden, and for the same reason: the
+// checker (OcslTablesTest) only ever reads, so a red build cannot be answered by re-recording
+// whatever the code now does.
+//   ./gradlew ocslTables
+tasks.register<JavaExec>("ocslTables") {
+    group = "verification"
+    description = "Rewrite src/test/resources/ocsl/surface-tables.txt, then review the diff"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("opengpu.v2.ocsl.OcslTablesGenerator")
+    args("src/test/resources/ocsl/surface-tables.txt")
+}
+
 // Measure the CPU-measured column of the OCSL op weight table. Manual, like ocslGolden:
 //   ./gradlew ocslWeights
 //
