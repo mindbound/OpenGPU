@@ -1,6 +1,9 @@
 package opengpu.v2.ocsl;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -733,5 +736,36 @@ public class IrValidatorTest {
 		IrValidator.Validated b = IrValidator.validate(validMaterial());
 		assertEquals(a.frameWidth, b.frameWidth);
 		assertEquals(a.frameOffset(W), b.frameOffset(W));
+	}
+
+	@Test
+	public void theReservedAnimatorPropertiesHaveNamesForTheRefusalToUse() throws Exception {
+		// ANIM-15(c). SurfaceTable's javadoc promises that z and visible "are refused at attach with
+		// a documented error ... so the refusal can name them", and the OUT refusal interpolated the
+		// raw int -- owning `visible` came back as "stage 6 has no property 8".
+		//
+		// THE MESSAGE ITSELF CANNOT BE VECTORED YET, and a mutation sweep proved it rather than my
+		// assuming it: validate() refuses any stage that is not open BEFORE it reaches the OUT check,
+		// so the name-bearing branch is unreachable while the animator is shut. Removing the name
+		// from the message fails nothing. What is pinnable now is the DATA the message will use, and
+		// that these two ids are typeless while being named -- which is the whole reason the raw int
+		// was uninformative.
+		assertEquals("visible", SurfaceTable.propertyName(OcslWire.STAGE_ANIMATOR,
+				OcslWire.PROP_ANIM_VISIBLE));
+		assertEquals("z", SurfaceTable.propertyName(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_Z));
+		assertNull("and they are typeless, which is what makes them unownable",
+				SurfaceTable.propertyType(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_VISIBLE));
+		assertNull(SurfaceTable.propertyType(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_Z));
+
+		// Non-vacuity: an OWNABLE animator property is both named and typed, so the two assertions
+		// above are not just "everything is null".
+		assertEquals("x", SurfaceTable.propertyName(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_X));
+		assertNotNull(SurfaceTable.propertyType(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_X));
+
+		// THE OBLIGATION, enforced. When the animator surface opens, the refusal message becomes
+		// reachable and must get a vector asserting it contains "visible" rather than "8".
+		assertFalse("The animator surface is now OPEN. IrValidator's OUT refusal is reachable at that"
+				+ " stage: write the message vector asserting the property is NAMED, and delete this"
+				+ " assertion.", SurfaceTable.isOpen(OcslWire.STAGE_ANIMATOR));
 	}
 }

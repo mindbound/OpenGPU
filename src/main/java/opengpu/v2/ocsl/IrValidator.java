@@ -318,8 +318,16 @@ public final class IrValidator {
 				int property = op.operand(0);
 				OcslType expected = SurfaceTable.propertyType(stage, property);
 				if (expected == null) {
+					// NAMED WHERE A NAME EXISTS. SurfaceTable's own javadoc promises that the ids
+					// reserved-but-not-ownable in v1 are "refused with a documented error ... so the
+					// refusal can name them" -- and this message interpolated the raw int, so owning
+					// `visible` was refused as "stage 6 has no property 8" while propertyName had
+					// "visible" available the whole time. ANIM-15(c)'s only surviving obligation:
+					// the check was already in the right place, the diagnostic was not.
+					String name = SurfaceTable.propertyName(stage, property);
 					throw new ValidationException(i, "stage " + (stage & 0xFF)
-							+ " has no property " + property);
+							+ " has no property " + property
+							+ (name != null ? " (" + name + ", reserved but not ownable in v1)" : ""));
 				}
 				OcslType actual = readType(program, types, written, op, 1, i, stage);
 				if (actual != expected) {

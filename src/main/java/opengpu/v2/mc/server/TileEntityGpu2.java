@@ -29,6 +29,7 @@ import opengpu.v2.protocol.MessageCodec;
 import opengpu.v2.persist.ScenePersistence;
 import opengpu.v2.protocol.V2Wire;
 import opengpu.v2.scene.CanvasCommand;
+import opengpu.v2.scene.DisplayNode;
 import opengpu.v2.scene.ResourceInfo;
 import opengpu.v2.scene.SceneCanvas;
 import opengpu.v2.scene.ServerScene;
@@ -297,9 +298,14 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	/** The implicit legacy-compat canvas: created fresh, or re-validated after a restore. */
 	private void ensureImplicitCanvas() {
 		if (implicitCanvasRes != 0) {
-			ResourceInfo res = scene.state().resources.get(implicitCanvasRes);
-			if (res != null && res.type == V2Wire.RES_CANVAS
-					&& scene.state().nodes.containsKey(implicitCanvasNode)) {
+			// THE NODE HALF USED TO BE `nodes.containsKey(implicitCanvasNode)` -- existence and
+			// nothing else. The two ids persist separately, so a restore could hand back a node id
+			// that exists and is not the display node (a sprite, a group, a canvas node pointing at
+			// a different canvas); the check passed and the three guards keyed on that id then
+			// protected the wrong node while the real display node stayed freely transformable.
+			// Nothing downstream could see it -- server and every mirror agree on the wrong state,
+			// which is the same argument setNodeTransform's own refusal makes. See DisplayNode.
+			if (DisplayNode.stillValid(scene.state(), implicitCanvasRes, implicitCanvasNode)) {
 				return;
 			}
 			OpenGPU.logger.warn("GPU " + scene.sceneId
