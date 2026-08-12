@@ -115,6 +115,24 @@ clock render
 domain half-open-0-to-P
 producers 1
 
+[composition] property rule identity
+# How an animator's output combines with the server-set base. add: disp=srv+out.
+# mul: disp=srv*out. replace: disp=out. quat: disp=q_srv*q_out normalized,
+# animator-local applied FIRST, components (x,y,z) vector and w scalar.
+# x and y compose IN THE PARENT'S FRAME -- they are NOT rotated by the server
+# transform. The base is narrowed to float32 BEFORE composing, so the result is a
+# pure function of what the VM saw and two clients cannot disagree on it.
+x add 0
+y add 0
+sx mul 1
+sy mul 1
+rot2d add 0
+rot3d quat 0,0,0,1
+tint replace none
+tz add 0
+sz mul 1
+# `none` is not an omission: tint REPLACES, so no output leaves the base alone.
+
 [slots] name value
 # Sampler bindings are their own namespace, not registers.
 inputSlot 0

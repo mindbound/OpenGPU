@@ -231,6 +231,33 @@ public final class OcslTables {
 		line(out, "producers 1");
 		line(out, "");
 
+		// ANIM-3. In the artifact because a second executor composing differently produces a
+		// different picture from the same blob -- the dry run measured the two candidate readings
+		// 17 logical units apart on a node with sx=1.5.
+		line(out, "[composition] property rule identity");
+		line(out, "# How an animator's output combines with the server-set base. add: disp=srv+out.");
+		line(out, "# mul: disp=srv*out. replace: disp=out. quat: disp=q_srv*q_out normalized,");
+		line(out, "# animator-local applied FIRST, components (x,y,z) vector and w scalar.");
+		line(out, "# x and y compose IN THE PARENT'S FRAME -- they are NOT rotated by the server");
+		line(out, "# transform. The base is narrowed to float32 BEFORE composing, so the result is a");
+		line(out, "# pure function of what the VM saw and two clients cannot disagree on it.");
+		for (int prop = 0; prop < 32; prop++) {
+			int rule = OcslCompose.ruleFor(prop);
+			if (rule < 0) {
+				continue;
+			}
+			String name = SurfaceTable.propertyName(OcslWire.STAGE_ANIMATOR, prop);
+			String ruleName = rule == OcslCompose.RULE_ADD ? "add"
+					: rule == OcslCompose.RULE_MULTIPLY ? "mul"
+							: rule == OcslCompose.RULE_QUATERNION ? "quat" : "replace";
+			String identity = rule == OcslCompose.RULE_ADD ? "0"
+					: rule == OcslCompose.RULE_MULTIPLY ? "1"
+							: rule == OcslCompose.RULE_QUATERNION ? "0,0,0,1" : "none";
+			line(out, name + " " + ruleName + " " + identity);
+		}
+		line(out, "# `none` is not an omission: tint REPLACES, so no output leaves the base alone.");
+		line(out, "");
+
 		line(out, "[slots] name value");
 		line(out, "# Sampler bindings are their own namespace, not registers.");
 		line(out, "inputSlot " + SurfaceTable.SLOT_INPUT);
