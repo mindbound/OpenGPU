@@ -326,6 +326,26 @@ public final class OcslTables {
 		line(out, "# where the author asked for full brightness.");
 		line(out, "");
 
+		// ANIM-9(d). Here rather than in a log config because the UNIT is the contract: what counts
+		// as one event decides whether a 40-node preset reports 1 failure or 40.
+		line(out, "[diagnostics] name value");
+		line(out, "# 'Logged once per program' was the wrong unit. A curated preset is one program");
+		line(out, "# id across many nodes, so the first failing node consumed the only line and every");
+		line(out, "# other node's failure was invisible for the session -- the opposite of what a");
+		line(out, "# diagnostic is for. Both halves of the key are compared exactly: folding them");
+		line(out, "# into one number would let a collision suppress a distinct node while looking");
+		line(out, "# exactly like correct deduplication.");
+		line(out, "unit program+node");
+		line(out, "burst " + OcslDiagnostics.Reporter.BURST);
+		line(out, "refillNanos " + OcslDiagnostics.Reporter.REFILL_NANOS);
+		line(out, "maxTracked " + OcslDiagnostics.Reporter.MAX_TRACKED);
+		line(out, "onTableFull clear-and-allow-repeats");
+		line(out, "order rate-check-before-record");
+		line(out, "# order is a rule, not an implementation detail: recording first would let a");
+		line(out, "# scene-load burst consume dedup slots for pairs that never produced a line, and");
+		line(out, "# those failures would then be silent forever.");
+		line(out, "");
+
 		line(out, "[slots] name value");
 		line(out, "# Sampler bindings are their own namespace, not registers.");
 		line(out, "inputSlot " + SurfaceTable.SLOT_INPUT);

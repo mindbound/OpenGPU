@@ -191,6 +191,23 @@ colorOrder clamp-then-quantize
 # which is 0x17E, and shifted into the alpha byte it lands as 126 -- a dark flash
 # where the author asked for full brightness.
 
+[diagnostics] name value
+# 'Logged once per program' was the wrong unit. A curated preset is one program
+# id across many nodes, so the first failing node consumed the only line and every
+# other node's failure was invisible for the session -- the opposite of what a
+# diagnostic is for. Both halves of the key are compared exactly: folding them
+# into one number would let a collision suppress a distinct node while looking
+# exactly like correct deduplication.
+unit program+node
+burst 16
+refillNanos 10000000000
+maxTracked 256
+onTableFull clear-and-allow-repeats
+order rate-check-before-record
+# order is a rule, not an implementation detail: recording first would let a
+# scene-load burst consume dedup slots for pairs that never produced a line, and
+# those failures would then be silent forever.
+
 [slots] name value
 # Sampler bindings are their own namespace, not registers.
 inputSlot 0
