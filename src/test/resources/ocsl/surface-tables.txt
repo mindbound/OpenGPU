@@ -146,6 +146,28 @@ tz add 0
 sz mul 1
 # `none` is not an omission: tint REPLACES, so no output leaves the base alone.
 
+[ingress] site remedy
+# What happens to a value on its way IN. The rule binds EVERY stage, animator and
+# bake included. It was written under a 'non-finite values at the PIXEL STAGE'
+# heading whose own back-reference pointed at the WRITE rule, so nothing in the
+# design said so; every method on OcslIngress now takes no stage, which is the
+# enforced spelling of that sentence.
+constantPool refuse-the-program
+registerBinding substitute-zero
+animatorScalarBase substitute-composition-identity
+animatorTintBase substitute-white
+animatorRot3dBase substitute-identity-quaternion
+uniformSetCall not-implemented
+# Zero is the remedy for a BINDING and the wrong one for a BASE: a non-finite base
+# reaches an op, A4's catch-all zeroes the whole result, and mul(NaN,2) is 0 -- so a
+# multiplicative property collapses the node. The identity is what leaves the other
+# side intact, and it is the mirror of a rejected output falling back to the base.
+# The set-call may reject-and-retain because the uniform table is REPLICATED and the
+# retained value is then identical on every client. The executor may NOT: a frame is
+# per-client, so a retained value there is binding history -- the cross-frame state
+# ANIM-9(a) removed. No host-facing setUniform exists while the surface is shut, so
+# that row is a stated gap rather than an omission.
+
 [write-boundary] name value
 # What happens to a value on its way out. A non-finite animator output is
 # REJECTED and the frame displays the server base -- statelessly, by substituting
@@ -154,6 +176,11 @@ sz mul 1
 # was the only cross-frame state in the design and the one place purity broke.
 # Finite out-of-range is CLAMPED, not rejected: it still carries intent.
 nonFinitePolicy reject-to-server-base
+rot3dReject identity-quaternion
+# rot3d gets its own row because identityFor THROWS for a quaternion, so the scalar
+# path could not express 'falls back to the server base' and did not: a non-finite
+# animator quaternion used to fall out of the norm guard as the identity ROTATION,
+# discarding q_srv too, and a node with a server rotation snapped upright.
 trsLimit 1000000.0
 colorClamp 0..1
 colorSteps 255

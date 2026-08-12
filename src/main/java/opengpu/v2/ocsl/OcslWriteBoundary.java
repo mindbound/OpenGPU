@@ -79,9 +79,37 @@ public final strictfp class OcslWriteBoundary {
 	/**
 	 * A rejected tint write falls back to the server base directly, because tint replaces and so has
 	 * no identity output that would leave the base alone.
+	 *
+	 * The base goes through {@link OcslIngress#tintBase} rather than being narrowed inline: the
+	 * fallback is only worth having if the thing it falls back TO is representable, and a bare
+	 * {@code (float) serverBase} let a non-finite base through the one path built to catch one.
 	 */
 	public static float acceptedTint(double serverBase, float animatorOutput) {
-		return accepts(animatorOutput) ? animatorOutput : (float) serverBase;
+		return accepts(animatorOutput) ? animatorOutput : OcslIngress.tintBase(serverBase);
+	}
+
+	/**
+	 * {@code rot3d}'s spelling of {@link #accepted} — the animator's quaternion, or the identity.
+	 *
+	 * ANIM-9(a) SAID "a rejected write falls back to the server base" AND ROT3D DID NOT DO THAT.
+	 * {@code identityFor} throws for the quaternion by design, so the scalar path could not express
+	 * it, and {@code composeRot3d}'s zero-length guard was doing double duty: a non-finite animator
+	 * quaternion made the norm NaN and fell out to the IDENTITY ROTATION — which discards the server
+	 * base as well as the bad output, so a node with a server rotation snapped upright the moment its
+	 * animator overflowed. The same one-sided-fix shape as the base side, from the same increment.
+	 *
+	 * Substituting the identity quaternion for the animator's half leaves {@code q_srv} intact
+	 * through the product, which is what the sentence promised.
+	 *
+	 * A predicate rather than a copy, for the allocation reason {@link OcslIngress#acceptsAll} gives.
+	 */
+	public static boolean acceptsAll(float[] animatorQuaternion) {
+		for (int i = 0; i < 4; i++) {
+			if (!accepts(animatorQuaternion[i])) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	/**

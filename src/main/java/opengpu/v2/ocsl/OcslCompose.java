@@ -124,17 +124,29 @@ public final strictfp class OcslCompose {
 	/**
 	 * Compose one scalar property. {@code serverBase} is the {@code double} the server holds.
 	 *
-	 * The narrowing happens HERE, on the way in, and that ordering is the pin — see the class note.
+	 * The narrowing happens on the way in, and that ordering is the pin — see the class note. It is
+	 * spelled {@link OcslIngress#base} rather than a cast because narrowing is only half of what has
+	 * to happen to a value arriving from outside: a non-finite base reaching {@code mul} is zeroed by
+	 * A4's catch-all and collapses the node, so the base gets the same identity substitution the
+	 * write boundary gives a rejected output. ANIM-9(b), and the mirror of ANIM-9(a).
+	 *
+	 * <b>BOTH boundaries are applied HERE rather than left to the caller.</b> The first draft assumed
+	 * a caller would run {@link OcslWriteBoundary#accepted} first and then compose — under which
+	 * {@code compose(sx, 2.5, NaN)} was {@code mul(2.5, NaN)} = 0, an invisible node, for anyone who
+	 * did not. There are no callers yet, so nobody had remembered, and an ordering obligation that
+	 * has never once been met is not a contract. The boundary is idempotent on a finite value, so a
+	 * caller who does apply it first gets the same answer either way.
 	 */
 	public static float compose(int propertyId, double serverBase, float animatorOutput) {
-		float base = (float) serverBase;
 		switch (ruleFor(propertyId)) {
 			case RULE_ADD:
-				return OcslMath.add(base, animatorOutput);
+				return OcslMath.add(OcslIngress.base(propertyId, serverBase),
+						OcslWriteBoundary.accepted(propertyId, animatorOutput));
 			case RULE_MULTIPLY:
-				return OcslMath.mul(base, animatorOutput);
+				return OcslMath.mul(OcslIngress.base(propertyId, serverBase),
+						OcslWriteBoundary.accepted(propertyId, animatorOutput));
 			case RULE_REPLACE:
-				return OcslMath.san(animatorOutput);
+				return OcslWriteBoundary.acceptedTint(serverBase, animatorOutput);
 			case RULE_QUATERNION:
 				throw new IllegalArgumentException("rot3d is a vec4; use composeRot3d()");
 			default:
@@ -159,9 +171,24 @@ public final strictfp class OcslCompose {
 	 * {@code normalize(0)}.
 	 */
 	public static void composeRot3d(double[] server, float[] animator, float[] out) {
-		float sx = (float) server[0], sy = (float) server[1];
-		float sz = (float) server[2], sw = (float) server[3];
-		float ax = animator[0], ay = animator[1], az = animator[2], aw = animator[3];
+		// Each side through its own boundary FIRST, and separately -- see OcslWriteBoundary.acceptsAll.
+		// The norm guard below caught non-finite input only by accident, and it caught it on the wrong
+		// side of the product: it discarded the server base along with the bad animator output.
+		//
+		// The identity is spelled inline rather than through identityRot3d(), which allocates a fresh
+		// array. This runs once per animated node per frame and the render thread cannot afford it --
+		// a first draft copied both sides into two float[4] and gave that back. OcslIngressTest pins
+		// these eight constants against identityRot3d() so the two spellings cannot drift.
+		boolean serverOk = OcslIngress.acceptsAll(server);
+		boolean animOk = OcslWriteBoundary.acceptsAll(animator);
+		float sx = serverOk ? (float) server[0] : 0.0f;
+		float sy = serverOk ? (float) server[1] : 0.0f;
+		float sz = serverOk ? (float) server[2] : 0.0f;
+		float sw = serverOk ? (float) server[3] : 1.0f;
+		float ax = animOk ? animator[0] : 0.0f;
+		float ay = animOk ? animator[1] : 0.0f;
+		float az = animOk ? animator[2] : 0.0f;
+		float aw = animOk ? animator[3] : 1.0f;
 
 		// Hamilton product, accumulated in double and narrowed once per component -- the same
 		// discipline OcslMath.cross and dot use, and for the same reason.
@@ -172,11 +199,13 @@ public final strictfp class OcslCompose {
 
 		double norm = Math.sqrt(x * x + y * y + z * z + w * w);
 		if (!(norm > 0.0) || Double.isInfinite(norm)) {
-			float[] identity = identityRot3d();
-			out[0] = identity[0];
-			out[1] = identity[1];
-			out[2] = identity[2];
-			out[3] = identity[3];
+			// Back to what this guard was written for: a DEGENERATE product from two finite
+			// quaternions. Non-finite input no longer reaches it, and used to reach it on the wrong
+			// side. Inline for the same allocation reason as above.
+			out[0] = 0.0f;
+			out[1] = 0.0f;
+			out[2] = 0.0f;
+			out[3] = 1.0f;
 			return;
 		}
 		out[0] = OcslMath.san((float) (x / norm));

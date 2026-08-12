@@ -106,10 +106,12 @@ public final class IrStructure {
 			}
 			for (int c = 0; c < width; c++) {
 				float v = program.constantComponent(i, c);
-				if (Float.isNaN(v) || Float.isInfinite(v)) {
+				if (!OcslIngress.accepts(v)) {
 					// The pool is an INGRESS: SPLAT, SELECT, SWZ and the constructors copy a
 					// constant into the frame and compute nothing that A4's catch-all could apply
-					// to, so a non-finite here would reach OUT intact.
+					// to, so a non-finite here would reach OUT intact. Refusal rather than
+					// substitution because authored content HAS an error path -- OcslIngress states
+					// which ingress takes which remedy, and that it is the same at every stage.
 					throw new StructureException(-1, "Constant " + i + " component " + c
 							+ " is non-finite (" + v + "); the pool carries finite values only");
 				}

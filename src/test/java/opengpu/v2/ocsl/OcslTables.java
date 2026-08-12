@@ -275,6 +275,31 @@ public final class OcslTables {
 		line(out, "# `none` is not an omission: tint REPLACES, so no output leaves the base alone.");
 		line(out, "");
 
+		// ANIM-9(b). Before the write boundary because a value arrives before it leaves, and the
+		// two halves are only correct together -- each one's fallback is the other's input.
+		line(out, "[ingress] site remedy");
+		line(out, "# What happens to a value on its way IN. The rule binds EVERY stage, animator and");
+		line(out, "# bake included. It was written under a 'non-finite values at the PIXEL STAGE'");
+		line(out, "# heading whose own back-reference pointed at the WRITE rule, so nothing in the");
+		line(out, "# design said so; every method on OcslIngress now takes no stage, which is the");
+		line(out, "# enforced spelling of that sentence.");
+		line(out, "constantPool refuse-the-program");
+		line(out, "registerBinding substitute-zero");
+		line(out, "animatorScalarBase substitute-composition-identity");
+		line(out, "animatorTintBase substitute-white");
+		line(out, "animatorRot3dBase substitute-identity-quaternion");
+		line(out, "uniformSetCall not-implemented");
+		line(out, "# Zero is the remedy for a BINDING and the wrong one for a BASE: a non-finite base");
+		line(out, "# reaches an op, A4's catch-all zeroes the whole result, and mul(NaN,2) is 0 -- so a");
+		line(out, "# multiplicative property collapses the node. The identity is what leaves the other");
+		line(out, "# side intact, and it is the mirror of a rejected output falling back to the base.");
+		line(out, "# The set-call may reject-and-retain because the uniform table is REPLICATED and the");
+		line(out, "# retained value is then identical on every client. The executor may NOT: a frame is");
+		line(out, "# per-client, so a retained value there is binding history -- the cross-frame state");
+		line(out, "# ANIM-9(a) removed. No host-facing setUniform exists while the surface is shut, so");
+		line(out, "# that row is a stated gap rather than an omission.");
+		line(out, "");
+
 		// ANIM-9. Beside the composition rule because that is where a reader goes looking for it,
 		// and because the boundary applies to the COMPOSED value rather than the raw output.
 		line(out, "[write-boundary] name value");
@@ -285,6 +310,11 @@ public final class OcslTables {
 		line(out, "# was the only cross-frame state in the design and the one place purity broke.");
 		line(out, "# Finite out-of-range is CLAMPED, not rejected: it still carries intent.");
 		line(out, "nonFinitePolicy reject-to-server-base");
+		line(out, "rot3dReject identity-quaternion");
+		line(out, "# rot3d gets its own row because identityFor THROWS for a quaternion, so the scalar");
+		line(out, "# path could not express 'falls back to the server base' and did not: a non-finite");
+		line(out, "# animator quaternion used to fall out of the norm guard as the identity ROTATION,");
+		line(out, "# discarding q_srv too, and a node with a server rotation snapped upright.");
 		line(out, "trsLimit " + OcslWriteBoundary.TRS_LIMIT);
 		line(out, "colorClamp 0..1");
 		line(out, "colorSteps " + OcslWriteBoundary.COLOR_STEPS);

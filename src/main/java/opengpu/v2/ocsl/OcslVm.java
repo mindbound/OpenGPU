@@ -171,8 +171,10 @@ public final strictfp class OcslVm {
 		}
 		for (int i = 0; i < components.length; i++) {
 			// Sanitized on the way IN as well: a non-finite arriving from a uniform or a built-in
-			// would otherwise reach an op that the catch-all promised had none.
-			frame[off + i] = OcslMath.san(components[i]);
+			// would otherwise reach an op that the catch-all promised had none. Spelled through
+			// OcslIngress because the rule binds EVERY stage and this signature carries no stage --
+			// ANIM-9(b) lifted it out of the pixel-stage heading it was written under.
+			frame[off + i] = OcslIngress.bound(components[i]);
 		}
 	}
 
