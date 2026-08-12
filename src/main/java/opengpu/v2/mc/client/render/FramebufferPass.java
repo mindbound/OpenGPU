@@ -22,6 +22,13 @@ import org.lwjgl.opengl.GL12;
  */
 public final class FramebufferPass {
 	// GL constants not exposed by the 1.7.10 class constants we use.
+	/**
+	 * 36006. Named {@code GL_FRAMEBUFFER_BINDING} by EXT_framebuffer_object and
+	 * {@code GL_DRAW_FRAMEBUFFER_BINDING} by ARB_framebuffer_object / GL 3.0 — the SAME number,
+	 * with a different meaning depending on which extension the driver exposes. On the ARB path it
+	 * is the DRAW binding specifically, which is the whole content of the note on
+	 * {@link #savedFbo}.
+	 */
 	private static final int GL_FRAMEBUFFER_BINDING = 36006;
 	private static final int GL_ACTIVE_TEXTURE = 34016;
 	private static final int GL_BLEND_DST_ALPHA = 32970;
@@ -34,6 +41,52 @@ public final class FramebufferPass {
 	private final java.nio.FloatBuffer colorBuffer = BufferUtils.createFloatBuffer(16);
 	private final java.nio.ByteBuffer writeMaskBuffer = BufferUtils.createByteBuffer(16);
 
+	/**
+	 * The caller's DRAW framebuffer. Restored through {@code GL_FRAMEBUFFER}, which writes BOTH
+	 * halves — so a split read/draw binding does not survive begin()/end().
+	 *
+	 * ASYMMETRY, INVESTIGATED 2026-08-12 AND LEFT AS IS, with the conditions that would make it a
+	 * bug written here rather than in a roadmap nobody reads at the point of change. It is real and
+	 * mechanical, not theoretical:
+	 *
+	 * <ul>
+	 * <li>Under Angelica the {@code glGetInteger} above is served from GLSM's cache, and GLSM tracks
+	 *     {@code drawFramebuffer} and {@code readFramebuffer} as SEPARATE fields, dispatching 36006
+	 *     to the draw one. Its {@code glBindFramebuffer(GL_FRAMEBUFFER, …)} assigns both. So on this
+	 *     stack the split is representable, and {@link #end()} would clobber a caller's read
+	 *     binding.</li>
+	 * <li>Iris (Angelica's shader pipeline) genuinely uses split bindings — {@code GlFramebuffer}
+	 *     has {@code bindAsReadBuffer}/{@code bindAsDrawBuffer}, and Iris has its own scar comment
+	 *     about confusing the two.</li>
+	 * </ul>
+	 *
+	 * NOT FIXED, because no reachable producer was found. {@code SceneRenderer} runs at
+	 * {@code RenderTickEvent.START}, i.e. before world rendering, so the state it inherits is
+	 * whatever survived the PREVIOUS frame's render and swap. Iris's split binds live inside its
+	 * composite/deferred passes; the one {@code GL_READ_FRAMEBUFFER → 0} reset found in
+	 * {@code FinalPassRenderer} is in setup, not the per-frame path. Vanilla 1.7.10 cannot produce a
+	 * split at all — every vanilla bind goes through {@code GL_FRAMEBUFFER}.
+	 *
+	 * TWO REASONS THE OBVIOUS FIX IS NOT OBVIOUS, and they are why this is a note and not a patch:
+	 *
+	 * <ul>
+	 * <li><b>EXT-only drivers have no split to preserve.</b> EXT_framebuffer_object defines a single
+	 *     binding; {@code GL_READ_FRAMEBUFFER_BINDING} does not exist there and querying it is a GL
+	 *     error. Any save-both/restore-both fix must be gated on the ARB/GL3 path — and the 2006-era
+	 *     floor hardware this project still has open as a decision is exactly the EXT case.</li>
+	 * <li><b>We never READ from a framebuffer</b> — no {@code glReadPixels}, no
+	 *     {@code glBlitFramebuffer}, no {@code glCopyTex*} anywhere in this mod. So we can only ever
+	 *     CAUSE this for someone downstream; we can never suffer it. That bounds the blast radius to
+	 *     "a mod that leaves read ≠ draw across the frame boundary AND depends on the read half
+	 *     surviving our pass".</li>
+	 * </ul>
+	 *
+	 * WHAT WOULD MAKE THIS A REAL BUG, so the next person can check in minutes rather than
+	 * re-deriving it: a mod leaving read ≠ draw at {@code RenderTickEvent.START}. Log
+	 * {@code GL_READ_FRAMEBUFFER_BINDING} and {@code GL_DRAW_FRAMEBUFFER_BINDING} at the top of
+	 * {@code SceneRenderer.onRenderTick} for one session with shaders on; if they ever differ, this
+	 * becomes a patch and the gate above is the design constraint on it.
+	 */
 	private int savedFbo;
 	private int savedViewportX, savedViewportY, savedViewportW, savedViewportH;
 	private boolean savedBlend;
