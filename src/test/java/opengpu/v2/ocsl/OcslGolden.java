@@ -205,11 +205,15 @@ final class OcslGolden {
 		c.add(new Case("cross3", INF, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f));
 
 		broadcastCases(c);
+		sampleCases(c);
 		return c;
 	}
 
 	/** How many floats this op's result carries. */
 	static int resultWidth(String op) {
+		if (op.startsWith("sample:")) {
+			return 4;
+		}
 		if (op.startsWith("bc:")) {
 			int max = 1;
 			int[] w = widths(op);
@@ -282,8 +286,88 @@ final class OcslGolden {
 		c.add(new Case("bc:add:11:r", 1.25f, s));
 	}
 
+	/**
+	 * Sampling cases, named {@code sample:WxH}, with the uv as the arguments.
+	 *
+	 * The texture CONTENT is not in the file: it is generated from the dimensions by
+	 * {@link #testTexture}, so a vector file of a few hundred lines does not have to carry kilobytes of pixels to
+	 * pin a filtering rule. The generator is deliberately non-separable in x and y and coprime in
+	 * its strides, so a transposed lookup or a swapped tap changes the answer.
+	 */
+	private static void sampleCases(List<Case> c) {
+		// Texel centres of a 2x2: each returns its own texel exactly under the half-texel rule and
+		// a blend under endpoint-stretch, which is what distinguishes S2 from its alternative.
+		c.add(new Case("sample:2x2", 0.25f, 0.25f));
+		c.add(new Case("sample:2x2", 0.75f, 0.25f));
+		c.add(new Case("sample:2x2", 0.25f, 0.75f));
+		c.add(new Case("sample:2x2", 0.75f, 0.75f));
+		// Midpoints: the even blend, and the four-way centre.
+		c.add(new Case("sample:2x2", 0.5f, 0.25f));
+		c.add(new Case("sample:2x2", 0.5f, 0.5f));
+		// The flat shoulder at each edge, and past it -- clamp-to-edge, not wrap.
+		c.add(new Case("sample:2x2", 0.0f, 0.0f));
+		c.add(new Case("sample:2x2", 1.0f, 1.0f));
+		c.add(new Case("sample:2x2", -3.5f, 0.5f));
+		c.add(new Case("sample:2x2", 42.0f, 0.5f));
+		// Wildly out of range, where casting before clamping would wrap the +1 tap to MIN_VALUE.
+		c.add(new Case("sample:2x2", 1.0e30f, 0.5f));
+		c.add(new Case("sample:2x2", -1.0e30f, 0.5f));
+		// NON-SQUARE, so width and height cannot be transposed without changing the answer.
+		c.add(new Case("sample:4x3", 0.3f, 0.7f));
+		c.add(new Case("sample:4x3", 0.125f, 0.16666667f));
+		c.add(new Case("sample:4x3", 0.9f, 0.1f));
+		c.add(new Case("sample:3x4", 0.3f, 0.7f));
+		// Fractional weights that are not representable, so the double accumulation is visible.
+		c.add(new Case("sample:4x3", 0.1f, 0.2f));
+		c.add(new Case("sample:4x3", 0.37f, 0.61f));
+		// 1x1: every tap clamps to the same texel and the weights must still sum to 1.
+		c.add(new Case("sample:1x1", 0.5f, 0.5f));
+		c.add(new Case("sample:1x1", -2.0f, 9.0f));
+		// TERM ORDER. S4 pins the order of the four summed products, and until this line NOTHING
+		// constrained it: all 23 non-identity permutations reproduced every other vector here. The
+		// round uv values are why -- the sum is accumulated in DOUBLE, so order is visible only
+		// where the double-rounding error straddles a float32 boundary, which round numbers never
+		// do. These two uv were searched for precisely because they do: between them they separate
+		// 18 of the 23 permutations.
+		c.add(new Case("sample:4x3", 0.85571521520614624f, 0.44612684845924377f));
+		c.add(new Case("sample:4x3", 0.81845015f, 0.42062655f));
+
+		// Non-finite uv. NOT reachable from a CPU program -- constants are refused non-finite in
+		// three places, set() sanitizes, and every op funnels through f() -- so this freezes the
+		// defence-in-depth branch and, more usefully, the rule Stage D must implement explicitly,
+		// because GLSL has no catch-all and a NaN uv there picks a driver-specific texel.
+		c.add(new Case("sample:2x2", NAN, 0.5f));
+		c.add(new Case("sample:2x2", 0.5f, INF));
+	}
+
+	/**
+	 * A deterministic texture for the sampling vectors:
+	 * {@code (x*37 + y*61 + x*y*13 + c*17) & 0xFF}.
+	 *
+	 * The {@code x*y} term is what makes this NON-SEPARABLE, and the first version did not have it:
+	 * {@code x*37 + y*61} is a sum of a function of x and a function of y, which is the definition
+	 * of separable, so the javadoc claiming otherwise was false. The mutations that claim exists to
+	 * justify -- a transposed lookup, a diagonal tap swap -- happened to be caught anyway by the
+	 * {@code & 0xFF} wrap, so it was a wrong rationale rather than a live gap. Fixed so the reason
+	 * and the behaviour agree.
+	 */
+	static byte[] testTexture(int width, int height) {
+		byte[] px = new byte[width * height * 4];
+		for (int y = 0; y < height; y++) {
+			for (int x = 0; x < width; x++) {
+				for (int ch = 0; ch < 4; ch++) {
+					px[(y * width + x) * 4 + ch] = (byte) ((x * 37 + y * 61 + ch * 17) & 0xFF);
+				}
+			}
+		}
+		return px;
+	}
+
 	/** The {@link OcslMath} method a vector's op name exercises — width suffixes stripped. */
 	static String methodFor(String op) {
+		if (op.startsWith("sample:")) {
+			return "sample";
+		}
 		if (op.startsWith("bc:")) {
 			// A broadcast case exercises the VM's operand reader, not an OcslMath method; it still
 			// names the underlying op so the coverage floor counts it.
@@ -314,6 +398,9 @@ final class OcslGolden {
 	 * two of them ignored, so a malformed file produced a self-consistent wrong answer.
 	 */
 	static int argWidth(String op) {
+		if (op.startsWith("sample:")) {
+			return 2;
+		}
 		if (op.startsWith("bc:")) {
 			int total = 0;
 			int[] w = widths(op);
@@ -353,6 +440,14 @@ final class OcslGolden {
 		if (a.length != argWidth(op)) {
 			throw new IllegalArgumentException(op + " consumes " + argWidth(op)
 					+ " floats, got " + a.length);
+		}
+		if (op.startsWith("sample:")) {
+			String[] wh = op.substring("sample:".length()).split("x");
+			int width = Integer.parseInt(wh[0]);
+			int height = Integer.parseInt(wh[1]);
+			float[] out = new float[4];
+			OcslMath.sample(testTexture(width, height), width, height, a[0], a[1], out, 0);
+			return out;
 		}
 		if (op.startsWith("bc:")) {
 			return broadcast(op, a);

@@ -61,6 +61,13 @@ public final strictfp class OcslVm {
 	private final IrOp[] outOps;
 	private final int[] outWidths;
 
+	/**
+	 * Textures bound per sampler slot. Null means unbound, which reads 0 rather than failing (S5).
+	 *
+	 * Sized once, like everything else here, so binding and sampling stay allocation-free.
+	 */
+	private final OcslTexture[] textures = new OcslTexture[SurfaceTable.MAX_SLOTS];
+
 	public OcslVm(IrValidator.Validated validated) {
 		this.validated = validated;
 		this.program = validated.program();
@@ -114,6 +121,15 @@ public final strictfp class OcslVm {
 	/** Where a register's components live in the frame. */
 	public int offsetOf(int register) {
 		return validated.frameOffset(register);
+	}
+
+	/** Bind a texture to a sampler slot, or null to unbind it. */
+	public void bind(int slot, OcslTexture texture) {
+		if (slot < 0 || slot >= textures.length) {
+			throw new IllegalArgumentException("slot " + slot + " is outside the "
+					+ textures.length + " this build binds");
+		}
+		textures[slot] = texture;
 	}
 
 	/** Bind an input register's components before {@link #run}. */
@@ -178,9 +194,9 @@ public final strictfp class OcslVm {
 	/**
 	 * Evaluate the program once. Allocates nothing.
 	 *
-	 * Sampling is not resolved here: {@code SAMPLE} needs a texture the CPU VM has no access to at
-	 * this layer, so it writes the sampler's declared miss value (zero) and the fetch is the
-	 * caller's to supply when there is one. Stated rather than silently returning garbage.
+	 * Sampling reads whatever texture the host bound to the slot, by the S1-S5 rules; an unbound
+	 * slot reads 0 per component rather than failing, because the validator cannot know what the
+	 * host will bind.
 	 */
 	public void run() {
 		List<IrOp> ops = program.ops();
@@ -347,11 +363,22 @@ public final strictfp class OcslVm {
 				}
 				return;
 			}
-			case OcslWire.OP_SAMPLE:
-				for (int i = 0; i < w; i++) {
-					frame[dst + i] = 0f; // no texture at this layer; see run()'s javadoc
+			case OcslWire.OP_SAMPLE: {
+				int slot = op.operand(0);
+				OcslTexture texture = slot >= 0 && slot < textures.length ? textures[slot] : null;
+				if (texture == null) {
+					// S5: an UNBOUND slot reads 0, and is not an error. The validator cannot know
+					// what the host will bind, so a program sampling a slot the host leaves empty
+					// must render predictably rather than refuse to run.
+					for (int i = 0; i < w; i++) {
+						frame[dst + i] = 0f;
+					}
+					return;
 				}
+				OcslMath.sample(texture.rgba, texture.width, texture.height,
+						component(op, 1, 0), component(op, 1, 1), frame, dst);
 				return;
+			}
 			case OcslWire.OP_ITOF:
 				frame[dst] = loopCounter[depth - 1 - op.operand(0)];
 				return;

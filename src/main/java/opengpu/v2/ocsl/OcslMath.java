@@ -322,6 +322,84 @@ public final strictfp class OcslMath {
 	}
 
 	/**
+	 * Bilinear sample with clamp-to-edge, writing 4 components. S1–S4.
+	 *
+	 * <p><b>S2, the half-texel rule, written out</b> — {@code x = u*width - 0.5}, floor, and the
+	 * fraction is the weight. "Bilinear" alone does not say where texel centres sit, and an
+	 * implementation that drops the {@code -0.5} is wrong by half a texel everywhere while still
+	 * looking like a plausible blur. The convention is not merely GL's: {@code inputTexelSize} is
+	 * {@code 1/width}, so a program stepping {@code uv + inputTexelSize*n} lands on adjacent texel
+	 * centres under this rule and under no other — and Stage D emits {@code texture2D}, so the CPU
+	 * is choosing whether to agree with the hardware rather than choosing in isolation. Either
+	 * constraint alone would force it.
+	 *
+	 * <p><b>S4, the accumulation</b> — every tap is converted {@code b/255.0} in double, the four
+	 * products are summed in double, and the result narrows to float32 exactly once. The term order
+	 * is part of the pin: float addition is not associative, so a reordered sum is a different
+	 * frozen value and would move every golden vector.
+	 *
+	 * <p>Clamp-to-edge is applied per axis AFTER the floor, so a tap outside the image takes the
+	 * edge texel while the weights are unaffected. Index clamping happens in double before the
+	 * narrowing cast, because a uv of 1e30 would otherwise saturate to {@code Integer.MAX_VALUE}
+	 * and the {@code +1} tap would wrap to {@code MIN_VALUE}.
+	 */
+	public static void sample(byte[] rgba, int width, int height, float u, float v,
+			float[] frame, int dst) {
+		if (width < 1 || height < 1) {
+			// Stated and enforced rather than inherited from OcslTexture's constructor. This method
+			// is public and takes loose primitives, and clampIndex(0.0, 0) returns -1, so a zero
+			// width reached the array as a negative index.
+			throw new IllegalArgumentException("texture is " + width + "x" + height);
+		}
+		if (bad(u, v)) {
+			// Already frozen: "sample() on a non-finite uv reads 0.0 per component, identically in
+			// the CPU VM" -- a NaN uv would otherwise pick a driver-specific texel on the GPU.
+			frame[dst] = 0.0f;
+			frame[dst + 1] = 0.0f;
+			frame[dst + 2] = 0.0f;
+			frame[dst + 3] = 0.0f;
+			return;
+		}
+		double x = (double) u * width - 0.5;
+		double y = (double) v * height - 0.5;
+		double fx0 = StrictMath.floor(x);
+		double fy0 = StrictMath.floor(y);
+		double fx = x - fx0;
+		double fy = y - fy0;
+		int x0 = clampIndex(fx0, width);
+		int x1 = clampIndex(fx0 + 1.0, width);
+		int y0 = clampIndex(fy0, height);
+		int y1 = clampIndex(fy0 + 1.0, height);
+
+		int o00 = (y0 * width + x0) * 4;
+		int o10 = (y0 * width + x1) * 4;
+		int o01 = (y1 * width + x0) * 4;
+		int o11 = (y1 * width + x1) * 4;
+		double w00 = (1.0 - fx) * (1.0 - fy);
+		double w10 = fx * (1.0 - fy);
+		double w01 = (1.0 - fx) * fy;
+		double w11 = fx * fy;
+
+		for (int c = 0; c < 4; c++) {
+			double t00 = (rgba[o00 + c] & 0xFF) / 255.0;
+			double t10 = (rgba[o10 + c] & 0xFF) / 255.0;
+			double t01 = (rgba[o01 + c] & 0xFF) / 255.0;
+			double t11 = (rgba[o11 + c] & 0xFF) / 255.0;
+			frame[dst + c] = f(w00 * t00 + w10 * t10 + w01 * t01 + w11 * t11);
+		}
+	}
+
+	private static int clampIndex(double coordinate, int size) {
+		if (coordinate < 0.0) {
+			return 0;
+		}
+		if (coordinate > size - 1) {
+			return size - 1;
+		}
+		return (int) coordinate;
+	}
+
+	/**
 	 * Narrow to float32 exactly once, at the point of the register write.
 	 *
 	 * A4 promoted this from a NOTE. Every method above computes in double and funnels through
