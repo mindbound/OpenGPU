@@ -1,0 +1,325 @@
+package opengpu.v2.ocsl;
+
+/**
+ * Wire-level constants for the OCSL IR, plus the opcode shape table the codec decodes against.
+ *
+ * The IR blob is the ONLY transport and storage form for a program — GLSL text never rides the
+ * wire and never lands in a save (DESIGN-RENDERER-V2 § Programmable pipeline). That makes this
+ * file the security boundary's vocabulary: every id is an explicit constant, nothing depends on
+ * enum ordinals or declaration order, and the decoder rejects anything it does not recognize.
+ *
+ * FORMAT VERSION 0 MEANS PRE-RELEASE, AND THAT IS LOAD-BEARING RIGHT NOW. Stage B builds the
+ * language skeleton with no player-reachable surface, so no blob may reach a world save yet; the
+ * decoder enforces that by refusing format 0 from a persisted source (see
+ * {@link IrCodec#decode(byte[], Source)}). When the first surface ships, the version moves to 1
+ * in the same change that opens persistence.
+ */
+public final class OcslWire {
+	private OcslWire() {}
+
+	/** 'O','C','S','L' — a blob that does not start with this is not ours, and we say so. */
+	public static final int MAGIC = 0x4F43534C;
+
+	/**
+	 * Pre-release. Refused by the decoder on the persisted path, so "the format freeze moved to
+	 * the first shipped surface" is enforced behaviour rather than a note in a roadmap.
+	 */
+	public static final short FORMAT_VERSION = 0;
+
+	/** Closes the payload; a blob whose ops decode but whose tail is wrong is truncated or lying. */
+	public static final short TRAILING_GUARD = 0x0C51;
+
+	// ---------------------------------------------------------------- stages
+	// Ids are reserved for every designed surface NOW, including the ones no code can produce
+	// yet: an id assigned later collides with blobs already written under a guess.
+
+	public static final byte STAGE_PIXEL_MATERIAL = 1;
+	public static final byte STAGE_PIXEL_EFFECT = 2;
+	public static final byte STAGE_PIXEL_POST = 3;
+	public static final byte STAGE_BAKE = 4;
+	public static final byte STAGE_VERTEX = 5;
+	/**
+	 * Reserved and REFUSED. The animator surface's dry run (docs/dev/OCSL-ANIMATOR-DRYRUN.md)
+	 * found 0 of 9 programs encodable and left 18 amendments pending, so the id exists to keep
+	 * the namespace stable while the decoder turns this stage away by name. Deleting that refusal
+	 * is the act that reopens the surface, and it is the only way to reopen it.
+	 */
+	public static final byte STAGE_ANIMATOR = 6;
+	/** Reserved for the post-Stage-D Data Card. No decoder support; refused as unknown. */
+	public static final byte STAGE_COMPUTE = 7;
+
+	// ---------------------------------------------------------------- property ids
+	// Per-surface output namespace (u8). A1 of the animator decisions: every OUT names a property,
+	// including the pixel family's, so one op form serves every stage and there is no implicit
+	// destination anywhere.
+
+	/** The pixel family's only output. Its surfaces accept exactly one OUT, targeting this. */
+	public static final int PROP_COLOR = 0;
+
+	// ---------------------------------------------------------------- operand tagging
+	// An operand is a register index or a constant-pool index, distinguished by the top bit. The
+	// accounting rule makes constant-pool references FREE, which only works if a constant can BE
+	// an operand — a LOADK op would have to charge.
+
+	public static final int OPERAND_CONST_FLAG = 0x8000;
+	public static final int OPERAND_INDEX_MASK = 0x7FFF;
+
+	// ---------------------------------------------------------------- operand kinds
+
+	/** A register index, or a constant-pool index when {@link #OPERAND_CONST_FLAG} is set. */
+	public static final int KIND_VALUE = 0;
+	/** A literal count that is not a register: FOR's trip count, ITOF's loop depth. */
+	public static final int KIND_IMMEDIATE = 1;
+	/** A property id in the stage's output namespace. */
+	public static final int KIND_PROPERTY = 2;
+	/** A resource slot index for sample(). */
+	public static final int KIND_SLOT = 3;
+	/** A swizzle mask: 2 bits per component, packed low-to-high, with the length in bits 8-9. */
+	public static final int KIND_SWIZZLE = 4;
+
+	// ---------------------------------------------------------------- opcodes
+
+	public static final byte OP_ADD = 1;
+	public static final byte OP_SUB = 2;
+	public static final byte OP_MUL = 3;
+	public static final byte OP_DIV = 4;
+	public static final byte OP_NEG = 5;
+
+	public static final byte OP_ABS = 10;
+	public static final byte OP_FLOOR = 11;
+	public static final byte OP_FRACT = 12;
+	public static final byte OP_MOD = 13;
+	public static final byte OP_MIN = 14;
+	public static final byte OP_MAX = 15;
+	public static final byte OP_CLAMP = 16;
+	public static final byte OP_MIX = 17;
+	public static final byte OP_STEP = 18;
+	public static final byte OP_SMOOTHSTEP = 19;
+	public static final byte OP_DOT = 20;
+	public static final byte OP_CROSS = 21;
+	public static final byte OP_LENGTH = 22;
+	public static final byte OP_NORMALIZE = 23;
+	public static final byte OP_DISTANCE = 24;
+	public static final byte OP_POW = 25;
+	public static final byte OP_EXP = 26;
+	public static final byte OP_LOG = 27;
+	public static final byte OP_SQRT = 28;
+	public static final byte OP_SIN = 29;
+	public static final byte OP_COS = 30;
+	public static final byte OP_ATAN2 = 31;
+
+	public static final byte OP_SWZ = 40;
+	public static final byte OP_SPLAT = 41;
+	public static final byte OP_CONS2 = 42;
+	public static final byte OP_CONS3 = 43;
+	public static final byte OP_CONS4 = 44;
+	/**
+	 * The composite constructors, and they are not optional garnish.
+	 *
+	 * The frozen arity table has FOUR families — "vecN from N floats, vec(N−1)+float, vec4 from
+	 * 2×vec2, splat from scalar" — and the first draft of this table encoded only two. The gap is
+	 * not cosmetic: three of the four acceptance programs build their result with
+	 * `vec4(vec3, float)` as ONE charged instruction, so without an opcode for it the builder must
+	 * lower to three swizzles plus a CONS4 and every one of those programs charges 3 more than the
+	 * committed count. The Stage B exit check reproduces 23/101/21/96 byte-for-byte; it would have
+	 * failed on three of four, and the arity is unrecoverable from the wire (operand count is a
+	 * property of the opcode, with no per-op count field), so no validator could have repaired it.
+	 */
+	public static final byte OP_CONS3_V2F = 45;
+	public static final byte OP_CONS4_V3F = 46;
+	public static final byte OP_CONS4_V2V2 = 47;
+
+	public static final byte OP_LT = 50;
+	public static final byte OP_LE = 51;
+	public static final byte OP_EQ = 52;
+	public static final byte OP_BAND = 53;
+	public static final byte OP_BOR = 54;
+	public static final byte OP_BNOT = 55;
+	public static final byte OP_SELECT = 56;
+
+	public static final byte OP_SAMPLE = 60;
+
+	public static final byte OP_FOR = 70;
+	public static final byte OP_ENDFOR = 71;
+	public static final byte OP_ITOF = 72;
+
+	public static final byte OP_OUT = 80;
+
+	private static final int MAX_OPCODE = 80;
+
+	// ---------------------------------------------------------------- caps
+	// Structural caps the DECODER enforces, so a malformed or hostile blob dies before any
+	// allocation proportional to a number it supplied. Semantic caps (the ~256 op cap, the fetch
+	// cap, uniform components) belong to the validator and are deliberately not here: they are
+	// raiseable under the monotonicity rule, and these are not the same kind of number.
+
+	public static final int MAX_CONSTANTS = 1024;
+	public static final int MAX_OPS = 4096;
+	public static final int MAX_REGISTERS = 1024;
+	public static final int MAX_NAMES = 64;
+	public static final int MAX_NAME_LENGTH = 32;
+	/**
+	 * Structural bounds on loops, so a well-formed blob cannot describe astronomically more work
+	 * than its own size. A 6-op blob reading {@code FOR 65535 / FOR 65535 / ADD / ENDFOR / ENDFOR
+	 * / OUT} is otherwise perfectly valid and denotes 4.29e9 executed instructions.
+	 *
+	 * These are DELIBERATELY far above the validator's unroll-product cap (256, frozen). They are
+	 * not that cap and must not be confused with it: this bounds what can be *described*, the
+	 * validator bounds what is *accepted*, and only the latter is raiseable under the monotonicity
+	 * rule.
+	 */
+	public static final int MAX_LOOP_TRIPS = 4096;
+	public static final int MAX_LOOP_DEPTH = 16;
+	/** A blob larger than this is refused before it is parsed at all. */
+	public static final int MAX_BLOB_BYTES = 64 * 1024;
+
+	// ---------------------------------------------------------------- the shape table
+
+	/**
+	 * Per-opcode shape: does it write a destination register, what its operands mean, and what it
+	 * charges under the STRUCTURAL count.
+	 *
+	 * The structural count is the acceptance-cap currency (A2 of the animator decisions, resolving
+	 * a FROZEN-vs-FROZEN conflict between the flat accounting sentence and the weighted cost
+	 * table): every executed instruction charges 1, swizzles and constructors included, OUT
+	 * included; FOR/ENDFOR are encoding structure and charge 0. The weighted table prices the fill
+	 * budget and the bake op-pixel product and does NOT touch the cap — different question,
+	 * different name.
+	 */
+	public static final class Shape {
+		public final String name;
+		public final boolean hasDst;
+		public final int[] operandKinds;
+		public final int structuralCharge;
+
+		Shape(String name, boolean hasDst, int[] operandKinds, int structuralCharge) {
+			this.name = name;
+			this.hasDst = hasDst;
+			this.operandKinds = operandKinds;
+			this.structuralCharge = structuralCharge;
+		}
+
+		public int operandCount() {
+			return operandKinds.length;
+		}
+	}
+
+	private static final Shape[] SHAPES = new Shape[MAX_OPCODE + 1];
+
+	private static final int[] V0 = {};
+	private static final int[] V1 = { KIND_VALUE };
+	private static final int[] V2 = { KIND_VALUE, KIND_VALUE };
+	private static final int[] V3 = { KIND_VALUE, KIND_VALUE, KIND_VALUE };
+
+	private static void shape(byte op, String name, boolean hasDst, int[] kinds, int charge) {
+		SHAPES[op & 0xFF] = new Shape(name, hasDst, kinds, charge);
+	}
+
+	static {
+		shape(OP_ADD, "ADD", true, V2, 1);
+		shape(OP_SUB, "SUB", true, V2, 1);
+		shape(OP_MUL, "MUL", true, V2, 1);
+		shape(OP_DIV, "DIV", true, V2, 1);
+		shape(OP_NEG, "NEG", true, V1, 1);
+
+		shape(OP_ABS, "ABS", true, V1, 1);
+		shape(OP_FLOOR, "FLOOR", true, V1, 1);
+		shape(OP_FRACT, "FRACT", true, V1, 1);
+		shape(OP_MOD, "MOD", true, V2, 1);
+		shape(OP_MIN, "MIN", true, V2, 1);
+		shape(OP_MAX, "MAX", true, V2, 1);
+		shape(OP_CLAMP, "CLAMP", true, V3, 1);
+		shape(OP_MIX, "MIX", true, V3, 1);
+		shape(OP_STEP, "STEP", true, V2, 1);
+		shape(OP_SMOOTHSTEP, "SMOOTHSTEP", true, V3, 1);
+		shape(OP_DOT, "DOT", true, V2, 1);
+		shape(OP_CROSS, "CROSS", true, V2, 1);
+		shape(OP_LENGTH, "LENGTH", true, V1, 1);
+		shape(OP_NORMALIZE, "NORMALIZE", true, V1, 1);
+		shape(OP_DISTANCE, "DISTANCE", true, V2, 1);
+		shape(OP_POW, "POW", true, V2, 1);
+		shape(OP_EXP, "EXP", true, V1, 1);
+		shape(OP_LOG, "LOG", true, V1, 1);
+		shape(OP_SQRT, "SQRT", true, V1, 1);
+		shape(OP_SIN, "SIN", true, V1, 1);
+		shape(OP_COS, "COS", true, V1, 1);
+		shape(OP_ATAN2, "ATAN2", true, V2, 1);
+
+		// A swizzle charges 1. It is a real instruction on a flat float[] frame — several stores —
+		// and the flat rule is what the cap is stated against.
+		shape(OP_SWZ, "SWZ", true, new int[] { KIND_VALUE, KIND_SWIZZLE }, 1);
+		// Scalar broadcast is an EXPLICIT op, never an implicit coercion: IR function ops are
+		// shape-uniform, and the builder inserts this so validator counting matches the builder's.
+		shape(OP_SPLAT, "SPLAT", true, new int[] { KIND_VALUE, KIND_IMMEDIATE }, 1);
+		shape(OP_CONS2, "CONS2", true, V2, 1);
+		shape(OP_CONS3, "CONS3", true, V3, 1);
+		shape(OP_CONS4, "CONS4", true, new int[] { KIND_VALUE, KIND_VALUE, KIND_VALUE, KIND_VALUE }, 1);
+		// The composite forms. Each is ONE charged instruction, which is the whole point: the
+		// committed op counts were computed with vec4(vec3,float) costing 1.
+		shape(OP_CONS3_V2F, "CONS3_V2F", true, V2, 1);
+		shape(OP_CONS4_V3F, "CONS4_V3F", true, V2, 1);
+		shape(OP_CONS4_V2V2, "CONS4_V2V2", true, V2, 1);
+
+		// Comparisons are function-form and scalar-only, producing the IR's only bool values.
+		shape(OP_LT, "LT", true, V2, 1);
+		shape(OP_LE, "LE", true, V2, 1);
+		shape(OP_EQ, "EQ", true, V2, 1);
+		shape(OP_BAND, "BAND", true, V2, 1);
+		shape(OP_BOR, "BOR", true, V2, 1);
+		shape(OP_BNOT, "BNOT", true, V1, 1);
+		// Whole-value strict pick: the non-selected operand can never influence the result, even
+		// when non-finite. Both arms are still evaluated and charged — a flat register machine has
+		// no jumps and select is not a cost saving.
+		shape(OP_SELECT, "SELECT", true, V3, 1);
+
+		shape(OP_SAMPLE, "SAMPLE", true, new int[] { KIND_SLOT, KIND_VALUE }, 1);
+
+		// FOR carries its trip count and the accumulator's init operand; both it and ENDFOR are
+		// encoding structure and charge 0. The BODY's ops charge once per iteration — caps are
+		// post-unroll dynamic counts, which is unrolling-invariant and so reads the same for an
+		// interpreting VM and for unrolled codegen.
+		shape(OP_FOR, "FOR", true, new int[] { KIND_IMMEDIATE, KIND_VALUE }, 0);
+		shape(OP_ENDFOR, "ENDFOR", false, V0, 0);
+		// A3: the counter is NOT a register and is never an operand. ITOF's operand is an
+		// immediate loop-DEPTH selector, so the frame stays float-only as pinned and no other op
+		// can reach the counter.
+		shape(OP_ITOF, "ITOF", true, new int[] { KIND_IMMEDIATE }, 1);
+
+		// A1: every output names its property. The pixel family is the degenerate case — one row
+		// in its property table, PROP_COLOR — so there is no implicit destination anywhere and one
+		// code path serves every stage.
+		shape(OP_OUT, "OUT", false, new int[] { KIND_PROPERTY, KIND_VALUE }, 1);
+	}
+
+	/** The shape of an opcode, or null if the opcode is not one of ours. */
+	public static Shape shapeOf(byte opcode) {
+		int i = opcode & 0xFF;
+		return i <= MAX_OPCODE ? SHAPES[i] : null;
+	}
+
+	/** Whether a stage id is one this build knows how to decode at all. */
+	public static boolean isKnownStage(byte stage) {
+		return stage >= STAGE_PIXEL_MATERIAL && stage <= STAGE_COMPUTE;
+	}
+
+	/** Pack a swizzle: components low-to-high, 2 bits each, length in bits 8-9. */
+	public static int packSwizzle(int... components) {
+		if (components.length < 1 || components.length > 4)
+			throw new IllegalArgumentException("swizzle length must be 1..4");
+		int mask = (components.length - 1) << 8;
+		for (int i = 0; i < components.length; i++) {
+			if (components[i] < 0 || components[i] > 3)
+				throw new IllegalArgumentException("swizzle component must be 0..3");
+			mask |= components[i] << (i * 2);
+		}
+		return mask;
+	}
+
+	public static int swizzleLength(int mask) {
+		return ((mask >> 8) & 0x3) + 1;
+	}
+
+	public static int swizzleComponent(int mask, int i) {
+		return (mask >> (i * 2)) & 0x3;
+	}
+}
