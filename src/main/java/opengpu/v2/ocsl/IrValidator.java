@@ -78,18 +78,37 @@ public final class IrValidator {
 			return program;
 		}
 
-		/** The inferred type of a register, or null if the program never gives it one. */
+		/**
+		 * The inferred type of a register, or null if the program never gives it one.
+		 *
+		 * Guarded at BOTH ends. Only the high end was checked, so a negative register threw
+		 * ArrayIndexOutOfBounds from inside a method whose whole contract is to answer "no" by
+		 * returning null — and {@code OcslVm.set} turned that into an AIOOBE where it means to
+		 * throw IllegalArgumentException.
+		 */
 		public OcslType typeOf(int register) {
-			return register < registerTypes.length ? registerTypes[register] : null;
+			return register >= 0 && register < registerTypes.length ? registerTypes[register] : null;
 		}
 
 		/** Where a register's components start in the VM's flat frame, or -1 if it has none. */
 		public int frameOffset(int register) {
-			return register < frameOffsets.length ? frameOffsets[register] : -1;
+			return register >= 0 && register < frameOffsets.length ? frameOffsets[register] : -1;
 		}
 	}
 
 	public static Validated validate(IrProgram program) throws ValidationException {
+		// STRUCTURE FIRST, and shared with the encoder rather than restated here. Everything below
+		// indexes the pool, the register table and the operand list by numbers this program
+		// supplies; before that check existed, a constant index past the end of the pool, a
+		// constant of width 0 or 5, and a negative register count each threw
+		// ArrayIndexOutOfBounds / NullPointerException / NegativeArraySizeException straight out
+		// of this method -- which the A6 contract names as the thing that must never happen.
+		try {
+			IrStructure.check(program);
+		} catch (IrStructure.StructureException e) {
+			throw new ValidationException(e.opIndex, e.getMessage());
+		}
+
 		byte stage = program.stage;
 		if (SurfaceTable.requiredProperties(stage).length == 0) {
 			// A stage with no property table cannot produce an output, so "it validated" would
@@ -142,10 +161,19 @@ public final class IrValidator {
 		long multiplier = 1;
 		List<Integer> tripStack = new ArrayList<Integer>();
 
+		// Charged ops seen so far. Recorded at FOR and compared at ENDFOR, which is what makes an
+		// empty loop body detectable without a second pass; see the ENDFOR branch for why it is
+		// refused.
+		long chargedSeen = 0;
+		List<Long> chargedAtEntry = new ArrayList<Long>();
+
 		List<IrOp> ops = program.ops();
 		for (int i = 0; i < ops.size(); i++) {
 			IrOp op = ops.get(i);
 			OcslWire.Shape shape = OcslWire.shapeOf(op.opcode);
+
+			// Opcode, arity, dst presence, operand ranges, pool indices, swizzle canonical form,
+			// loop balance and ITOF's depth selector are all IrStructure's, checked above.
 
 			if (op.opcode == OcslWire.OP_FOR) {
 				int trips = op.operand(0);
@@ -155,27 +183,53 @@ public final class IrValidator {
 							+ " accumulator would be its init value, which the program can write"
 							+ " directly");
 				}
+				// No MAX_LOOP_TRIPS check here on purpose: trips is always <= multiplier <=
+				// unrollProduct, so the 256 cap below refuses anything the 4096 wire bound would
+				// have, and a second check that can never fire reads like protection it is not.
 				multiplier *= trips;
 				// The cap is on the deepest NESTING PATH, not on every loop in the program
 				// multiplied together. `multiplier` is already the per-nest product and ENDFOR
 				// already unwinds it; an accumulating total never unwinds, so two SEQUENTIAL
 				// loops of 20 would have read as 400 and been refused — while the frozen entry
 				// calls this cap "equal to the op cap, therefore NON-BINDING" on the argument
-				// that every innermost iteration charges at least one op. That argument is about
-				// a nesting path; a running total makes the cap bind where the design says it
-				// cannot.
+				// that every innermost iteration charges at least one op. The nesting-path
+				// reading is still right, but that ARGUMENT was false until the empty-body rule
+				// below made it true: an empty body charges nothing, so "every innermost
+				// iteration charges at least one op" was a premise nothing enforced.
 				unrollProduct = Math.max(unrollProduct, multiplier);
 				if (unrollProduct > MAX_UNROLL_PRODUCT) {
 					throw new ValidationException(i, "unroll product " + unrollProduct
 							+ " exceeds the cap of " + MAX_UNROLL_PRODUCT);
 				}
 				tripStack.add(Integer.valueOf(trips));
+				chargedAtEntry.add(Long.valueOf(chargedSeen));
 				// The accumulator's type is its init operand's, and it counts as written from here.
 				OcslType init = readType(program, types, written, op, 1, i, stage);
 				assign(types, written, writeOrder, op.dst, init, i);
 				continue;
 			}
 			if (op.opcode == OcslWire.OP_ENDFOR) {
+				// Balance is IrStructure's, so tripStack cannot be empty here.
+				// THE WORK BOUND. A loop whose body charges nothing costs the interpreter a
+				// back-edge per iteration and costs unrolled codegen nothing at all, so the
+				// structural count -- which is a post-unroll count, and correctly reads 0 here --
+				// prices it at zero while the CPU VM pays in full. Measured: 2000 sequential
+				// `FOR 256 / ENDFOR` pairs validate at ONE structural op and run 512,000
+				// back-edges in ~3ms, against 118us for a program charged the entire 256 budget.
+				//
+				// Refused rather than charged, because charging FOR/ENDFOR would break the
+				// unrolling-invariance the count is built on and move all four committed
+				// acceptance counts. Refusing costs nothing real: a loop with no charged op
+				// leaves its accumulator at the init value, which is the same thing `trips < 1`
+				// is refused for and the program can write directly. With this rule every loop
+				// charges at least `trips`, so total back-edges are bounded by the op cap.
+				if (chargedSeen == chargedAtEntry.get(chargedAtEntry.size() - 1).longValue()) {
+					throw new ValidationException(i, "the loop closing here charges no op, so it"
+							+ " computes nothing and leaves its accumulator at the init value;"
+							+ " an empty loop costs the interpreter a back-edge per iteration that"
+							+ " the op count cannot see");
+				}
+				chargedAtEntry.remove(chargedAtEntry.size() - 1);
 				tripStack.remove(tripStack.size() - 1);
 				multiplier = 1;
 				for (Integer t : tripStack) {
@@ -183,12 +237,15 @@ public final class IrValidator {
 				}
 				continue;
 			}
+			if (shape.structuralCharge > 0) {
+				chargedSeen++;
+			}
 
 			OcslType result = inferAndCheck(program, types, written, op, i, stage);
 
 			if (op.opcode == OcslWire.OP_SAMPLE) {
 				int slot = op.operand(0);
-				if (slot >= SurfaceTable.MAX_SLOTS) {
+				if (slot < 0 || slot >= SurfaceTable.MAX_SLOTS) {
 					throw new ValidationException(i, "slot " + slot + " is outside the "
 							+ SurfaceTable.MAX_SLOTS + " this build binds");
 				}
@@ -283,6 +340,13 @@ public final class IrValidator {
 					+ (reg < SurfaceTable.UNIFORM_BASE ? "a built-in input" : "a uniform")
 					+ " and cannot be written; working registers start at "
 					+ SurfaceTable.WORKING_BASE);
+		}
+		if (reg >= types.length) {
+			// Only the LOW end was checked, so a write to register 5000 in a 97-register program
+			// indexed past `types` and threw ArrayIndexOutOfBounds out of validate(). The decoder
+			// rejects it against declaredRegisters; a program built in memory never met that.
+			throw new ValidationException(opIndex, "writes register " + reg
+					+ ", outside the " + types.length + " this program declares");
 		}
 		if (types[reg] != null && types[reg] != type) {
 			// A register keeps one type for the program's life. Re-typing would make the frame

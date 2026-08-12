@@ -49,7 +49,29 @@ public final class IrCodec {
 
 	// ---------------------------------------------------------------- encode
 
+	/** Every op field on the wire is one unsigned short; anything else must be refused, not folded. */
+	private static void checkFits(String opName, String what, int value) throws CodecException {
+		if (value < 0 || value > 0xFFFF) {
+			throw new CodecException(opName + " " + what + " is " + value
+					+ ", outside the unsigned 16 bits the wire gives it");
+		}
+	}
+
 	public static byte[] encode(IrProgram program) throws CodecException {
+		// THE SAME STRUCTURAL RULES THE DECODER ENFORCES, checked before a byte is written and
+		// shared with the validator rather than restated here. Encode used to accept thirteen
+		// shapes decode refuses -- a 1025-entry pool, a non-canonical swizzle, a uniform named
+		// "my name", a reserved stage -- each producing a blob that runs on its author's client
+		// and is unreadable by every peer. It also wrote the header counts through writeShort
+		// unchecked, so a program with 65633 declared registers encoded to a valid blob declaring
+		// 97: one encode call, two different programs.
+		try {
+			IrStructure.check(program);
+		} catch (IrStructure.StructureException e) {
+			throw new CodecException(e.opIndex < 0 ? e.getMessage()
+					: "op " + e.opIndex + ": " + e.getMessage());
+		}
+
 		ByteArrayOutputStream bytes = new ByteArrayOutputStream(256);
 		DataOutputStream out = new DataOutputStream(bytes);
 		try {
@@ -69,7 +91,18 @@ public final class IrCodec {
 				// byte can disagree with the payload length.
 				out.writeByte(width);
 				for (int c = 0; c < width; c++) {
-					out.writeFloat(program.constantComponent(i, c));
+					float v = program.constantComponent(i, c);
+					// Symmetric with decode, which has always refused these. Without it, a program
+					// built in memory with an Inf constant encoded happily into a blob its own
+					// decoder rejects -- the author sees a working local run and a peer sees a
+					// corrupt program.
+					if (Float.isNaN(v) || Float.isInfinite(v)) {
+						// Worded to match the decoder's refusal deliberately: two checks on the
+						// same rule that disagree about what to call it read as two rules.
+						throw new CodecException("Constant " + i + " component " + c
+								+ " is non-finite (" + v + "); the pool carries finite values only");
+					}
+					out.writeFloat(v);
 				}
 			}
 
@@ -91,8 +124,15 @@ public final class IrCodec {
 							? " needs a destination register" : " writes no destination"));
 				}
 				out.writeByte(op.opcode);
+				// RANGE-CHECKED, NOT TRUNCATED. writeShort silently keeps the low 16 bits, and the
+				// consequence was worse than a bad blob: `ITOF …, 65536` validated, crashed the VM
+				// with an out-of-range loop depth, and then encoded to a blob whose immediate was 0
+				// and which decoded and ran cleanly. One validate() call certified two different
+				// programs -- the one that ran and the one that shipped.
+				checkFits(shape.name, "destination", shape.hasDst ? op.dst : 0);
 				out.writeShort(shape.hasDst ? op.dst : 0);
 				for (int i = 0; i < op.operandCount(); i++) {
+					checkFits(shape.name, "operand " + i, op.operand(i));
 					out.writeShort(op.operand(i));
 				}
 			}

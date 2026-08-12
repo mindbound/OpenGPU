@@ -426,6 +426,267 @@ public class IrValidatorTest {
 		assertEquals(builtinWidth + 3 + 1 + 4, v.frameWidth);
 	}
 
+	// ---------------------------------------------------------------- the gate is self-sufficient
+	//
+	// EVERY TEST BELOW WAS A HOLE THE CODEC HAPPENED TO COVER. The design names validate() as the
+	// boundary the VM trusts, but the loop invariants the VM's memory safety depends on were
+	// enforced only in IrCodec.decode(). That was fine while every program arrived over the wire,
+	// and stops being fine with the builder, which constructs an IrProgram and calls validate()
+	// directly -- never passing through the decoder at all. Each of these accepted a program that
+	// then crashed the VM, or crashed validate() itself with the wrong exception type.
+
+	@Test
+	public void refusesAnEndforThatClosesNoLoop() {
+		// Threw ArrayIndexOutOfBoundsException: -1 from remove(size()-1) INSIDE validate(), so a
+		// caller catching ValidationException saw it escape. IrProgram.structuralCount() guards
+		// this exact case and saturates -- eighty lines further on, behind the crash.
+		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 1,
+				new IrOp(OcslWire.OP_ENDFOR, -1),
+				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "closes no loop");
+	}
+
+	@Test
+	public void refusesALoopLeftOpen() {
+		// Was caught only by structuralCount() saturating, which surfaced as "charges
+		// 9223372036854775807 structural ops" -- true, and useless to whoever forgot the ENDFOR.
+		// The OUT comes FIRST: with no ENDFOR everything after the FOR is inside the loop, and
+		// OUT-inside-a-loop is refused for its own reason, which would have tested the wrong rule.
+		expectReject(new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL,
+				new float[][] { { 1.0f }, { 0f, 0f, 0f, 0f } },
+				Arrays.asList(
+						new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+						new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W),
+						new IrOp(OcslWire.OP_FOR, W + 1, 2, k(1)),
+						new IrOp(OcslWire.OP_ADD, W + 1, W + 1, W + 1)),
+				new ArrayList<String>(), W + 2), "left open");
+	}
+
+	@Test
+	public void refusesAnItofThatNamesALoopDepthNotOpenHere() {
+		// ACCEPTED before, and then OcslVm computed loopCounter[depth - 1 - selector] and threw
+		// ArrayIndexOutOfBoundsException: -5 on the render thread. The type rule was the whole
+		// rule: `case OP_ITOF: return OcslType.FLOAT;`, with no look at the operand.
+		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 2,
+				new IrOp(OcslWire.OP_ITOF, W + 1, 0),
+				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "outside any loop");
+
+		expectReject(new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL,
+				new float[][] { { 1.0f }, { 0f, 0f, 0f, 0f } },
+				Arrays.asList(
+						new IrOp(OcslWire.OP_FOR, W + 1, 3, k(1)),
+						new IrOp(OcslWire.OP_ITOF, W + 2, 5),
+						new IrOp(OcslWire.OP_ENDFOR, -1),
+						new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+						new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)),
+				new ArrayList<String>(), W + 3), "selects loop depth 5");
+	}
+
+	@Test
+	public void refusesALoopWhoseBodyChargesNothing() throws Exception {
+		// THE WORK BOUND, and the reason it cannot be a cap on the op count. FOR/ENDFOR charge 0,
+		// and that is CORRECT: the count is a post-unroll count and unrolled codegen emits nothing
+		// for an empty body. Only the interpreter pays, one back-edge per iteration, so the one
+		// number pricing the program is blind to the work by construction.
+		expectReject(new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL,
+				new float[][] { { 1.0f }, { 0f, 0f, 0f, 0f } },
+				Arrays.asList(
+						new IrOp(OcslWire.OP_FOR, W + 1, 256, k(1)),
+						new IrOp(OcslWire.OP_ENDFOR, -1),
+						new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+						new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)),
+				new ArrayList<String>(), W + 2), "charges no op");
+
+		// The measured attack: 2000 sequential pairs validated at ONE structural op against a cap
+		// of 256, and ran 512,000 back-edges -- about 3 ms per evaluation, where a program charged
+		// the entire 256-op budget runs in 118 us. Neither existing cap could see it:
+		// MAX_UNROLL_PRODUCT is per-nesting-path by design, so sequential loops never accumulate.
+		List<IrOp> many = new ArrayList<IrOp>();
+		for (int i = 0; i < 2000; i++) {
+			many.add(new IrOp(OcslWire.OP_FOR, W + 1, 256, k(1)));
+			many.add(new IrOp(OcslWire.OP_ENDFOR, -1));
+		}
+		many.add(new IrOp(OcslWire.OP_SPLAT, W, k(0), 4));
+		many.add(new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W));
+		expectReject(new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL,
+				new float[][] { { 1.0f }, { 0f, 0f, 0f, 0f } }, many, new ArrayList<String>(),
+				W + 2), "charges no op");
+
+		// A loop that computes something is untouched, including one whose only charged op is
+		// nested deeper -- the rule is about the body, not about the immediate level.
+		IrValidator.validate(new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL,
+				new float[][] { { 1.0f }, { 0f, 0f, 0f, 0f } },
+				Arrays.asList(
+						new IrOp(OcslWire.OP_FOR, W + 1, 4, k(1)),
+						new IrOp(OcslWire.OP_FOR, W + 2, 4, k(1)),
+						new IrOp(OcslWire.OP_ADD, W + 1, W + 1, W + 2),
+						new IrOp(OcslWire.OP_ENDFOR, -1),
+						new IrOp(OcslWire.OP_ENDFOR, -1),
+						new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+						new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)),
+				new ArrayList<String>(), W + 3));
+	}
+
+	@Test
+	public void refusesAWriteBeyondTheDeclaredRegisterCount() {
+		// assign() checked only the LOW end, so dst=5000 in a 97-register program indexed past
+		// `types` and threw AIOOBE out of validate().
+		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 1,
+				new IrOp(OcslWire.OP_SPLAT, 5000, k(0), 4),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "outside the");
+	}
+
+	@Test
+	public void refusesAnOpCarryingTheWrongOperandCount() {
+		// One check that retires a whole class: every type rule below it indexes operands by the
+		// arity it expects, so a short op reached IrOp.operand() and threw AIOOBE out of validate().
+		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 1,
+				new IrOp(OcslWire.OP_ADD, W),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "operand");
+	}
+
+	@Test
+	public void refusesANonFiniteConstant() {
+		// The pool is an ingress. Every op is total and the VM sanitizes uniforms, but SPLAT,
+		// SELECT, SWZ and the constructors COPY a constant into the frame and compute nothing the
+		// catch-all could apply to -- so an Inf constant reached OUT as Inf. decode() refused such
+		// a pool; encode() did not, so the program ran locally and produced a blob no peer accepts.
+		expectReject(new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL,
+				new float[][] { { Float.POSITIVE_INFINITY } },
+				Arrays.asList(
+						new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+						new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)),
+				new ArrayList<String>(), W + 1), "non-finite");
+	}
+
+	@Test
+	public void refusesLoopNestingDeeperThanTheWireCarries() {
+		// validate() accepted 40-deep nesting, the VM ran it, encode() produced a blob -- and
+		// decode() then refused it. A program this method certified that no peer can read.
+		List<IrOp> ops = new ArrayList<IrOp>();
+		int depth = OcslWire.MAX_LOOP_DEPTH + 1;
+		for (int i = 0; i < depth; i++) {
+			ops.add(new IrOp(OcslWire.OP_FOR, W + 1 + i, 1, k(1)));
+		}
+		ops.add(new IrOp(OcslWire.OP_ADD, W + 1, W + 1, W + 1));
+		for (int i = 0; i < depth; i++) {
+			ops.add(new IrOp(OcslWire.OP_ENDFOR, -1));
+		}
+		ops.add(new IrOp(OcslWire.OP_SPLAT, W, k(0), 4));
+		ops.add(new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W));
+		expectReject(new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL,
+				new float[][] { { 1.0f }, { 0f, 0f, 0f, 0f } }, ops, new ArrayList<String>(),
+				W + 2 + depth), "depth");
+	}
+
+	@Test
+	public void refusesANegativeSamplerSlot() {
+		// Only the high end was bounded. Harmless in the CPU VM, which ignores the slot; not
+		// harmless for codegen, which binds by it.
+		expectReject(prog(OcslWire.STAGE_PIXEL_EFFECT, new float[] { 1.0f }, W + 1,
+				new IrOp(OcslWire.OP_SAMPLE, W, -1, SurfaceTable.REG_UV),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "outside the");
+	}
+
+	// ---------------------------------------------------------------- the second sweep
+	//
+	// Everything below was found by ADVERSARIALLY VERIFYING THE FIRST ROUND OF FIXES rather than by
+	// reviewing the code again, and the pattern is worth naming: each first-round fix closed one
+	// SIDE of a symmetric rule and left the other open. The write index was bounded and the
+	// constant-pool read index was not; constants were checked for finiteness and not for width;
+	// op operands were range-checked on encode and the four header counts were not. The rules now
+	// live once, in IrStructure, called by validate() and encode() alike -- so the remaining risk
+	// is a missing RULE rather than a rule enforced in only one of three places.
+
+	@Test
+	public void refusesAConstantOperandOutsideThePool() {
+		// The mirror image of the register fix, and it threw ArrayIndexOutOfBoundsException out of
+		// validate() from IrProgram.constantType. Note the second case: a raw operand of -1 has the
+		// sign bit set, so OPERAND_CONST_FLAG reads as present and index() yields 32767 -- which is
+		// why IrStructure checks the raw operand before believing its tag.
+		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 1,
+				new IrOp(OcslWire.OP_SPLAT, W, k(9), 4),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "outside the pool");
+		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 1,
+				new IrOp(OcslWire.OP_ADD, W, -1, k(0)),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "outside the unsigned 16");
+	}
+
+	@Test
+	public void refusesAConstantWhoseWidthIsNotAType() {
+		// Width IS the type tag, so 0 or 5 has no type -- OcslType.ofWidth returns null. That null
+		// was dereferenced at seven sites for an NPE out of validate(), and, worse, read as
+		// "contributes no shape" at three others, so the program was ACCEPTED and then either threw
+		// inside the VM or returned a wrong number: a 5-wide DOT reported 12.0 where the honest
+		// answer is 26.0, because scratchInto wrote five floats into a four-float lane.
+		expectReject(new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL,
+				new float[][] { new float[0], { 1f, 1f, 1f, 1f } },
+				Arrays.asList(
+						new IrOp(OcslWire.OP_ADD, W, k(0), k(1)),
+						new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)),
+				new ArrayList<String>(), W + 1), "1..4 only");
+		expectReject(new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL,
+				new float[][] { { 1f, 1f, 1f, 1f, 9f }, { 2f, 2f, 2f, 2f, 2f } },
+				Arrays.asList(
+						new IrOp(OcslWire.OP_DOT, W, k(0), k(1)),
+						new IrOp(OcslWire.OP_SPLAT, W + 1, W, 4),
+						new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W + 1)),
+				new ArrayList<String>(), W + 2), "1..4 only");
+	}
+
+	@Test
+	public void refusesANegativeRegisterCount() {
+		// `new OcslType[regCount]` threw NegativeArraySizeException, because the cap check was
+		// one-sided. That one-sidedness is this package's recurring bug: the same shape was fixed
+		// in assign(), typeOf(), frameOffset() and the sampler slot in the first round, and this
+		// instance survived all four.
+		expectReject(new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL,
+				new float[][] { { 1f, 1f, 1f, 1f } },
+				Arrays.asList(new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, k(0))),
+				new ArrayList<String>(), -3), "declares -3 registers");
+	}
+
+	@Test
+	public void refusesWhatTheDecoderWouldRefuse() {
+		// A6's corollary, tested as ONE property rather than as a list of instances. Each of these
+		// validated, ran on the VM and encoded cleanly, and was then refused by decode() -- so the
+		// author saw a working program and every peer saw a corrupt one. That is exactly the
+		// failure the constant-finiteness fix was written for, surviving in four other fields.
+		float[] one = { 1.0f };
+
+		// A pool larger than the wire's cap.
+		float[] big = new float[OcslWire.MAX_CONSTANTS + 1];
+		Arrays.fill(big, 1.0f);
+		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, big, W + 1,
+				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "exceeds the cap");
+
+		// A non-canonical swizzle: length 1, but a component set beyond it. Canonical form IS the
+		// content hash, so two spellings of `.x` would fork the compile-cache key for one program.
+		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, one, W + 2,
+				new IrOp(OcslWire.OP_SWZ, W, k(0), 1 << 2),
+				new IrOp(OcslWire.OP_SPLAT, W + 1, W, 4),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W + 1)), "canonical form");
+
+		// Uniform names the decoder's charset refuses. setUniform("my name", ...) would otherwise
+		// build a program that works on its author's client and nowhere else.
+		for (String bad : new String[] { "", "1abc", "a-b", "my name" }) {
+			expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, one, Arrays.asList(bad), W + 1,
+					new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+					new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "name 0");
+		}
+
+		// More ops than the wire carries.
+		List<IrOp> many = new ArrayList<IrOp>();
+		for (int i = 0; i < OcslWire.MAX_OPS + 1; i++) {
+			many.add(new IrOp(OcslWire.OP_SPLAT, W, k(0), 4));
+		}
+		many.add(new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W));
+		expectReject(new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL, new float[][] { { 1f } }, many,
+				new ArrayList<String>(), W + 1), "op count");
+	}
+
 	@Test
 	public void frameLayoutIsAPureFunctionOfTheBlob() throws Exception {
 		// The same program validated twice must lay out identically -- that is what lets the
