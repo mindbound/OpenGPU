@@ -137,6 +137,23 @@ public final class OcslTables {
 		line(out, "# made it impossible to decode a blob's stage field from the table alone.");
 		line(out, "");
 
+		// OPENNESS IS FROZEN HERE because the gate that decides it stopped being derivable from
+		// anything else in this file. It used to be readable off `[properties] required`, which said
+		// `yes` for exactly the four open surfaces -- so adding a surface to the open set moved this
+		// artifact. Once the predicate became its own function, opening a stage changed no frozen
+		// byte, and a clean `./gradlew ocslTables` diff would have read as "no contract moved" while
+		// a whole surface went live.
+		line(out, "[open] stage open");
+		line(out, "# Whether a program may be built, validated or run on this surface at all.");
+		line(out, "# SEPARATE from whether it mandates an output -- see [properties] required. The");
+		line(out, "# animator is the surface that distinguishes them: it mandates nothing and is");
+		line(out, "# shut, and its required set must stay empty even after it opens.");
+		for (int s = 0; s < stages.length; s++) {
+			line(out, stageName(stages[s]) + " "
+					+ (SurfaceTable.isOpen(stages[s]) ? "yes" : "no"));
+		}
+		line(out, "");
+
 		line(out, "[registers] id name" + stageHeader);
 		line(out, "# type per stage, or - when the stage does not carry that register.");
 		line(out, "# An id present with - everywhere is RESERVED AND UNREADABLE, and deliberately so.");
@@ -399,6 +416,16 @@ public final class OcslTables {
 		line(out, "blob-envelope OcslWire MAGIC/FORMAT_VERSION/TRAILING_GUARD");
 		line(out, "uniform-binding-rule declaration order from uniformBase, all float in v1");
 		line(out, "numeric-domain golden-vectors.txt (frozen there, deliberately not duplicated)");
+		line(out, "isOpen-independence SurfaceTable -- see below, NOT behaviourally detectable");
+		line(out, "#");
+		line(out, "# That last one is an honest gap rather than an oversight. `isOpen` and");
+		line(out, "# `requiredProperties(s).length != 0` return the same answer for all 256 stage");
+		line(out, "# bytes TODAY, so re-deriving one from the other is a source-level regression with");
+		line(out, "# no observable consequence -- no test and no frozen byte can catch it. It matters");
+		line(out, "# because the day the animator opens they diverge, and re-coupling them puts back");
+		line(out, "# the trap this split removed: clearing the validator gate by giving the animator");
+		line(out, "# a required property, which forces every animator program to own it (ANIM-2).");
+		line(out, "# If you are here to de-duplicate those two switches: don't.");
 	}
 
 	private static String kindName(int kind) {

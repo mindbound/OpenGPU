@@ -147,12 +147,14 @@ public final class OcslBuilder {
 		if (!OcslWire.isKnownStage(stage)) {
 			throw new BuildException("stage " + (stage & 0xFF) + " is not a stage this build knows");
 		}
-		if (SurfaceTable.requiredProperties(stage).length == 0) {
-			// The same refusal the validator makes, made EARLIER. A stage with no property table
-			// cannot produce an output, so letting a caller build against it would mean discovering
-			// at build() that nothing they wrote could ever have been written anywhere.
-			throw new BuildException("stage " + (stage & 0xFF) + " has no property table, so no"
-					+ " program on it can produce an output; it is reserved and not yet implemented");
+		if (!SurfaceTable.isOpen(stage)) {
+			// The same refusal the validator makes, made EARLIER: letting a caller build against a
+			// shut surface would mean discovering at build() that nothing they wrote could ever go
+			// anywhere. Both gates now ask SurfaceTable.isOpen rather than inferring it from an
+			// empty requiredProperties -- an inference that was correct only until a surface wanted
+			// to mandate no output, which is exactly what the animator does.
+			throw new BuildException("stage " + (stage & 0xFF) + " is not open: no program may be"
+					+ " built on this surface yet");
 		}
 		return new OcslBuilder(stage);
 	}

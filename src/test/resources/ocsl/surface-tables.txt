@@ -26,6 +26,19 @@
 # The stage byte a blob carries. Absent from the first cut of this file, which
 # made it impossible to decode a blob's stage field from the table alone.
 
+[open] stage open
+# Whether a program may be built, validated or run on this surface at all.
+# SEPARATE from whether it mandates an output -- see [properties] required. The
+# animator is the surface that distinguishes them: it mandates nothing and is
+# shut, and its required set must stay empty even after it opens.
+material yes
+effect yes
+post yes
+bake yes
+vertex no
+animator no
+compute no
+
 [registers] id name material effect post bake vertex animator compute
 # type per stage, or - when the stage does not carry that register.
 # An id present with - everywhere is RESERVED AND UNREADABLE, and deliberately so.
@@ -254,3 +267,13 @@ decoder-caps OcslWire MAX_CONSTANTS/MAX_OPS/MAX_NAMES/MAX_BLOB_BYTES/etc
 blob-envelope OcslWire MAGIC/FORMAT_VERSION/TRAILING_GUARD
 uniform-binding-rule declaration order from uniformBase, all float in v1
 numeric-domain golden-vectors.txt (frozen there, deliberately not duplicated)
+isOpen-independence SurfaceTable -- see below, NOT behaviourally detectable
+#
+# That last one is an honest gap rather than an oversight. `isOpen` and
+# `requiredProperties(s).length != 0` return the same answer for all 256 stage
+# bytes TODAY, so re-deriving one from the other is a source-level regression with
+# no observable consequence -- no test and no frozen byte can catch it. It matters
+# because the day the animator opens they diverge, and re-coupling them puts back
+# the trap this split removed: clearing the validator gate by giving the animator
+# a required property, which forces every animator program to own it (ANIM-2).
+# If you are here to de-duplicate those two switches: don't.

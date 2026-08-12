@@ -645,7 +645,12 @@ public class OcslBuilderTest {
 			OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
 			fail("the animator surface is deferred behind a tripwire");
 		} catch (OcslBuilder.BuildException e) {
-			assertTrue(e.getMessage(), e.getMessage().contains("reserved"));
+			// Was `contains("reserved")`, which came from a message reading "has no property
+			// table... it is reserved". That message became FALSE the day the animator's property
+			// table was published, and the gate now asks SurfaceTable.isOpen instead of inferring
+			// reservation from an empty required-properties set. What this test is for is that the
+			// surface is shut at the FIRST call, which is unchanged.
+			assertTrue(e.getMessage(), e.getMessage().contains("not open"));
 		}
 	}
 

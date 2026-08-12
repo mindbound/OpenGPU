@@ -415,21 +415,57 @@ public final class SurfaceTable {
 	}
 
 	/**
+	 * Whether a program may exist on this surface at all — SEPARATE from what it must write.
+	 *
+	 * These were one boolean until 2026-08-12: both gates asked
+	 * {@code requiredProperties(stage).length == 0} and read an empty answer as "reserved". That was
+	 * correct only by luck, because every open surface so far happens to mandate an output — and the
+	 * animator breaks it, because ANIM-1 and ANIM-2 make its OUT set variable per program and the
+	 * sole ownership declaration, so {@code requiredProperties(STAGE_ANIMATOR)} must stay <b>empty
+	 * forever</b>. An animator that owns only {@code x} writes only {@code x}.
+	 *
+	 * The trap that left was concrete and aimed squarely at whoever opens the surface: they
+	 * implement {@code builtinType} for it, find {@code validate()} still refusing, and clear the
+	 * gate the obvious way — by making {@code requiredProperties} return a property — which forces
+	 * every animator program to own that property, directly against ANIM-2. It was written down as
+	 * a javadoc warning first, which is the one form this project has repeatedly found does not
+	 * hold; separating the predicates while the surface is still shut costs nothing and converts the
+	 * warning into a fact.
+	 *
+	 * <b>What is true: nothing else being edited can open a surface by accident.</b> Deleting the
+	 * {@link IrStructure} tripwire outright still leaves {@code forStage} and {@code validate}
+	 * refusing.
+	 *
+	 * <b>What is NOT true, and a first draft of this note claimed it was: "opening a surface is
+	 * editing THIS list, nothing else needs to move".</b> Measured — adding {@code STAGE_ANIMATOR}
+	 * here and changing nothing else gives a {@code forStage} that hands back a live builder while
+	 * {@link IrStructure}, {@code validate}, {@code encode} and {@code decode} all still refuse by
+	 * name. That is exactly the state {@link OcslBuilder#forStage}'s early gate exists to prevent:
+	 * the author writes a whole program and discovers at {@code build()} that none of it could go
+	 * anywhere. <b>Opening the animator takes three edits</b> — this list,
+	 * {@code IrStructure.checkStage}, and {@code IrCodec.decode} — and a note that undercounts them
+	 * is worse than no note, because it reads as a checklist.
+	 */
+	public static boolean isOpen(byte stage) {
+		switch (stage) {
+			case OcslWire.STAGE_PIXEL_MATERIAL:
+			case OcslWire.STAGE_PIXEL_EFFECT:
+			case OcslWire.STAGE_PIXEL_POST:
+			case OcslWire.STAGE_BAKE:
+				return true;
+			// vertex   -- Stage C, no property table yet, refused by no tripwire.
+			// animator -- ids and composition frozen (ANIM-2/3/6/7/16), semantics still open.
+			// compute  -- post-Stage-D.
+			default:
+				return false;
+		}
+	}
+
+	/**
 	 * Every property this stage requires an OUT for. The pixel family requires exactly COLOR.
 	 *
-	 * <b>DO NOT use an empty result as "this stage is not implemented".</b> Two call sites do
-	 * ({@link IrValidator} and {@link OcslBuilder#forStage}), and it has been correct only because
-	 * every implemented surface so far happens to mandate an output. The animator breaks it: ANIM-1
-	 * and ANIM-2 make its OUT set variable per program and the sole ownership declaration, so
-	 * {@code requiredProperties(STAGE_ANIMATOR)} must stay <b>empty forever</b> — an animator that
-	 * owns only {@code x} writes only {@code x}.
-	 *
-	 * The trap that leaves is concrete: whoever opens the surface implements {@code builtinType}
-	 * for it, finds {@code validate()} still refusing, and clears the gate by making this method
-	 * return a property — forcing every animator program to own it, directly against ANIM-2. The
-	 * two questions need separating at that point. They are not separated now because the animator
-	 * is the only surface that distinguishes them and it is still shut; {@link IrStructure} refuses
-	 * it by name, which is the gate that actually means "reserved".
+	 * An empty result means only what it says — this surface mandates no particular output — and is
+	 * NOT a statement about whether the surface is open. See {@link #isOpen}.
 	 */
 	public static int[] requiredProperties(byte stage) {
 		switch (stage) {

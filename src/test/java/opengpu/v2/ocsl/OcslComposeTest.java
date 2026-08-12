@@ -193,6 +193,69 @@ public strictfp class OcslComposeTest {
 		assertEquals(-1, OcslCompose.ruleFor(OcslWire.PROP_ANIM_VISIBLE));
 	}
 
+	/**
+	 * "This surface is shut" and "this surface mandates no output" are now independent facts.
+	 *
+	 * They were one boolean until the animator needed to be the first surface that is OPEN-shaped in
+	 * one sense and shut in the other: ANIM-1/ANIM-2 make its OUT set variable per program and the
+	 * sole ownership declaration, so its required set must stay empty <b>forever</b> — an animator
+	 * owning only {@code x} writes only {@code x}. While both gates inferred "reserved" from an
+	 * empty required set, opening the surface meant clearing that inference, and the obvious way to
+	 * clear it — return a property — would have forced every animator to own it.
+	 *
+	 * <b>WHAT THIS TEST CANNOT DO, stated because its first draft claimed otherwise.</b> It does NOT
+	 * fail if someone re-derives {@code isOpen} from {@code requiredProperties}. Verified: replacing
+	 * the body with {@code return requiredProperties(stage).length != 0} passes the entire suite.
+	 * The two predicates agree on all 256 stage bytes today, so re-coupling is a source-level
+	 * regression with <b>no observable consequence</b> — nothing behavioural can catch it, and the
+	 * gap is recorded in the frozen artifact's {@code [not-frozen-here]} block rather than papered
+	 * over here. They diverge only when the animator opens, which is precisely when the trap would
+	 * bite. What this test does pin is the INVARIANT that survives that day: the animator's required
+	 * set is empty and must stay so.
+	 */
+	@Test
+	public void beingShutAndMandatingNoOutputAreIndependentFacts() throws Exception {
+		// The animator holds both properties at once, which is what made the coupling a trap.
+		assertEquals("an animator's OUT set is per-program, so it mandates nothing, forever",
+				0, SurfaceTable.requiredProperties(OcslWire.STAGE_ANIMATOR).length);
+		assertTrue("and it is shut for reasons that have nothing to do with that",
+				!SurfaceTable.isOpen(OcslWire.STAGE_ANIMATOR));
+		assertTrue("while genuinely having a published property table",
+				SurfaceTable.propertyType(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_X) != null);
+
+		// The open surfaces are exactly the pixel family, and each does mandate an output -- which
+		// is the coincidence that let the two questions look like one for so long.
+		//
+		// Asserted through requiredProperties rather than `propertyType(stage, PROP_COLOR)`. That
+		// probe was aliasing across namespaces: PROP_COLOR is 0 and so is the animator's `x`, so it
+		// read "has any property at id 0" and passed for the animator under a mutation that opened
+		// it -- the sibling assert caught that, not this loop. It also probed only id 0, so a future
+		// surface whose table starts at id 1 would have read as having none.
+		for (int s = 0; s <= 255; s++) {
+			byte stage = (byte) s;
+			if (!OcslWire.isKnownStage(stage) || !SurfaceTable.isOpen(stage)) {
+				continue;
+			}
+			int[] required = SurfaceTable.requiredProperties(stage);
+			assertTrue("an open surface must mandate at least one output, or `it validated` means"
+					+ " nothing there", required.length > 0);
+			for (int i = 0; i < required.length; i++) {
+				assertTrue("every required property must have a type at its own stage",
+						SurfaceTable.propertyType(stage, required[i]) != null);
+			}
+		}
+
+		// And the gate that refuses actually asks isOpen: the animator is refused at the builder
+		// despite having a property table, which is the case the old inference could not express.
+		try {
+			OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+			fail("the animator surface is shut and the builder must say so");
+		} catch (OcslBuilder.BuildException e) {
+			assertTrue("the refusal should name openness, not a missing table, got: "
+					+ e.getMessage(), e.getMessage().contains("not open"));
+		}
+	}
+
 	private static float length(float[] q) {
 		double s = 0;
 		for (int i = 0; i < q.length; i++) {

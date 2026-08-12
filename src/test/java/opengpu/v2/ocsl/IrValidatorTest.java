@@ -390,12 +390,21 @@ public class IrValidatorTest {
 	}
 
 	@Test
-	public void refusesAStageWithNoPropertyTable() {
+	public void refusesAStageThatIsNotOpen() {
 		// The vertex stage is reserved for Stage C and refused by no codec tripwire. Without this,
 		// a vertex program with no OUT at all validated as ACCEPTABLE -- "it validated" meaning
-		// nothing, because that stage cannot produce an output.
+		// nothing, because nothing may run on that surface yet.
+		//
+		// ASSERTS ON OPENNESS, not on "no property table", and the rename is the point. The old
+		// wording passed only because the message happened to end with that phrase, and it would
+		// have turned RED on the exact Stage C workflow this gate exists to make safe: publish a
+		// vertex property table while leaving the surface shut, and the refusal stops mentioning a
+		// missing table while remaining entirely correct. A test named
+		// `refusesAStageWithNoPropertyTable` going red at that moment reads as "don't publish the
+		// table" or "open the stage" -- which is the trap that was just removed, relocated into the
+		// suite.
 		expectReject(prog(OcslWire.STAGE_VERTEX, new float[] { 1.0f }, W + 1,
-				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4)), "no property table");
+				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4)), "is not open");
 	}
 
 	@Test

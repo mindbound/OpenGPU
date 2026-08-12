@@ -152,14 +152,24 @@ public final class IrValidator {
 		}
 
 		byte stage = program.stage;
-		if (SurfaceTable.requiredProperties(stage).length == 0) {
-			// A stage with no property table cannot produce an output, so "it validated" would
-			// mean nothing. The vertex stage is the live case: reserved for Stage C, refused by no
-			// tripwire, and it would otherwise pass as an ACCEPTABLE program that can never write
-			// anything.
+		if (!SurfaceTable.isOpen(stage)) {
+			// Asks whether the SURFACE is open, which is no longer the same question as whether it
+			// mandates an output -- see SurfaceTable.isOpen. The old form read an empty
+			// requiredProperties as "reserved", and the message said "has no property table", which
+			// became false the day the animator's was published: it has one, in the frozen artifact,
+			// and is shut for entirely different reasons.
+			// The only stage that REACHES this throw is vertex: 6 and 7 are refused by name in
+			// IrStructure.check above, 0 and >=8 fail isKnownStage inside it, and 1-4 are open. A
+			// first draft branched the wording on whether the stage had a property table, to
+			// distinguish the animator -- a branch that could never execute, describing a message
+			// the validator had never emitted for the animator either before or after the change.
+			// It also claimed "no program may be built, ENCODED or run", and encode does not refuse
+			// vertex: a hand-built vertex program still round-trips the wire, which is a real
+			// pre-existing gap this message should not paper over.
 			throw new ValidationException(-1, "stage " + (stage & 0xFF)
-					+ " has no property table, so no program on it can produce an output;"
-					+ " it is reserved and not yet implemented");
+					+ " is not open: no program may be validated or run on this surface yet."
+					+ " Whether it has a property table is a separate question -- a surface can have"
+					+ " one and still be shut.");
 		}
 		int regCount = program.declaredRegisters;
 		if (regCount > SurfaceTable.MAX_REGISTERS) {
