@@ -69,8 +69,7 @@ public class OcslBuilderTest {
 
 	// ---------------------------------------------------------------- P2 blur
 
-	@Test
-	public void blurAuthoredThroughTheBuilderChargesItsCommittedCount() throws Exception {
+	private static OcslBuilder blur() {
 		final OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_PIXEL_POST);
 		final Expr texel = b.builtin(SurfaceTable.REG_INPUT_TEXEL_SIZE);
 		final Expr uv = b.builtin(SurfaceTable.REG_UV);
@@ -89,7 +88,12 @@ public class OcslBuilderTest {
 			}
 		});
 		b.out(OcslWire.PROP_COLOR, sum);
+		return b;
+	}
 
+	@Test
+	public void blurAuthoredThroughTheBuilderChargesItsCommittedCount() throws Exception {
+		OcslBuilder b = blur();
 		IrProgram p = b.build();
 		IrValidator.Validated v = IrValidator.validate(p);
 		// 1 + 11x9 + OUT = 101, plus the one splat the float-typed uniform costs.
@@ -101,8 +105,7 @@ public class OcslBuilderTest {
 
 	// ---------------------------------------------------------------- P3 dissolve
 
-	@Test
-	public void dissolveAuthoredThroughTheBuilderChargesItsCommittedCount() throws Exception {
+	private static OcslBuilder dissolve() {
 		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_PIXEL_EFFECT);
 		Expr uv = b.builtin(SurfaceTable.REG_UV);
 		Expr tint = b.builtin(SurfaceTable.REG_TINT);
@@ -124,12 +127,121 @@ public class OcslBuilderTest {
 		Expr tinted = picked.mul(tint.swz("xyz"));
 		Expr alpha = base.w().mul(hard).mul(tint.w());
 		b.out(OcslWire.PROP_COLOR, b.vec4(tinted, alpha));
+		return b;
+	}
 
+	@Test
+	public void dissolveAuthoredThroughTheBuilderChargesItsCommittedCount() throws Exception {
+		OcslBuilder b = dissolve();
 		IrProgram p = b.build();
 		IrValidator.Validated v = IrValidator.validate(p);
 		assertEquals("dissolve reproduces its committed 21 exactly", 21L, b.structuralCount());
 		assertEquals(21L, v.structuralOps);
 		assertEquals("two fetches: the built-in input sampler and one bound slot", 2, v.fetches);
+	}
+
+	// ------------------------------------------------- P1/P2/P3 actually EXECUTED
+
+	/**
+	 * The acceptance programs RUN, which until now only P4 did.
+	 *
+	 * Stage B's exit criterion is the four dry-run programs "authored in the builder, validated, and
+	 * executed on the VM". P1, P2 and P3 had the first two and not the third — they were built,
+	 * counted op-for-op and round-tripped through the codec, and then never evaluated. A program can
+	 * satisfy every count in this file and still read an unwritten register, index a frame slot that
+	 * does not exist, or produce garbage: the counts constrain the SHAPE and say nothing about what
+	 * running it does. P4 was executed because it was written to probe the numeric domain; the other
+	 * three were not, because nothing about their op counts suggested they needed to be.
+	 *
+	 * These assert what a whole-program run can honestly assert without a second backend to compare
+	 * against — that every lane is finite, that alpha is what the program constructs, and that the
+	 * bound sampler actually reaches the output. Per the GLSL dry run § 5.4, cross-backend numeric
+	 * conformance is a **Stage D gate**, not this; Stage B's share of that obligation is the CPU VM
+	 * against the golden vectors, which `OcslGoldenTest` discharges.
+	 */
+	@Test
+	public void plasmaRunsAndEveryLaneIsFinite() throws Exception {
+		OcslVm vm = new OcslVm(IrValidator.validate(plasma().build()));
+		vm.set(SurfaceTable.REG_UV, 0.37f, 0.61f);
+		vm.set(SurfaceTable.REG_TIME, 2.5f);
+		vm.set(SurfaceTable.REG_TINT, 1f, 1f, 1f, 1f);
+		vm.set(SurfaceTable.UNIFORM_BASE, 0.2f);      // colorA
+		vm.set(SurfaceTable.UNIFORM_BASE + 1, 0.9f);  // colorB
+		vm.run();
+
+		float[] out = new float[4];
+		vm.output(OcslWire.PROP_COLOR, out);
+		for (int i = 0; i < 4; i++) {
+			assertTrue("lane " + i + " is " + out[i], OcslMath.finite(out[i]));
+		}
+		// The rgb lanes are a MIX of the two uniform splats, so they are bracketed by them whatever
+		// the plasma field does -- a real constraint on the arithmetic rather than a finiteness check
+		// that a program returning all zeroes would also pass.
+		for (int i = 0; i < 3; i++) {
+			assertTrue("lane " + i + " = " + out[i] + " outside mix(0.2, 0.9)",
+					out[i] >= 0.2f - 1e-6f && out[i] <= 0.9f + 1e-6f);
+		}
+		// Alpha is mix(0.4, 1.0, t) times tint.w, so it cannot be below 0.4.
+		assertTrue("alpha " + out[3], out[3] >= 0.4f - 1e-6f && out[3] <= 1.0f + 1e-6f);
+	}
+
+	@Test
+	public void blurRunsAndItsNineTapsSumToTheKernelWeight() throws Exception {
+		OcslVm vm = new OcslVm(IrValidator.validate(blur().build()));
+		// A FLAT texture, so the nine-tap sum is a direct read of the kernel's total weight and does
+		// not depend on where the taps land. That makes this a check on the FOLD -- nine iterations,
+		// each charging its weight and accumulating -- rather than on the sampler.
+		byte[] flat = new byte[8 * 8 * 4];
+		java.util.Arrays.fill(flat, (byte) 0xFF);
+		vm.bind(SurfaceTable.SLOT_INPUT, new OcslTexture(8, 8, flat));
+		vm.set(SurfaceTable.REG_UV, 0.5f, 0.5f);
+		vm.set(SurfaceTable.REG_INPUT_TEXEL_SIZE, 1f / 8f, 1f / 8f);
+		vm.set(SurfaceTable.UNIFORM_BASE, 1.0f); // dir
+		vm.run();
+
+		float[] out = new float[4];
+		vm.output(OcslWire.PROP_COLOR, out);
+		// exp(-0.125 * (i-4)^2) * 0.2041637 summed over i=0..8, against a texture of 1.0.
+		double expected = 0;
+		for (int i = 0; i < 9; i++) {
+			double offset = i - 4.0;
+			expected += Math.exp(-0.125 * offset * offset) * 0.2041637;
+		}
+		for (int i = 0; i < 4; i++) {
+			assertTrue("lane " + i + " is " + out[i], OcslMath.finite(out[i]));
+			assertEquals("nine taps of a flat 1.0 texture sum to the kernel weight",
+					expected, out[i], 1e-3);
+		}
+	}
+
+	@Test
+	public void dissolveRunsAndItsSelectPicksTheHardEdgeArm() throws Exception {
+		OcslVm vm = new OcslVm(IrValidator.validate(dissolve().build()));
+		byte[] white = new byte[4 * 4 * 4];
+		java.util.Arrays.fill(white, (byte) 0xFF);
+		vm.bind(SurfaceTable.SLOT_INPUT, new OcslTexture(4, 4, white));
+		// Noise slot: 0 everywhere, so `noise` is 0.0 and the band test is decidable by hand.
+		vm.bind(1, new OcslTexture(4, 4, new byte[4 * 4 * 4]));
+		vm.set(SurfaceTable.REG_UV, 0.5f, 0.5f);
+		vm.set(SurfaceTable.REG_TINT, 1f, 1f, 1f, 1f);
+		vm.set(SurfaceTable.UNIFORM_BASE, 0.5f);      // threshold
+		vm.set(SurfaceTable.UNIFORM_BASE + 1, 0.25f); // edgeWidth
+		vm.run();
+
+		float[] out = new float[4];
+		vm.output(OcslWire.PROP_COLOR, out);
+		for (int i = 0; i < 4; i++) {
+			assertTrue("lane " + i + " is " + out[i], OcslMath.finite(out[i]));
+		}
+		// noise = 0, threshold = 0.5, so `threshold.le(noise)` is FALSE and the band is not entered:
+		// SELECT must take the untouched `rgb` arm, which is the white texture, not the ember colour
+		// (1.0, 0.35, 0.05) the edged arm would blend toward. Distinguishing the two arms is the
+		// point -- P3 is the dry run's select probe, and a SELECT that always took one arm would
+		// reproduce every count in this file.
+		assertEquals("green lane proves the un-edged arm was taken", 1.0f, out[1], 1e-6f);
+		assertEquals("blue lane likewise", 1.0f, out[2], 1e-6f);
+		// step(0.5, 0) = 0, so alpha collapses regardless of the base texture's opaque alpha.
+		assertEquals("hard mask is 0 below the threshold", 0.0f, out[3], 1e-6f);
 	}
 
 	// ---------------------------------------------------------------- P4 domains
