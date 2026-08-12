@@ -14,27 +14,63 @@ import java.util.List;
  */
 public final class IrProgram {
 	public final byte stage;
-	private final float[] constants;
+	/**
+	 * The constant pool, one entry per constant, each 1..4 components wide.
+	 *
+	 * TYPED, not a flat float array. Two of the four acceptance programs need a vector constant
+	 * that costs no op — the blur's fold is seeded with `vec4(0,0,0,0)` riding the FOR encoding,
+	 * and the dissolve carries a `vec3` tint triple — and a scalar-only pool forces both to be
+	 * built with a constructor, which charges an op neither committed count includes. Width is the
+	 * type: there is no vec1, so a 1-wide entry is a float.
+	 */
+	private final float[][] constants;
 	private final List<IrOp> ops;
 	private final List<String> names;
 	/** Register count the blob declares; the validator checks every write against it. */
 	public final int declaredRegisters;
 
-	public IrProgram(byte stage, float[] constants, List<IrOp> ops, List<String> names,
+	/** Convenience for the common all-scalar pool. */
+	public IrProgram(byte stage, float[] scalarConstants, List<IrOp> ops, List<String> names,
+			int declaredRegisters) {
+		this(stage, widen(scalarConstants), ops, names, declaredRegisters);
+	}
+
+	public IrProgram(byte stage, float[][] constants, List<IrOp> ops, List<String> names,
 			int declaredRegisters) {
 		this.stage = stage;
-		this.constants = constants.clone();
+		this.constants = new float[constants.length][];
+		for (int i = 0; i < constants.length; i++) {
+			this.constants[i] = constants[i].clone();
+		}
 		this.ops = Collections.unmodifiableList(new ArrayList<IrOp>(ops));
 		this.names = Collections.unmodifiableList(new ArrayList<String>(names));
 		this.declaredRegisters = declaredRegisters;
+	}
+
+	private static float[][] widen(float[] scalars) {
+		float[][] out = new float[scalars.length][];
+		for (int i = 0; i < scalars.length; i++) {
+			out[i] = new float[] { scalars[i] };
+		}
+		return out;
 	}
 
 	public int constantCount() {
 		return constants.length;
 	}
 
-	public float constant(int i) {
-		return constants[i];
+	/** Components in constant {@code i} — 1 for a float, 2..4 for a vector. */
+	public int constantWidth(int i) {
+		return constants[i].length;
+	}
+
+	public float constantComponent(int i, int component) {
+		return constants[i][component];
+	}
+
+	/** The type a constant-pool reference contributes to inference. */
+	public OcslType constantType(int i) {
+		return OcslType.ofWidth(constants[i].length);
 	}
 
 	public List<IrOp> ops() {

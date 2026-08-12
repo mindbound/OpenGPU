@@ -60,7 +60,17 @@ public final class IrCodec {
 
 			out.writeShort(program.constantCount());
 			for (int i = 0; i < program.constantCount(); i++) {
-				out.writeFloat(program.constant(i));
+				int width = program.constantWidth(i);
+				if (width < 1 || width > 4) {
+					throw new CodecException("Constant " + i + " has " + width
+							+ " components; 1..4 only");
+				}
+				// Width IS the type tag. There is no vec1, so 1 means float and no separate type
+				// byte can disagree with the payload length.
+				out.writeByte(width);
+				for (int c = 0; c < width; c++) {
+					out.writeFloat(program.constantComponent(i, c));
+				}
 			}
 
 			out.writeShort(program.declaredRegisters);
@@ -173,14 +183,23 @@ public final class IrCodec {
 				throw new CodecException("Constant pool of " + constantCount + " exceeds the cap of "
 						+ OcslWire.MAX_CONSTANTS);
 			}
-			float[] constants = new float[constantCount];
+			float[][] constants = new float[constantCount][];
 			for (int i = 0; i < constantCount; i++) {
-				constants[i] = in.readFloat();
-				// A non-finite CONSTANT is refused at the boundary rather than left to the
-				// runtime's non-finite rules: those exist for values a program COMPUTES, and a
-				// literal Inf in the pool is a malformed blob, not an arithmetic outcome.
-				if (Float.isNaN(constants[i]) || Float.isInfinite(constants[i])) {
-					throw new CodecException("Constant " + i + " is non-finite");
+				int width = in.readUnsignedByte();
+				if (width < 1 || width > 4) {
+					throw new CodecException("Constant " + i + " declares " + width
+							+ " components; 1..4 only");
+				}
+				constants[i] = new float[width];
+				for (int c = 0; c < width; c++) {
+					constants[i][c] = in.readFloat();
+					// A non-finite CONSTANT is refused at the boundary rather than left to the
+					// runtime's non-finite rules: those exist for values a program COMPUTES, and a
+					// literal Inf in the pool is a malformed blob, not an arithmetic outcome.
+					if (Float.isNaN(constants[i][c]) || Float.isInfinite(constants[i][c])) {
+						throw new CodecException("Constant " + i + " component " + c
+								+ " is non-finite");
+					}
 				}
 			}
 

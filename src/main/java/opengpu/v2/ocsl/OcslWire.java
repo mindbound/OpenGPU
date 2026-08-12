@@ -248,8 +248,11 @@ public final class OcslWire {
 		// A swizzle charges 1. It is a real instruction on a flat float[] frame — several stores —
 		// and the flat rule is what the cap is stated against.
 		shape(OP_SWZ, "SWZ", true, new int[] { KIND_VALUE, KIND_SWIZZLE }, 1);
-		// Scalar broadcast is an EXPLICIT op, never an implicit coercion: IR function ops are
-		// shape-uniform, and the builder inserts this so validator counting matches the builder's.
+		// SPLAT survives the 2026-08-12 broadcast re-opening for the places broadcast cannot
+		// reach: a constructor's component slots, and building a vector from a float uniform.
+		// Where a component-wise op WOULD accept the scalar directly, canonical form forbids
+		// emitting this instead -- two spellings of one value that charge differently would fork
+		// the content hash, which is the compile-cache key.
 		shape(OP_SPLAT, "SPLAT", true, new int[] { KIND_VALUE, KIND_IMMEDIATE }, 1);
 		shape(OP_CONS2, "CONS2", true, V2, 1);
 		shape(OP_CONS3, "CONS3", true, V3, 1);

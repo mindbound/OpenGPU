@@ -42,6 +42,27 @@ public class IrCodecTest {
 		return IrCodec.decode(b, IrCodec.Source.TRANSIENT);
 	}
 
+	/**
+	 * Where the op stream starts, DERIVED from the program rather than hardcoded.
+	 *
+	 * Two tests poke individual bytes and both broke when the constant pool became typed — a magic
+	 * offset is a second, silent copy of the layout that only announces itself as an unrelated
+	 * assertion failure ("op count 31490 exceeds the cap"). Deriving it means the next layout
+	 * change moves one function.
+	 */
+	private static int opStreamOffset(IrProgram p) {
+		int off = 4 + 2 + 1 + 1 + 2; // magic, format version, stage, reserved, constant count
+		for (int i = 0; i < p.constantCount(); i++) {
+			off += 1 + 4 * p.constantWidth(i); // width tag + f32 components
+		}
+		return off + 2 + 2; // declared registers, op count
+	}
+
+	/** Encoded size of one op: opcode byte, dst short, and one short per operand. */
+	private static int opSize(IrOp op) {
+		return 1 + 2 + 2 * op.operandCount();
+	}
+
 	private static void expectReject(byte[] blob, String messageFragment) {
 		try {
 			IrCodec.decode(blob, IrCodec.Source.TRANSIENT);
@@ -61,7 +82,7 @@ public class IrCodecTest {
 		assertEquals(in.stage, out.stage);
 		assertEquals(in.declaredRegisters, out.declaredRegisters);
 		assertEquals(in.constantCount(), out.constantCount());
-		assertEquals(2.0f, out.constant(0), 0.0f);
+		assertEquals(2.0f, out.constantComponent(0, 0), 0.0f);
 		assertEquals(in.ops(), out.ops());
 	}
 
@@ -105,6 +126,38 @@ public class IrCodecTest {
 			checked++;
 		}
 		assertTrue("expected to exercise the whole table, saw " + checked, checked >= 40);
+	}
+
+	@Test
+	public void roundTripsATypedConstantPool() throws Exception {
+		// Width IS the type tag -- there is no vec1, so a 1-wide entry is a float and no separate
+		// type byte can disagree with the payload length. Two acceptance programs need this: a
+		// fold seeded with a pooled vec4 costs no op, whereas constructing the seed would charge
+		// one that no committed count includes.
+		IrProgram p = new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL,
+				new float[][] { { 1.5f }, { 0.0f, 0.0f, 0.0f, 0.0f }, { 1.0f, 0.35f, 0.05f } },
+				Arrays.asList(new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, k(1))),
+				new ArrayList<String>(), 1);
+		IrProgram back = dec(enc(p));
+		assertEquals(3, back.constantCount());
+		assertEquals(OcslType.FLOAT, back.constantType(0));
+		assertEquals(OcslType.VEC4, back.constantType(1));
+		assertEquals(OcslType.VEC3, back.constantType(2));
+		assertEquals(0.35f, back.constantComponent(2, 1), 0.0f);
+		assertTrue(Arrays.equals(enc(p), enc(back)));
+	}
+
+	@Test
+	public void rejectsAConstantOfIllegalWidth() throws Exception {
+		byte[] blob = enc(trivial());
+		// The width byte sits right after the constant count (magic 4 + version 2 + stage 1
+		// + reserved 1 + count 2).
+		blob[10] = 5;
+		expectReject(blob, "components; 1..4 only");
+	}
+
+	private static int k(int i) {
+		return OcslWire.OPERAND_CONST_FLAG | i;
 	}
 
 	@Test
@@ -205,8 +258,7 @@ public class IrCodecTest {
 	public void rejectsAnUnknownOpcode() throws Exception {
 		IrProgram p = trivial();
 		byte[] blob = enc(p);
-		int opStart = 4 + 2 + 1 + 1 + 2 + (p.constantCount() * 4) + 2 + 2;
-		blob[opStart] = (byte) 123;
+		blob[opStreamOffset(p)] = (byte) 123;
 		expectReject(blob, "unknown opcode");
 	}
 
@@ -295,8 +347,7 @@ public class IrCodecTest {
 		// encodings and the cache key forks on a difference nothing can observe.
 		IrProgram p = trivial();
 		byte[] blob = enc(p);
-		int opStart = 4 + 2 + 1 + 1 + 2 + (p.constantCount() * 4) + 2 + 2;
-		int outStart = opStart + 1 + 2 + (2 * 2); // past MUL: opcode + dst + 2 operands
+		int outStart = opStreamOffset(p) + opSize(p.ops().get(0)); // past the MUL
 		blob[outStart + 1] = 0;
 		blob[outStart + 2] = 3;
 		expectReject(blob, "writes no destination but its slot is 3");
