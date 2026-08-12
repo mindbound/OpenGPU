@@ -39,7 +39,7 @@
 5 resolution - - vec2 - - - -
 6 nodeSize - vec2 - - - - -
 7 outputResolution - - - vec2 - - -
-8 timePeriod - - - - - - -
+8 timePeriod float float float - - - -
 9 normal - - - - - - -
 10 builtin10 - - - - - - -
 11 builtin11 - - - - - - -
@@ -101,6 +101,19 @@ animator 10 sz float no
 # is conditions-only -- so their ids are held but no OUT may target them.
 animator 7 z reserved no
 animator 8 visible reserved no
+
+[time] name value
+# The `time` production (ANIM-4) and the wrap period P (ANIM-5). Unlike every id
+# in this file, P is NOT encoded in a blob -- it is supplied at runtime through
+# the timePeriod register, so moving it costs no format bump.
+tickNanos 50000000
+periodTicks 33600
+periodNanos 1680000000000
+periodSecondsBits 0x44D20000
+unit seconds
+clock render
+domain half-open-0-to-P
+producers 1
 
 [slots] name value
 # Sampler bindings are their own namespace, not registers.

@@ -77,6 +77,18 @@ public final strictfp class OcslVm {
 		this.loopTrips = new int[depth];
 		this.loopBodyStart = new int[depth];
 
+		// `timePeriod` is seeded from the frozen constant, not bound by the host, because it is not
+		// host state — it is a value of the FORMAT (ANIM-5). Every other built-in describes this
+		// frame or this node and only the host knows it; P is the same number in every scene, on
+		// every client, for the life of the format version. Taking it from the host would create a
+		// binding site that could be forgotten, and a forgotten one reads 0.0 — which a program
+		// dividing by P would then turn into a silent 0 under the safe-divide rule rather than an
+		// error. Seeding here means the register cannot be wrong.
+		int periodSlot = validated.frameOffset(SurfaceTable.REG_TIME_PERIOD);
+		if (periodSlot >= 0) {
+			frame[periodSlot] = OcslTime.PERIOD_SECONDS;
+		}
+
 		List<IrOp> ops = program.ops();
 		int outs = 0;
 		for (int i = 0; i < ops.size(); i++) {
@@ -134,6 +146,19 @@ public final strictfp class OcslVm {
 
 	/** Bind an input register's components before {@link #run}. */
 	public void set(int register, float... components) {
+		// REFUSED, because the alternative was a claim that was simply false. Seeding `timePeriod`
+		// in the constructor changed its DEFAULT and nothing else: `set(REG_TIME_PERIOD, 3.0f)`
+		// succeeded and stuck for the life of the VM, and a host looping over every built-in its
+		// stage has -- the obvious generic binding code -- overwrote it with 0.0, which is exactly
+		// the "forgotten binding reads 0.0, and safe-divide turns that into a silent 0" failure the
+		// seeding was introduced to prevent. P is a value of the FORMAT, identical in every scene on
+		// every client, so there is no binding a host could supply that would be more correct than
+		// the constant. Refusing here is what makes "the register cannot be wrong" true.
+		if (register == SurfaceTable.REG_TIME_PERIOD) {
+			throw new IllegalArgumentException("timePeriod (register "
+					+ SurfaceTable.REG_TIME_PERIOD + ") is a constant of the format, seeded from"
+					+ " OcslTime.PERIOD_SECONDS; it is not host state and may not be bound");
+		}
 		int off = validated.frameOffset(register);
 		if (off < 0) {
 			throw new IllegalArgumentException("register " + register + " has no frame slot");

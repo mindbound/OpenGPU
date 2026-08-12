@@ -86,19 +86,19 @@ public final class SurfaceTable {
 	public static final int REG_NODE_SIZE = 6;
 	public static final int REG_OUTPUT_RESOLUTION = 7;
 	/**
-	 * The `time` wrap period P. RESERVED AND UNREADABLE — the id is taken now, the type comes
-	 * later, and the split is the whole point.
+	 * The `time` wrap period <i>P</i> — READABLE since 2026-08-12, now that ANIM-5 publishes its
+	 * value ({@link OcslTime#PERIOD_SECONDS}).
 	 *
-	 * The design assigns this reservation to this table by name, three times over, as the
-	 * substitute guard for the one deferred obligation neither code gate covers: the animator
-	 * tripwire does not cover material/effect/post, and they read `time` today. Without a register
-	 * carrying P, a program wanting a seam-continuous expression must bake `1/P` into its constant
-	 * pool — freezing a CONTRACT CONSTANT into every saved blob, which the caps-monotonicity rule
-	 * does not cover because P is not a cap. Reserving the id costs nothing and is the half the
-	 * animator dry run said "cannot follow"; the VALUE of P may (it is still unpublished).
+	 * The id was reserved-and-unreadable while <i>P</i> was unpublished, on the precedent that a
+	 * readable register must not advertise a value nothing can supply. Publishing <i>P</i> is what
+	 * discharges that, and making it readable is the whole point of the reservation: without a
+	 * register carrying <i>P</i>, a program wanting a seam-continuous expression has to bake
+	 * {@code 1/P} into its constant pool — freezing a CONTRACT CONSTANT into every saved blob, which
+	 * the caps-monotonicity rule does not cover because <i>P</i> is not a cap.
 	 *
-	 * Left unreadable until P is published, following {@link #REG_NORMAL}'s precedent: a readable
-	 * register would advertise a value nothing can supply.
+	 * Readable at exactly the surfaces where {@code time} is, which is the shape ANIM-5 asks for:
+	 * the period is meaningless where there is no clock. The VM seeds it from the constant rather
+	 * than taking it from the host — see {@code OcslVm} — so no binding site can get it wrong.
 	 */
 	public static final int REG_TIME_PERIOD = 8;
 	/** Stage C/D fill-in. Reserved now; no surface reads it in v1. */
@@ -238,6 +238,7 @@ public final class SurfaceTable {
 					case REG_POSITION: return OcslType.VEC2;
 					case REG_TINT: return OcslType.VEC4;
 					case REG_TIME: return OcslType.FLOAT;
+					case REG_TIME_PERIOD: return OcslType.FLOAT;
 					default: return null;
 				}
 			case OcslWire.STAGE_PIXEL_EFFECT:
@@ -247,6 +248,7 @@ public final class SurfaceTable {
 					case REG_POSITION: return OcslType.VEC2;
 					case REG_TINT: return OcslType.VEC4;
 					case REG_TIME: return OcslType.FLOAT;
+					case REG_TIME_PERIOD: return OcslType.FLOAT;
 					case REG_INPUT_TEXEL_SIZE: return OcslType.VEC2;
 					case REG_NODE_SIZE: return OcslType.VEC2;
 					default: return null;
@@ -260,6 +262,7 @@ public final class SurfaceTable {
 				switch (reg) {
 					case REG_UV: return OcslType.VEC2;
 					case REG_TIME: return OcslType.FLOAT;
+					case REG_TIME_PERIOD: return OcslType.FLOAT;
 					case REG_INPUT_TEXEL_SIZE: return OcslType.VEC2;
 					case REG_RESOLUTION: return OcslType.VEC2;
 					default: return null;

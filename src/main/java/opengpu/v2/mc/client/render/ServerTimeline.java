@@ -30,8 +30,18 @@ package opengpu.v2.mc.client.render;
  * implementation had.
  */
 final class ServerTimeline {
-	/** One server tick at 20 tps. */
-	static final long TICK_NANOS = 50L * 1000L * 1000L;
+	/**
+	 * One server tick at 20 tps — DELEGATED, not duplicated.
+	 *
+	 * This used to spell {@code 50L * 1000L * 1000L} while {@link opengpu.v2.ocsl.OcslTime} spelled
+	 * the same literal and asserted in prose that the two matched. Nothing could check that: this
+	 * class is package-private, so no test in the OCSL package can reference it, and the renderer's
+	 * own test derives its tick FROM this constant and would move in lockstep with any change. So
+	 * retuning the tick here would have left {@code time} on 50 ms ticks, drifting every scene's
+	 * clock against the transforms ANIM-4 exists to make it share an instant with — with the whole
+	 * suite green. One constant, one definition, and the coupling is now a compile-time fact.
+	 */
+	static final long TICK_NANOS = opengpu.v2.ocsl.OcslTime.TICK_NANOS;
 
 	/**
 	 * How far behind the live estimate we render, in ticks.

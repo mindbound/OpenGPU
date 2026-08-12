@@ -212,6 +212,25 @@ public final class OcslTables {
 				withInput.append(withInput.length() > 0 ? "," : "").append(stageName(stages[s]));
 			}
 		}
+		// P belongs in the artifact: a blob that reads register 8 depends on its value, and a second
+		// backend reading only this file would have found the register's TYPE frozen and its
+		// meaning nowhere. Note the freeze is a different KIND than the ids above -- P rides no
+		// blob, so changing it is a behaviour change and not a format break.
+		line(out, "[time] name value");
+		line(out, "# The `time` production (ANIM-4) and the wrap period P (ANIM-5). Unlike every id");
+		line(out, "# in this file, P is NOT encoded in a blob -- it is supplied at runtime through");
+		line(out, "# the timePeriod register, so moving it costs no format bump.");
+		line(out, "tickNanos " + OcslTime.TICK_NANOS);
+		line(out, "periodTicks " + OcslTime.PERIOD_TICKS);
+		line(out, "periodNanos " + OcslTime.PERIOD_NANOS);
+		line(out, "periodSecondsBits 0x"
+				+ Integer.toHexString(Float.floatToIntBits(OcslTime.PERIOD_SECONDS)).toUpperCase());
+		line(out, "unit seconds");
+		line(out, "clock render");
+		line(out, "domain half-open-0-to-P");
+		line(out, "producers 1");
+		line(out, "");
+
 		line(out, "[slots] name value");
 		line(out, "# Sampler bindings are their own namespace, not registers.");
 		line(out, "inputSlot " + SurfaceTable.SLOT_INPUT);

@@ -350,22 +350,41 @@ public class IrValidatorTest {
 	}
 
 	@Test
-	public void reservesTheTimePeriodIdWithoutMakingItReadable() {
+	public void reservesTheTimePeriodIdAndNowPublishesItsValue() throws Exception {
 		// The design assigns this reservation to the surface table three times over, as the
 		// substitute guard for an obligation neither code gate covers: without a register carrying
 		// P, a program must bake 1/P into its constant pool -- a CONTRACT CONSTANT frozen into
 		// every saved blob, which the caps-monotonicity rule does not cover because P is not a cap.
 		// The id is taken now; the type follows when P is published (REG_NORMAL's precedent).
+		// THE DEFERRAL EXPIRED, 2026-08-12. This test used to assert timePeriod was reserved and
+		// UNREADABLE, and its own comment recorded why: "the type follows when P is published". P is
+		// published now (ANIM-5, OcslTime.PERIOD_SECONDS = 1680s), so the condition the deferral
+		// named is met and the register is readable. Kept as the same test rather than deleted,
+		// because the reservation is still the thing under test -- only its state moved.
 		assertTrue("timePeriod must have a distinct built-in id",
 				SurfaceTable.REG_TIME_PERIOD != SurfaceTable.REG_TIME
 						&& SurfaceTable.REG_TIME_PERIOD < SurfaceTable.BUILTIN_LIMIT);
 		for (byte stage : new byte[] { OcslWire.STAGE_PIXEL_MATERIAL, OcslWire.STAGE_PIXEL_EFFECT,
-				OcslWire.STAGE_PIXEL_POST, OcslWire.STAGE_BAKE }) {
-			org.junit.Assert.assertNull("timePeriod is reserved, not yet readable",
+				OcslWire.STAGE_PIXEL_POST }) {
+			assertEquals("timePeriod is readable wherever time is", OcslType.FLOAT,
 					SurfaceTable.builtinType(stage, SurfaceTable.REG_TIME_PERIOD));
 		}
-		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 2,
+		// Bake has no clock, so it has no period either -- a register readable at one and not the
+		// other would be a trap in whichever direction it pointed.
+		org.junit.Assert.assertNull("bake has no time, so it must have no timePeriod",
+				SurfaceTable.builtinType(OcslWire.STAGE_BAKE, SurfaceTable.REG_TIME_PERIOD));
+
+		// The exact program this test used to REJECT now validates: reading P instead of baking
+		// 1/P into the constant pool is the whole point of the reservation.
+		IrValidator.validate(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 2,
 				new IrOp(OcslWire.OP_MUL, W, SurfaceTable.REG_TIME, SurfaceTable.REG_TIME_PERIOD),
+				new IrOp(OcslWire.OP_SPLAT, W + 1, W, 4),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W + 1)));
+
+		// Bake still refuses it, so the stage-applicability rule did not go slack.
+		expectReject(prog(OcslWire.STAGE_BAKE, new float[] { 1.0f }, W + 2,
+				new IrOp(OcslWire.OP_MUL, W, SurfaceTable.REG_TIME_PERIOD,
+						SurfaceTable.REG_TIME_PERIOD),
 				new IrOp(OcslWire.OP_SPLAT, W + 1, W, 4),
 				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W + 1)), "does not have");
 	}
@@ -418,8 +437,18 @@ public class IrValidatorTest {
 
 		// Built-ins the stage HAS come first, at fixed positions, so a program that reads none
 		// still agrees with one that reads all of them about where working registers begin.
-		int builtinWidth = OcslType.VEC2.width + OcslType.VEC2.width + OcslType.VEC4.width
-				+ OcslType.FLOAT.width; // uv, position, tint, time
+		//
+		// DERIVED by summing the stage's built-ins rather than listing them. The listed version
+		// (uv + position + tint + time) broke the day `timePeriod` became readable -- which is a
+		// test failing for a reason that has nothing to do with what it tests. What this pins is
+		// the ORDER and the packing, not how many built-ins the material stage happens to have.
+		int builtinWidth = 0;
+		for (int reg = 0; reg < SurfaceTable.BUILTIN_LIMIT; reg++) {
+			OcslType t = SurfaceTable.builtinType(OcslWire.STAGE_PIXEL_MATERIAL, reg);
+			if (t != null) {
+				builtinWidth += t.width;
+			}
+		}
 		assertEquals("W+2 was written first", builtinWidth, v.frameOffset(W + 2));
 		assertEquals("W came second", builtinWidth + 3, v.frameOffset(W));
 		assertEquals("W+1 came third", builtinWidth + 4, v.frameOffset(W + 1));
