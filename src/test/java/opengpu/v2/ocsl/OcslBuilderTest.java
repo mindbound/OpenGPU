@@ -132,6 +132,196 @@ public class OcslBuilderTest {
 		assertEquals("two fetches: the built-in input sampler and one bound slot", 2, v.fetches);
 	}
 
+	// ---------------------------------------------------------------- P4 domains
+
+	/**
+	 * P4 "numeric-domain torture", pixel/material. Committed: 65 static compute ops
+	 * (24 pre + 10 body + 31 post), a 4-iteration fold, post-unroll 24 + 4×10 + 31 = 95,
+	 * **96 with OUT**. Fetches 4/16, unroll product 4.
+	 *
+	 * TRANSCRIBED NOW, AND THE DEFERRAL'S OWN REASON IS WHY. P4 was deliberately left untranscribed
+	 * with the argument recorded in as many words: it "exists to probe the GUARD sites — NORM of a
+	 * zero vector, ATAN2(0,0), LOG(x≤0), POW(base&lt;0), and a DIV whose divisor reaches 0 at
+	 * uv.x=0.5 — [which] belong to the CPU VM and to codegen, neither of which exists yet", so
+	 * transcribing it would have exercised nothing the other three cover while risking a slip that
+	 * reads as a finding. The VM exists now. That is the whole of what changed, and it turns P4
+	 * from redundant into the only program that drives OcslMath's domain table end to end.
+	 *
+	 * Two adaptations, both the same ones P1 and P2 carry, both counted as a named prologue rather
+	 * than folded into the body so the committed number stays legible:
+	 * <ul>
+	 * <li>{@code u_bias} is a vec2 uniform in the dry run and v1 uniforms are float-typed, so it is
+	 *     splatted — ONE prologue op, exactly as P2's {@code dir} is.</li>
+	 * <li>The listing's {@code slot(0)} becomes slot 1 here. Slot 0 is reserved as the built-in
+	 *     {@code input} sampler and only the effect and post-chain surfaces have it; a material
+	 *     program binding its own texture starts at 1. The dry run's listing carries its own
+	 *     warning that its ids are provisional, and this is that regeneration.</li>
+	 * </ul>
+	 */
+	private static OcslBuilder domains() {
+		final OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_PIXEL_MATERIAL);
+		final Expr uv = b.builtin(SurfaceTable.REG_UV);
+		final Expr time = b.builtin(SurfaceTable.REG_TIME);
+		final Expr tint = b.builtin(SurfaceTable.REG_TINT);
+		Expr swirl = b.uniform("swirl");
+		Expr bias = b.uniform("bias").splat(2);   // prologue: v1 uniforms are float-typed
+
+		final Expr half = b.f(0.5f);
+		final Expr quarter = b.f(0.25f);
+		final Expr zero = b.f(0.0f);
+		final Expr one = b.f(1.0f);
+
+		Expr p = uv.sub(b.constant(0.5f, 0.5f));           // 000 crosses the zero vector
+		Expr dir = p.normalize();                          // 001 EDGE: normalize(0) = 0
+		Expr r = p.length();                               // 002
+		Expr ang = p.y().atan2(p.x());                     // 003 004 005 EDGE: the pole
+		Expr ux = uv.x();                                  // 006
+		// `bias.x()` is hoisted rather than written inline in the .add() below, because Java
+		// evaluates the receiver before the argument and the listing swizzles the bias BEFORE the
+		// subtract. Inline it and the count is identical while the order is not -- which is exactly
+		// the kind of slip a total cannot see, and why the opcode sequence is asserted too.
+		Expr bx = bias.x();                                // 007
+		Expr lg = ux.sub(quarter).add(bx).log();           // 008 009 010 EDGE: arg <= 0
+		Expr pw = uv.y().sub(half)                         // 011 012
+				.pow(b.f(2.5f).add(swirl));                // 013 014 EDGE: base < 0
+		Expr fm = ux.mul(b.f(4.0f)).sub(b.f(2.0f))         // 015 016
+				.mod(b.f(1.5f));                           // 017 negative lhs, floor-mod
+		Expr sq = quarter.sub(p.dot(p)).sqrt();            // 018 019 020 EDGE: arg < 0
+		Expr dv = time.sin().div(ux.sub(half));            // 021 022 023 THE GO-BLOCKER SITE
+
+		final Expr acc = b.loop(4, b.constant(0f, 0f, 0f), new OcslBuilder.Fold() {
+			public Expr apply(Expr a, OcslBuilder.Counter i) {
+				// The counter is deliberately unread -- that gap is the dry run's amendment 6.
+				Expr coord = uv.mul(b.f(1.7f))                      // 025
+						.add(a.swz("xy").mul(b.f(0.13f)))           // 026 027 028
+						.fract();                                   // 029
+				Expr tex = b.sample(1, coord).swz("xyz");           // 030 031
+				return a.mul(half).add(tex.mul(half));              // 032 033 034
+			}
+		});
+
+		Expr c1 = b.vec3(fm, sq, pw.clamp(zero, one));     // 036 037
+		Expr c2 = b.vec3(
+				dir.x().mul(half).add(half),               // 038 039 040
+				dir.y().mul(half).add(half),               // 041 042 043
+				ang.mul(b.f(0.15915494f)).add(half));      // 044 045 046
+		Expr c3 = b.vec3(
+				lg.mul(quarter).fract(),                   // 047 048
+				dv.mul(b.f(0.1f)).add(half).clamp(zero, one), // 049 050 051
+				r.mul(b.f(2.0f)).fract());                 // 052 053 054
+		Expr blend = c1.mix(                               // 058
+				c2.mix(c3, time.mul(b.f(0.1f)).fract()),   // 055 056 057
+				half);
+		Expr rgb = blend.mul(acc.mul(half).add(half));     // 059 060 061
+		Expr mask = b.select(ux.lt(half), one, b.f(0.75f)); // 062 063
+		b.out(OcslWire.PROP_COLOR,
+				b.vec4(rgb.mul(mask), one).mul(tint));     // 064 065 066 067
+		return b;
+	}
+
+	@Test
+	public void domainsAuthoredThroughTheBuilderChargesItsCommittedCount() throws Exception {
+		OcslBuilder b = domains();
+		IrProgram p = b.build();
+		IrValidator.Validated v = IrValidator.validate(p);
+		// The last of the four committed counts to get a check of its own. 24 + 4x10 + 31 + OUT,
+		// plus the one splat the float-typed uniform costs.
+		assertEquals("domains reproduces its committed 96 plus the uniform-splat prologue",
+				97L, b.structuralCount());
+		assertEquals(97L, v.structuralOps);
+		assertEquals("4 taps, counted post-unroll", 4, v.fetches);
+	}
+
+	@Test
+	public void domainsIsTranscribedOpForOpAndNotMerelyToTheSameTotal() throws Exception {
+		// THE CHECK THE COUNT CANNOT MAKE. 96 is one number and the listing is 68 lines, so a slip
+		// that swaps two ops of the same kind -- or emits a swizzle a step late -- reproduces the
+		// total exactly. One such slip was in the first draft of this transcription: `bias.x()`
+		// written inline as an argument emitted its SWZ AFTER the subtract, because Java evaluates
+		// the receiver first, and the count was right either way.
+		//
+		// The dry run's own listing is the expected value, read straight down.
+		byte[] expected = {
+			OcslWire.OP_SPLAT,                                                 // prologue
+			OcslWire.OP_SUB, OcslWire.OP_NORMALIZE, OcslWire.OP_LENGTH,        // 000 001 002
+			OcslWire.OP_SWZ, OcslWire.OP_SWZ, OcslWire.OP_ATAN2,               // 003 004 005
+			OcslWire.OP_SWZ, OcslWire.OP_SWZ, OcslWire.OP_SUB,                 // 006 007 008
+			OcslWire.OP_ADD, OcslWire.OP_LOG,                                  // 009 010
+			OcslWire.OP_SWZ, OcslWire.OP_SUB, OcslWire.OP_ADD, OcslWire.OP_POW,// 011 012 013 014
+			OcslWire.OP_MUL, OcslWire.OP_SUB, OcslWire.OP_MOD,                 // 015 016 017
+			OcslWire.OP_DOT, OcslWire.OP_SUB, OcslWire.OP_SQRT,                // 018 019 020
+			OcslWire.OP_SIN, OcslWire.OP_SUB, OcslWire.OP_DIV,                 // 021 022 023
+			OcslWire.OP_FOR,                                                   // 024
+			OcslWire.OP_MUL, OcslWire.OP_SWZ, OcslWire.OP_MUL, OcslWire.OP_ADD,// 025 026 027 028
+			OcslWire.OP_FRACT, OcslWire.OP_SAMPLE, OcslWire.OP_SWZ,            // 029 030 031
+			OcslWire.OP_MUL, OcslWire.OP_MUL, OcslWire.OP_ADD,                 // 032 033 034
+			OcslWire.OP_ENDFOR,                                                // 035
+			OcslWire.OP_CLAMP, OcslWire.OP_CONS3,                              // 036 037
+			OcslWire.OP_SWZ, OcslWire.OP_MUL, OcslWire.OP_ADD,                 // 038 039 040
+			OcslWire.OP_SWZ, OcslWire.OP_MUL, OcslWire.OP_ADD,                 // 041 042 043
+			OcslWire.OP_MUL, OcslWire.OP_ADD, OcslWire.OP_CONS3,               // 044 045 046
+			OcslWire.OP_MUL, OcslWire.OP_FRACT,                                // 047 048
+			OcslWire.OP_MUL, OcslWire.OP_ADD, OcslWire.OP_CLAMP,               // 049 050 051
+			OcslWire.OP_MUL, OcslWire.OP_FRACT, OcslWire.OP_CONS3,             // 052 053 054
+			OcslWire.OP_MUL, OcslWire.OP_FRACT,                                // 055 056
+			OcslWire.OP_MIX, OcslWire.OP_MIX,                                  // 057 058
+			OcslWire.OP_MUL, OcslWire.OP_ADD, OcslWire.OP_MUL,                 // 059 060 061
+			OcslWire.OP_LT, OcslWire.OP_SELECT, OcslWire.OP_MUL,               // 062 063 064
+			OcslWire.OP_CONS4_V3F, OcslWire.OP_MUL, OcslWire.OP_OUT,           // 065 066 067
+		};
+		IrProgram p = domains().build();
+		assertEquals("op count: 65 compute + FOR + ENDFOR + OUT, plus the prologue splat",
+				expected.length, p.ops().size());
+		for (int i = 0; i < expected.length; i++) {
+			assertEquals("op " + i + " (" + OcslWire.shapeOf(expected[i]).name + " expected, got "
+					+ OcslWire.shapeOf(p.ops().get(i).opcode).name + ")",
+					expected[i], p.ops().get(i).opcode);
+		}
+		assertEquals("65 static compute ops as the dry run counted them",
+				65, p.ops().size() - 1 - 3);
+	}
+
+	@Test
+	public void domainsDrivesEveryGuardSiteAtOnceAndStaysFinite() throws Exception {
+		// THE PROGRAM'S ACTUAL PURPOSE, runnable for the first time. At the exact centre of the
+		// quad four guard sites fire together: p is the zero vector, so normalize(0) and
+		// atan2(0,0) both hit their poles; uv.y - 0.5 is 0, so pow's base is not positive; and
+		// uv.x - 0.5 is 0, which is the divide the dry run flagged as its GO-BLOCKER.
+		//
+		// Every one of those is a row of the frozen domain table, and the property being checked is
+		// the one A4 exists for: the output is finite and defined, not a NaN that would propagate
+		// differently on every backend.
+		OcslVm vm = new OcslVm(IrValidator.validate(domains().build()));
+		vm.set(SurfaceTable.REG_UV, 0.5f, 0.5f);
+		vm.set(SurfaceTable.REG_TIME, 1.25f);
+		vm.set(SurfaceTable.REG_TINT, 1f, 1f, 1f, 1f);
+		vm.set(SurfaceTable.UNIFORM_BASE, 0.0f);       // swirl
+		vm.set(SurfaceTable.UNIFORM_BASE + 1, -0.25f); // bias: drives log's argument to exactly 0
+		vm.run();
+
+		float[] out = new float[4];
+		vm.output(OcslWire.PROP_COLOR, out);
+		for (int i = 0; i < 4; i++) {
+			assertTrue("component " + i + " is " + out[i], OcslMath.finite(out[i]));
+		}
+		assertEquals("alpha is the constructed 1.0 times tint", 1.0f, out[3], 0f);
+
+		// And the same program away from every pole still runs, so the guards are not a stub that
+		// happens to return zero everywhere.
+		OcslVm off = new OcslVm(IrValidator.validate(domains().build()));
+		off.set(SurfaceTable.REG_UV, 0.8f, 0.7f);
+		off.set(SurfaceTable.REG_TIME, 0.3f);
+		off.set(SurfaceTable.REG_TINT, 1f, 1f, 1f, 1f);
+		off.set(SurfaceTable.UNIFORM_BASE, 0.5f);
+		off.set(SurfaceTable.UNIFORM_BASE + 1, 0.5f);
+		off.run();
+		float[] awayFromPoles = new float[4];
+		off.output(OcslWire.PROP_COLOR, awayFromPoles);
+		for (int i = 0; i < 4; i++) {
+			assertTrue("component " + i, OcslMath.finite(awayFromPoles[i]));
+		}
+	}
+
 	// ---------------------------------------------------------------- canonical form
 
 	@Test

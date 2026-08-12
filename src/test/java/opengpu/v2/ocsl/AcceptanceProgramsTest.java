@@ -319,20 +319,18 @@ public class AcceptanceProgramsTest {
 	 * P4 "domains", pixel/material. Committed: 65 static ops (24 pre + 10 body + 31 post), a
 	 * 4-iteration fold, post-unroll 24 + 4×10 + 31 = 95, **96 with OUT**. Fetches 4/16.
 	 *
-	 * NOT TRANSCRIBED OP-FOR-OP, and the reason is worth stating rather than hiding. P4 exists to
-	 * probe the GUARD sites — `NORM` of a zero vector, `ATAN2(0,0)`, `LOG(x≤0)`, `POW(base<0)`,
-	 * and a `DIV` whose divisor reaches 0 at uv.x=0.5, which the dry run marked as its
-	 * GO-BLOCKER site. Guards are numeric-domain behaviour: they belong to the CPU VM and to
-	 * codegen, neither of which exists yet. Transcribing 65 ops today would exercise nothing the
-	 * other three programs do not already cover — material stage, loops, constructors, broadcast,
-	 * typed constants, the caps — while carrying a real risk of a transcription slip that reads as
-	 * a finding. Two such slips have already happened in this increment.
+	 * THE FULL TRANSCRIPTION NOW LIVES IN {@link OcslBuilderTest}, authored through the builder and
+	 * checked op-for-op against the dry run's listing, with the guard sites actually executed on
+	 * the VM. That was the condition this test's earlier note set: P4 exists to probe `NORM` of a
+	 * zero vector, `ATAN2(0,0)`, `LOG(x≤0)`, `POW(base<0)` and the `DIV` whose divisor reaches 0
+	 * at uv.x=0.5, all of which are numeric-domain behaviour belonging to the CPU VM — which did
+	 * not exist when P4 was deferred and does now.
 	 *
-	 * What IS checked here is the one property P4 uniquely contributes at this layer: that the
-	 * post-unroll accounting reproduces its committed shape for a fold in a MATERIAL program with
-	 * a body of 10 and a trip count of 4. The ops are representative rather than P4's own, and the
-	 * assertion is on the arithmetic. The full transcription belongs with the VM increment, where
-	 * the guards it was written for can actually run.
+	 * What remains here is a genuinely independent check and not a leftover: that the post-unroll
+	 * accounting reproduces P4's committed SHAPE — a fold in a material program with a body of 10
+	 * and a trip count of 4 — computed from ops that are representative rather than P4's own. It
+	 * reaches 96 by a different route than the transcription does, so a transcription that drifted
+	 * would not drag this with it.
 	 */
 	@Test
 	public void domainsCountShapeReproducesUnderPostUnrollAccounting() throws Exception {
