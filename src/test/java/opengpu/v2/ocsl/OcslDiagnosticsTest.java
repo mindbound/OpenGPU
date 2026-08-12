@@ -66,7 +66,15 @@ public strictfp class OcslDiagnosticsTest {
 			r.rejectedWrite(P1, 3, OcslWire.PROP_ANIM_SX, Float.NaN, frame * 1000L);
 		}
 		assertEquals("a repeat of an already-reported pair says nothing", 5, c.lines.size());
-		assertTrue("no dedup at all would give 105 here", c.lines.size() != 105);
+		// THE EXCLUSION IS 16, NOT 105. It was written as 105 (5 + 100 repeats), which is
+		// arithmetically unreachable and therefore excluded nothing: BURST is 16, so the rate cap
+		// stops that loop long before 105 whether or not dedup works at all. The number a
+		// dedup-free implementation actually produces is the burst ceiling -- five lines spent, then
+		// the remaining eleven tokens spent on repeats.
+		assertTrue("no dedup at all spends the rest of the burst and gives "
+				+ OcslDiagnostics.Reporter.BURST, c.lines.size() != OcslDiagnostics.Reporter.BURST);
+		assertEquals("and the bucket still holds what the five lines left",
+				OcslDiagnostics.Reporter.BURST - 5, r.availableTokens());
 	}
 
 	@Test
@@ -120,6 +128,36 @@ public strictfp class OcslDiagnosticsTest {
 				c.lines.size() != 1);
 		assertTrue("and the second line names the second node",
 				c.lines.get(1).contains("node " + second));
+	}
+
+	@Test
+	public void twoProgramsInTheSameSlotAreStillTwoDistinctFailures() throws Exception {
+		// THE MIRROR OF THE TEST ABOVE, and its absence was a one-sided fix inside the very test
+		// added to close a surviving mutation. The collision vector above holds the PROGRAM fixed
+		// and collides two NODES, so it exercises the node half of the probe comparison only --
+		// `nodes[i] == nodeId` alone passed every test in this class. Both halves need a collision.
+		long first = P1;
+		long second = 0L;
+		int node = 7;
+		int home = OcslDiagnostics.Reporter.slot(first, node);
+		for (long p = 1; p < 200000L && second == 0L; p++) {
+			long candidate = p * 0x9E3779B97F4A7C15L;
+			if (candidate != first && OcslDiagnostics.Reporter.slot(candidate, node) == home) {
+				second = candidate;
+			}
+		}
+		assertTrue("no colliding program found, so this test proves nothing", second != 0L);
+
+		Capture c = capture();
+		OcslDiagnostics.Reporter r = new OcslDiagnostics.Reporter();
+		r.rejectedWrite(first, node, OcslWire.PROP_ANIM_SX, Float.NaN, 0L);
+		r.rejectedWrite(second, node, OcslWire.PROP_ANIM_SX, Float.NaN, 0L);
+
+		assertEquals("two programs sharing a slot on the same node are two distinct failures",
+				2, c.lines.size());
+		assertTrue("a probe comparing the NODE half only returns 1 here", c.lines.size() != 1);
+		assertTrue("and the second line names the second program",
+				c.lines.get(1).contains(Long.toHexString(second)));
 	}
 
 	// ------------------------------------------------------------------ the rate cap
@@ -208,7 +246,12 @@ public strictfp class OcslDiagnosticsTest {
 		int afterBurst = c.lines.size();
 		assertEquals(OcslDiagnostics.Reporter.BURST, afterBurst);
 
-		// Jump an hour BACKWARD, then forward to just before the original reading.
+		// Jump 50 SECONDS backward, then forward to 99s -- just before the original 100s reading.
+		//
+		// Two corrections live in this comment, both from review. It first said "an hour" over code
+		// that jumps 50s (72x). The replacement then said the catch-up mints FIVE tokens: the gap
+		// that gets re-credited is 99s - 50s = 49s, which is FOUR whole refill intervals, not five,
+		// and the wrong number contradicted OcslDiagnostics.refill's own comment, which says four.
 		r.rejectedWrite(P1, 500, OcslWire.PROP_ANIM_SX, Float.NaN, 50L * SECOND);
 		assertEquals("a backward reading grants no token", afterBurst, c.lines.size());
 		r.rejectedWrite(P1, 501, OcslWire.PROP_ANIM_SX, Float.NaN, 99L * SECOND);
@@ -276,17 +319,60 @@ public strictfp class OcslDiagnosticsTest {
 
 	@Test
 	public void aNullSinkRestoresTheDefaultRatherThanSilencing() throws Exception {
-		// Same promise the font package makes, and for the same reason: there is no case where
-		// losing these messages is the right outcome.
+		// Same promise the font package makes: there is no case where losing these messages is the
+		// right outcome.
+		//
+		// THIS TEST COULD NOT SEE ITS OWN SUBJECT until review said so. It asserted that the capture
+		// stops receiving -- which is true whether setSink(null) RESTORES the default or SILENCES,
+		// so it was green against the exact bug it is named for. Its excluding assertion was worse
+		// than useless: "a silencing null would leave availableTokens untouched" is FALSE, because
+		// `tokens--` runs before the sink is ever called, so a no-op sink spends tokens identically.
+		//
+		// The only channel that separates restore from silence is System.err, which is where the
+		// default writes. So the test captures it.
 		Capture c = capture();
 		OcslDiagnostics.Reporter r = new OcslDiagnostics.Reporter();
 		r.rejectedWrite(P1, 1, OcslWire.PROP_ANIM_SX, Float.NaN, 0L);
 		assertEquals(1, c.lines.size());
 
-		OcslDiagnostics.setSink(null);
-		r.rejectedWrite(P1, 2, OcslWire.PROP_ANIM_SX, Float.NaN, 0L);
-		assertEquals("the capture stops receiving, because the default is back", 1, c.lines.size());
-		assertTrue("and a silencing null would leave availableTokens untouched too",
-				r.availableTokens() < OcslDiagnostics.Reporter.BURST);
+		java.io.PrintStream realErr = System.err;
+		java.io.ByteArrayOutputStream buffered = new java.io.ByteArrayOutputStream();
+		String printed;
+		try {
+			System.setErr(new java.io.PrintStream(buffered, true, "UTF-8"));
+			OcslDiagnostics.setSink(null);
+			r.rejectedWrite(P1, 2, OcslWire.PROP_ANIM_SX, Float.NaN, 0L);
+		} finally {
+			System.setErr(realErr);
+		}
+		printed = buffered.toString("UTF-8");
+
+		assertEquals("the capture stops receiving", 1, c.lines.size());
+		assertTrue("and the line went to stderr instead -- a SILENCING null prints nothing here,"
+				+ " which is the alternative this test exists to exclude and previously could not."
+				+ " Saw: [" + printed + "]", printed.contains("node 2"));
+		assertTrue("and it is the ocsl default sink, not somebody else's",
+				printed.contains("[OpenGPU:ocsl]"));
+
+		// DURABILITY NEEDS A SECOND MESSAGE UNDER THE RESTORED SINK, and the first draft of this fix
+		// claimed it without one -- the comment read "a second call proves the restore is durable"
+		// over a block containing exactly one post-restore call, so a one-shot restore (delegate to
+		// DEFAULT once, then silence) passed every assertion. That is the same defect shape this
+		// whole hunk exists to fix, reintroduced by the fix. It matters beyond the test: the @After
+		// hook and setSink's javadoc both rest on the restore holding for the WHOLE remaining suite.
+		java.io.ByteArrayOutputStream second = new java.io.ByteArrayOutputStream();
+		try {
+			System.setErr(new java.io.PrintStream(second, true, "UTF-8"));
+			r.rejectedWrite(P1, 3, OcslWire.PROP_ANIM_SX, Float.NaN, 0L);
+		} finally {
+			System.setErr(realErr);
+		}
+		assertTrue("the SECOND post-restore message must also reach stderr; a one-shot restore"
+				+ " prints nothing here. Saw: [" + second.toString("UTF-8") + "]",
+				second.toString("UTF-8").contains("node 3"));
+
+		assertEquals("and every line cost a token regardless of sink -- which is exactly why"
+				+ " availableTokens could never have been the discriminator",
+				OcslDiagnostics.Reporter.BURST - 3, r.availableTokens());
 	}
 }

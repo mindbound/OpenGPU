@@ -105,13 +105,32 @@ public class FontDiagnosticsTest {
 	}
 
 	@Test
-	public void settingANullSinkRestoresTheDefaultRatherThanSilencing() {
+	public void settingANullSinkRestoresTheDefaultRatherThanSilencing() throws Exception {
 		// The behaviour the javadoc claims. It previously claimed it while IGNORING null, which
 		// left the last installed sink in place — the exact "documentation promising what the
 		// code does not do" this whole change set exists to remove.
+		//
+		// THIS TEST HAD THE SAME HOLE ITS OWN NAME DESCRIBES, found when the OCSL package copied it
+		// as a precedent and a review then caught the copy. "The old sink stops receiving" is true
+		// whether setSink(null) RESTORES the default or SILENCES, so the test was green against the
+		// alternative it is named for. The default writes to System.err, and that is the only
+		// channel that separates the two, so it is captured here.
 		Capture c = install();
-		FontDiagnostics.setSink(null);
-		HexFont.loadResource("/assets/opengpu/font/still-not-there.hex", 16, false);
+		java.io.PrintStream realErr = System.err;
+		java.io.ByteArrayOutputStream buffered = new java.io.ByteArrayOutputStream();
+		try {
+			System.setErr(new java.io.PrintStream(buffered, true, "UTF-8"));
+			FontDiagnostics.setSink(null);
+			HexFont.loadResource("/assets/opengpu/font/still-not-there.hex", 16, false);
+		} finally {
+			System.setErr(realErr);
+		}
+		String printed = buffered.toString("UTF-8");
+
 		assertTrue("after restoring the default, the old sink must stop receiving", c.errors.isEmpty());
+		assertTrue("and the message must land on stderr instead — a SILENCING null prints nothing"
+				+ " here, which is what this test could not previously exclude. Saw: [" + printed
+				+ "]", printed.contains("[OpenGPU:font]"));
+		assertTrue("and it names the resource that failed", printed.contains("still-not-there"));
 	}
 }

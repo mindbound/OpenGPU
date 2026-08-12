@@ -42,12 +42,18 @@ public final strictfp class OcslWriteBoundary {
 	 * ANIM-9 asks that "a 1e38 position never reaches the transform math", and names no value. 1e6
 	 * is chosen so the PRODUCTS stay far inside float32 rather than because positions are expected
 	 * near it: transform math multiplies position by scale, and 1e6 x 1e6 = 1e12, which squares to
-	 * 1e24 in a distance calculation and is still five orders below float32's 3.4e38. A limit chosen
+	 * 1e24 in a distance calculation — <b>fourteen</b> orders below float32's 3.4e38. A limit chosen
 	 * to bound the inputs alone would let a legal position and a legal scale multiply into infinity,
 	 * which is the failure this clamp exists to prevent and would have been the natural mistake.
 	 *
-	 * Generous against real scenes by a wide margin — the frame-width cap is 1024 and canvases are
-	 * pixel-scaled — so it bounds the pathological without touching anything an author would write.
+	 * <b>Both sentences here were wrong when first written, and an adversarial review caught them
+	 * where the author's own mutation sweep did not.</b> The margin was stated as "five orders"
+	 * (it is fourteen), and the claim that it is "generous against real scenes — the frame-width cap
+	 * is 1024" cited {@code SurfaceTable.MAX_FRAME_WIDTH}, which bounds an OCSL program's REGISTER
+	 * FRAME and has nothing whatever to do with scene coordinates. The constant survives both
+	 * corrections; the arguments for it did not. No scene-coordinate bound is cited in its place
+	 * because this file has not established one, and inventing a second number to replace a wrong
+	 * one is how the first went in.
 	 */
 	public static final float TRS_LIMIT = 1.0e6f;
 
