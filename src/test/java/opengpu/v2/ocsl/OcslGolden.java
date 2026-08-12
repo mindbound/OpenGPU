@@ -204,19 +204,91 @@ final class OcslGolden {
 		c.add(new Case("cross3", 0.0f, 1e20f, 1e-20f, 0.0f, 1.0f, 1e20f));
 		c.add(new Case("cross3", INF, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f));
 
+		broadcastCases(c);
 		return c;
 	}
 
 	/** How many floats this op's result carries. */
 	static int resultWidth(String op) {
+		if (op.startsWith("bc:")) {
+			int max = 1;
+			int[] w = widths(op);
+			for (int i = 0; i < w.length; i++) {
+				max = Math.max(max, w[i]);
+			}
+			return max;
+		}
 		if (op.equals("cross3")) {
 			return 3;
 		}
 		return op.startsWith("norm") ? Integer.parseInt(op.substring(4)) : 1;
 	}
 
+	/**
+	 * Broadcast cases, named {@code bc:<op>:<operand widths>:<k|r>}.
+	 *
+	 * THE COST AMENDMENT 4 TOOK ON AND HAD NOT PAID. Re-opening the broadcast half bought
+	 * {@code mix(vec3, vec3, float)} as ONE instruction, in exchange for "conformance vectors must
+	 * now cover the broadcast operand positions". The scalar rows above cannot: broadcast does not
+	 * live in {@link OcslMath} at all — it lives in {@code OcslVm.component()}, which decides
+	 * per-operand whether to read lane {@code i} or lane 0. So these cases build a real program and
+	 * run it on the real VM.
+	 *
+	 * The widths string gives each operand's width in order ({@code 31} is {@code (vec3, float)},
+	 * {@code 313} is {@code (vec3, float, vec3)}), and the last field is where the operands come
+	 * from. That last distinction is not decoration: {@code component()} takes a DIFFERENT BRANCH
+	 * for a constant-pool reference than for a register, and each branch has its own width test, so
+	 * a broadcast that worked from constants could still be wrong from registers.
+	 */
+	private static void broadcastCases(List<Case> c) {
+		String[] binary = { "add", "sub", "mul", "div", "mod", "min", "max", "pow", "atan2",
+				"step" };
+		// Positive and non-round: pow's base must stay in domain, and round numbers hide lane
+		// mix-ups because several lanes would agree by accident.
+		float[] v3 = { 0.25f, 1.5f, 2.75f };
+		float s = 0.6f;
+		for (int i = 0; i < binary.length; i++) {
+			for (int src = 0; src < 2; src++) {
+				String tag = src == 0 ? "k" : "r";
+				c.add(new Case("bc:" + binary[i] + ":31:" + tag, v3[0], v3[1], v3[2], s));
+				c.add(new Case("bc:" + binary[i] + ":13:" + tag, s, v3[0], v3[1], v3[2]));
+			}
+		}
+		// Every position a float can occupy in a three-operand op, which is what "the broadcast
+		// operand POSITIONS" means and what a rule applied to only the last operand would fail.
+		String[] ternary = { "clamp", "mix", "smoothstep" };
+		float[] lo = { 0.1f, 0.2f, 0.3f };
+		float[] hi = { 0.9f, 1.4f, 3.1f };
+		for (int i = 0; i < ternary.length; i++) {
+			String op = ternary[i];
+			c.add(new Case("bc:" + op + ":331:k", lo[0], lo[1], lo[2], hi[0], hi[1], hi[2], s));
+			c.add(new Case("bc:" + op + ":313:k", lo[0], lo[1], lo[2], s, hi[0], hi[1], hi[2]));
+			c.add(new Case("bc:" + op + ":133:k", s, lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]));
+			c.add(new Case("bc:" + op + ":311:k", lo[0], lo[1], lo[2], s, hi[0]));
+			c.add(new Case("bc:" + op + ":131:k", s, lo[0], lo[1], lo[2], hi[0]));
+			c.add(new Case("bc:" + op + ":113:k", s, hi[0], lo[0], lo[1], lo[2]));
+			c.add(new Case("bc:" + op + ":331:r", lo[0], lo[1], lo[2], hi[0], hi[1], hi[2], s));
+			c.add(new Case("bc:" + op + ":313:r", lo[0], lo[1], lo[2], s, hi[0], hi[1], hi[2]));
+			c.add(new Case("bc:" + op + ":133:r", s, lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]));
+		}
+		// Widths other than 3, so a broadcast that hardcoded a lane count is visible.
+		c.add(new Case("bc:mul:21:k", 0.25f, 1.5f, s));
+		c.add(new Case("bc:mul:41:k", 0.25f, 1.5f, 2.75f, -0.5f, s));
+		c.add(new Case("bc:mul:14:r", s, 0.25f, 1.5f, 2.75f, -0.5f));
+		c.add(new Case("bc:mix:441:r", 0.1f, 0.2f, 0.3f, 0.4f, 0.9f, 1.4f, 3.1f, -1.0f, s));
+		// A float in BOTH positions of a component-wise op stays a float -- the result takes a
+		// vector width only when an operand has one.
+		c.add(new Case("bc:add:11:k", 1.25f, s));
+		c.add(new Case("bc:add:11:r", 1.25f, s));
+	}
+
 	/** The {@link OcslMath} method a vector's op name exercises — width suffixes stripped. */
 	static String methodFor(String op) {
+		if (op.startsWith("bc:")) {
+			// A broadcast case exercises the VM's operand reader, not an OcslMath method; it still
+			// names the underlying op so the coverage floor counts it.
+			return op.split(":")[1];
+		}
 		if (op.startsWith("norm")) {
 			return "normalize";
 		}
@@ -242,6 +314,14 @@ final class OcslGolden {
 	 * two of them ignored, so a malformed file produced a self-consistent wrong answer.
 	 */
 	static int argWidth(String op) {
+		if (op.startsWith("bc:")) {
+			int total = 0;
+			int[] w = widths(op);
+			for (int i = 0; i < w.length; i++) {
+				total += w[i];
+			}
+			return total;
+		}
 		if (op.startsWith("dot") || op.startsWith("dist")) {
 			return 2 * Integer.parseInt(op.substring(op.startsWith("dot") ? 3 : 4));
 		}
@@ -273,6 +353,9 @@ final class OcslGolden {
 		if (a.length != argWidth(op)) {
 			throw new IllegalArgumentException(op + " consumes " + argWidth(op)
 					+ " floats, got " + a.length);
+		}
+		if (op.startsWith("bc:")) {
+			return broadcast(op, a);
 		}
 		float[] frame;
 		if (op.equals("san")) return one(OcslMath.san(a[0]));
@@ -332,6 +415,87 @@ final class OcslGolden {
 
 	private static float[] one(float v) {
 		return new float[] { v };
+	}
+
+	/** Widths of each operand, from the {@code bc:op:WIDTHS:src} name. */
+	private static int[] widths(String op) {
+		String digits = op.split(":")[2];
+		int[] w = new int[digits.length()];
+		for (int i = 0; i < w.length; i++) {
+			w[i] = digits.charAt(i) - '0';
+		}
+		return w;
+	}
+
+	/**
+	 * Build a program that performs one broadcasting op, run it on the real VM, and read the
+	 * result back.
+	 *
+	 * Register operands are made by taking {@code abs} of the constant — identity for these values,
+	 * one op, and no semantic interference — because that is the cheapest way to get a value into a
+	 * REGISTER, which is the branch of {@code component()} a constant reference never takes.
+	 */
+	private static float[] broadcast(String op, float[] a) {
+		String[] parts = op.split(":");
+		String name = parts[1];
+		int[] w = widths(op);
+		boolean registers = parts[3].equals("r");
+
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_PIXEL_MATERIAL);
+		Expr[] operands = new Expr[w.length];
+		int at = 0;
+		for (int i = 0; i < w.length; i++) {
+			float[] comps = new float[w[i]];
+			System.arraycopy(a, at, comps, 0, w[i]);
+			at += w[i];
+			Expr e = b.constant(comps);
+			operands[i] = registers ? e.abs() : e;
+		}
+		Expr result = apply(b, name, operands);
+
+		// OUT wants a vec4, so widen without disturbing the lanes under test: they stay in 0..n-1
+		// whichever widening is used.
+		int rw = result.type.width;
+		Expr out;
+		if (rw == 4) {
+			out = result;
+		} else if (rw == 3) {
+			out = b.vec4(result, b.f(1.0f));
+		} else if (rw == 2) {
+			out = b.vec4(result, result);
+		} else {
+			out = result.splat(4);
+		}
+		b.out(OcslWire.PROP_COLOR, out);
+
+		float[] pixel = new float[4];
+		try {
+			OcslVm vm = new OcslVm(IrValidator.validate(b.build()));
+			vm.run();
+			vm.output(OcslWire.PROP_COLOR, pixel);
+		} catch (ValidationException e) {
+			throw new IllegalStateException("broadcast case " + op + " built an invalid program", e);
+		}
+		float[] r = new float[rw];
+		System.arraycopy(pixel, 0, r, 0, rw);
+		return r;
+	}
+
+	private static Expr apply(OcslBuilder b, String name, Expr[] o) {
+		if (name.equals("add")) return o[0].add(o[1]);
+		if (name.equals("sub")) return o[0].sub(o[1]);
+		if (name.equals("mul")) return o[0].mul(o[1]);
+		if (name.equals("div")) return o[0].div(o[1]);
+		if (name.equals("mod")) return o[0].mod(o[1]);
+		if (name.equals("min")) return o[0].min(o[1]);
+		if (name.equals("max")) return o[0].max(o[1]);
+		if (name.equals("pow")) return o[0].pow(o[1]);
+		if (name.equals("atan2")) return o[0].atan2(o[1]);
+		if (name.equals("step")) return o[0].step(o[1]);
+		if (name.equals("clamp")) return o[0].clamp(o[1], o[2]);
+		if (name.equals("mix")) return o[0].mix(o[1], o[2]);
+		if (name.equals("smoothstep")) return o[0].smoothstep(o[1], o[2]);
+		throw new IllegalArgumentException("no broadcast rule for " + name);
 	}
 
 	/** One line of the file: op, hex args, hex results, and a decimal rendering for the reader. */
