@@ -34,49 +34,14 @@ import opengpu.v2.scene.SceneState;
 public final class Canvas2dRenderer {
 	private static final int OVAL_SEGMENTS = 48;
 
-	/** Row-major 2D affine: x' = a*x + c*y + e; y' = b*x + d*y + f. */
-	private static final class Affine {
-		double a = 1, b = 0, c = 0, d = 1, e = 0, f = 0;
-
-		void set(Affine o) {
-			a = o.a; b = o.b; c = o.c; d = o.d; e = o.e; f = o.f;
-		}
-
-		void identity() {
-			a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
-		}
-
-		void translate(double dx, double dy) {
-			e += a * dx + c * dy;
-			f += b * dx + d * dy;
-		}
-
-		void rotate(double rad) {
-			double cos = Math.cos(rad), sin = Math.sin(rad);
-			double na = a * cos + c * sin;
-			double nb = b * cos + d * sin;
-			double nc = -a * sin + c * cos;
-			double nd = -b * sin + d * cos;
-			a = na; b = nb; c = nc; d = nd;
-		}
-
-		void scale(double sx, double sy) {
-			a *= sx; b *= sx; c *= sy; d *= sy;
-		}
-
-		double tx(double x, double y) {
-			return a * x + c * y + e;
-		}
-
-		double ty(double x, double y) {
-			return b * x + d * y + f;
-		}
-	}
+	// The affine and the parent-to-child fold live in NodeFold, which touches no GL and is therefore
+	// unit-testable -- see its class note. They were here, untested, deciding where every child of
+	// every group draws. ANIM-10.
 
 	// Replay state (single-threaded render use).
-	private final Affine node = new Affine();
-	private final Affine local = new Affine();
-	private final Affine effective = new Affine();
+	private final NodeFold.Affine node = new NodeFold.Affine();
+	private final NodeFold.Affine local = new NodeFold.Affine();
+	private final NodeFold.Affine effective = new NodeFold.Affine();
 	private final List<double[]> stack = new ArrayList<double[]>();
 	private double colR, colG, colB, colA;
 	/** The current node's tint, as a 0..1 multiplier. Set by beginNode, applied by color(). */
@@ -175,22 +140,27 @@ public final class Canvas2dRenderer {
 	/** Interpolation source for the current renderScene call; null = draw raw transforms. */
 	private NodeInterpolator interp;
 	private long interpNanos;
-	private final double[] xform = new double[5];
+	private final double[] xform = new double[NodeFold.TRS_WIDTH];
+	private final double[] parentXform = new double[NodeFold.TRS_WIDTH];
+	private final double[] tintRgba = new double[4];
 
 	private void beginNode(SceneNode sceneNode, SceneState state) {
-		// PARENT FIRST, then the child, onto the same matrix. Affine's operations post-multiply,
-		// so applying one node's TRS and then another's composes them in that order — there is no
-		// matrix product to write here. The parent is interpolated exactly like the child, which
-		// is what makes a moving group carry its children smoothly rather than in tick steps.
+		// PARENT FIRST, then the child, onto the same matrix -- NodeFold.foldTransform owns that
+		// order and the reasoning behind it. The parent is interpolated exactly like the child,
+		// which is what makes a moving group carry its children smoothly rather than in tick steps.
 		//
 		// One nesting level means one lookup and no loop. If that limit is ever lifted this
 		// becomes a walk up to the root, and `parent < id` is what guarantees it terminates.
-		node.identity();
+		//
+		// READ THEN FOLD, rather than applying each node's ops as it is read: the fold is the part
+		// ANIM-10 pins and the part a JVM test can reach, so it may not be spread across two call
+		// sites that only a GL context can execute.
 		SceneNode parent = parentOf(sceneNode, state);
 		if (parent != null) {
-			applyTransform(parent);
+			readTransform(parent, parentXform);
 		}
-		applyTransform(sceneNode);
+		readTransform(sceneNode, xform);
+		NodeFold.foldTransform(parent != null ? parentXform : null, xform, node);
 		local.identity();
 		stack.clear();
 		colR = 1; colG = 1; colB = 1; colA = 1;
@@ -222,23 +192,22 @@ public final class Canvas2dRenderer {
 		// these fields persist between nodes. A draw placed above a beginNode would render in the
 		// PREVIOUS node's tint — a defect that follows z-order and reads as nondeterministic,
 		// exactly like the font leak the comment below describes.
-		int tint = sceneNode.tint;
-		tintA = (tint >>> 24 & 0xFF) / 255.0;
-		tintR = (tint >>> 16 & 0xFF) / 255.0;
-		tintG = (tint >>> 8 & 0xFF) / 255.0;
-		tintB = (tint & 0xFF) / 255.0;
 		// A GROUP'S TINT MULTIPLIES ITS CHILDREN'S, for the same reason the tint above is honoured
 		// for every node type rather than only sprites: a NODE_GROUP draws nothing itself, so a
 		// tint that did not reach its children would be a property that converges perfectly across
 		// the wire and renders nothing — the defect described at length just above. Fading a whole
 		// group with one call is most of why a group is worth having.
-		if (parent != null && parent.tint != 0xFFFFFFFF) {
-			int pt = parent.tint;
-			tintA *= (pt >>> 24 & 0xFF) / 255.0;
-			tintR *= (pt >>> 16 & 0xFF) / 255.0;
-			tintG *= (pt >>> 8 & 0xFF) / 255.0;
-			tintB *= (pt & 0xFF) / 255.0;
-		}
+		//
+		// THE `parent.tint != 0xFFFFFFFF` SHORT-CIRCUIT IS GONE, and NodeFold explains why: it
+		// tested the parent's RAW field, so a group whose server tint is white and whose animator
+		// fades it would take the early exit and reach no child at all -- the very defect this
+		// comment block exists to refuse, reintroduced one level up. Bit-identical today, because a
+		// white parent multiplies every channel by exactly 1.0.
+		NodeFold.foldTint(sceneNode.tint, parent != null ? parent.tint : NodeFold.WHITE, tintRgba);
+		tintR = tintRgba[NodeFold.TINT_R];
+		tintG = tintRgba[NodeFold.TINT_G];
+		tintB = tintRgba[NodeFold.TINT_B];
+		tintA = tintRgba[NodeFold.TINT_A];
 		// Font resets with the colour, and must: it is ambient state in the same command
 		// stream, so a canvas that selected unscii would otherwise leak it into whichever
 		// canvas replayed next. That leak would follow node draw order, making text change
@@ -248,16 +217,23 @@ public final class Canvas2dRenderer {
 		updateEffective();
 	}
 
-	/** Applies one node's TRS onto {@link #node}, interpolated when a source is available. */
-	private void applyTransform(SceneNode n) {
-		double nx = n.x, ny = n.y, nrot = n.rot, nsx = n.sx, nsy = n.sy;
+	/**
+	 * Reads one node's DISPLAYED TRS into {@code out} — interpolated when a source is available.
+	 *
+	 * This is where an animator's composed output will substitute, for the parent and the child
+	 * alike, because both go through here. It reads and does not apply: the applying is
+	 * {@link NodeFold#foldTransform}'s job, so that the order is stated in one testable place.
+	 */
+	private void readTransform(SceneNode n, double[] out) {
 		if (interp != null) {
-			interp.transformOf(n, interpNanos, xform);
-			nx = xform[0]; ny = xform[1]; nrot = xform[2]; nsx = xform[3]; nsy = xform[4];
+			interp.transformOf(n, interpNanos, out);
+			return;
 		}
-		node.translate(nx, ny);
-		node.rotate(nrot);
-		node.scale(nsx, nsy);
+		out[NodeFold.TRS_X] = n.x;
+		out[NodeFold.TRS_Y] = n.y;
+		out[NodeFold.TRS_ROT] = n.rot;
+		out[NodeFold.TRS_SX] = n.sx;
+		out[NodeFold.TRS_SY] = n.sy;
 	}
 
 	/**
