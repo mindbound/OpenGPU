@@ -129,3 +129,21 @@ tasks.named("build") {
         jars.filter { newest - it.lastModified() > staleAfterMillis }.forEach { it.delete() }
     }
 }
+
+// Regenerate the OCSL golden vectors. Deliberate and manual:
+//   ./gradlew ocslGolden
+//
+// The generator writes the file itself rather than printing for a shell redirect: FPGradle emits
+// its "new version available" notice on STDOUT, which -q does not suppress, so redirecting put
+// build chatter inside the artifact.
+//
+// Deliberately NOT wired into `test` or `check`. The file is the frozen expectation a second
+// backend is held to, so a build step that refreshed it would mean the suite pinned whatever the
+// code last did -- and the first response to a red golden test would be to re-run the build.
+tasks.register<JavaExec>("ocslGolden") {
+    group = "verification"
+    description = "Rewrite src/test/resources/ocsl/golden-vectors.txt, then review the diff"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("opengpu.v2.ocsl.OcslGoldenGenerator")
+    args("src/test/resources/ocsl/golden-vectors.txt")
+}
