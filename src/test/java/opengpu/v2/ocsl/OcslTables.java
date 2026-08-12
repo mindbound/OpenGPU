@@ -275,6 +275,27 @@ public final class OcslTables {
 		line(out, "# `none` is not an omission: tint REPLACES, so no output leaves the base alone.");
 		line(out, "");
 
+		// ANIM-9. Beside the composition rule because that is where a reader goes looking for it,
+		// and because the boundary applies to the COMPOSED value rather than the raw output.
+		line(out, "[write-boundary] name value");
+		line(out, "# What happens to a value on its way out. A non-finite animator output is");
+		line(out, "# REJECTED and the frame displays the server base -- statelessly, by substituting");
+		line(out, "# the property's identity, so a client that joined on the failing frame and one");
+		line(out, "# that watched for a minute agree. The superseded 'previous value retained' rule");
+		line(out, "# was the only cross-frame state in the design and the one place purity broke.");
+		line(out, "# Finite out-of-range is CLAMPED, not rejected: it still carries intent.");
+		line(out, "nonFinitePolicy reject-to-server-base");
+		line(out, "trsLimit " + OcslWriteBoundary.TRS_LIMIT);
+		line(out, "colorClamp 0..1");
+		line(out, "colorSteps " + OcslWriteBoundary.COLOR_STEPS);
+		line(out, "colorRounding half-up");
+		line(out, "colorOrder clamp-then-quantize");
+		line(out, "# clamp-then-quantize is load-bearing, not a preference: the destination is a");
+		line(out, "# packed 8-bit-per-channel int that does NOT saturate. (int)(1.5*255) is 382,");
+		line(out, "# which is 0x17E, and shifted into the alpha byte it lands as 126 -- a dark flash");
+		line(out, "# where the author asked for full brightness.");
+		line(out, "");
+
 		line(out, "[slots] name value");
 		line(out, "# Sampler bindings are their own namespace, not registers.");
 		line(out, "inputSlot " + SurfaceTable.SLOT_INPUT);

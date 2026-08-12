@@ -146,6 +146,24 @@ tz add 0
 sz mul 1
 # `none` is not an omission: tint REPLACES, so no output leaves the base alone.
 
+[write-boundary] name value
+# What happens to a value on its way out. A non-finite animator output is
+# REJECTED and the frame displays the server base -- statelessly, by substituting
+# the property's identity, so a client that joined on the failing frame and one
+# that watched for a minute agree. The superseded 'previous value retained' rule
+# was the only cross-frame state in the design and the one place purity broke.
+# Finite out-of-range is CLAMPED, not rejected: it still carries intent.
+nonFinitePolicy reject-to-server-base
+trsLimit 1000000.0
+colorClamp 0..1
+colorSteps 255
+colorRounding half-up
+colorOrder clamp-then-quantize
+# clamp-then-quantize is load-bearing, not a preference: the destination is a
+# packed 8-bit-per-channel int that does NOT saturate. (int)(1.5*255) is 382,
+# which is 0x17E, and shifted into the alpha byte it lands as 126 -- a dark flash
+# where the author asked for full brightness.
+
 [slots] name value
 # Sampler bindings are their own namespace, not registers.
 inputSlot 0
