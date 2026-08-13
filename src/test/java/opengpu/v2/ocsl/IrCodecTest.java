@@ -216,24 +216,33 @@ public class IrCodecTest {
 	// ---------------------------------------------------------------- the two gates
 
 	@Test
-	public void refusesTheAnimatorStageByNameAndPointsAtItsDryRun() throws Exception {
-		// THE STAGE BYTE IS PATCHED INTO A VALID BLOB rather than encoded, because `encode()` now
-		// refuses the animator too -- IrStructure gained the reserved-stage check its own javadoc
-		// had always claimed, closing the last case where encode() emitted bytes decode() rejects.
-		// That makes patching the only way to produce this blob, and it is the more faithful test:
-		// the decoder is the security boundary, so what it must refuse is bytes from an encoder we
-		// do not control -- a hostile one, or simply an older build from before the tripwire.
+	public void theAnimatorStageDecodesAndComputeStillDoesNot() throws Exception {
+		// INVERTED 2026-08-13. This test used to patch an animator stage byte into a blob and assert
+		// the decoder refused it with a pointer at the dry run; deleting that branch is the act that
+		// opened the surface. What the test is FOR survives unchanged: the decoder distinguishes a
+		// reserved stage from an open one and from an unknown one, and it now has to get all three
+		// right rather than two.
+		byte[] animator = enc(program(OcslWire.STAGE_ANIMATOR, new float[] { 1.0f }, 1,
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_ANIM_X, OcslWire.OPERAND_CONST_FLAG)));
+		IrProgram back = dec(animator);
+		assertEquals("an open surface's blob round-trips", OcslWire.STAGE_ANIMATOR, back.stage);
+
+		// THE STAGE BYTE IS PATCHED for compute, because `encode()` refuses it -- IrStructure has
+		// the reserved-stage check its javadoc always claimed, closing the case where encode()
+		// emitted bytes decode() rejects. Patching is also the more faithful test: the decoder is
+		// the security boundary, so what it must refuse is bytes from an encoder we do not control
+		// -- a hostile one, or simply an older build from before the tripwire.
 		byte[] blob = enc(program(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, 1,
 				new IrOp(OcslWire.OP_OUT, -1, 0, OcslWire.OPERAND_CONST_FLAG)));
-		blob[6] = OcslWire.STAGE_ANIMATOR; // 4-byte magic, 2-byte version, then the stage
+		blob[6] = OcslWire.STAGE_COMPUTE; // 4-byte magic, 2-byte version, then the stage
 		try {
 			IrCodec.decode(blob, IrCodec.Source.TRANSIENT);
-			fail("the animator stage must be refused while its amendments are pending");
+			fail("compute must be refused while it is reserved");
 		} catch (CodecException e) {
 			// Non-vacuous in the way that matters: a generic "unknown stage" rejection would
 			// satisfy a laxer assertion while the tripwire and its pointer never existed.
 			assertTrue("the refusal must carry the pointer, got: " + e.getMessage(),
-					e.getMessage().contains("OCSL-ANIMATOR-DRYRUN"));
+					e.getMessage().contains("DESIGN-RENDERER-V2"));
 		}
 	}
 
@@ -243,11 +252,19 @@ public class IrCodecTest {
 	 * {@code IrStructure}'s javadoc listed "a reserved stage" among the things {@code encode()}
 	 * emitted and {@code decode()} then refused, and implemented every item on that list except
 	 * that one — so a hand-built animator program encoded to a valid 36-byte blob no decoder would
-	 * take back. Both surfaces are checked: compute is in the identical state and was equally open.
+	 * take back.
+	 *
+	 * The animator left this list when its surface opened (2026-08-13), so compute is the only
+	 * reserved stage remaining. A one-element sweep would be a weak test on its own, so the open
+	 * side is asserted alongside it: the refusal has to be about RESERVATION, not about "any stage
+	 * that is not the pixel family", and with one entry left nothing else distinguishes those.
 	 */
 	@Test
 	public void encodeRefusesTheReservedSurfacesRatherThanEmittingUndecodableBytes() throws Exception {
-		byte[] stages = { OcslWire.STAGE_ANIMATOR, OcslWire.STAGE_COMPUTE };
+		enc(program(OcslWire.STAGE_ANIMATOR, new float[] { 1.0f }, 1,
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_ANIM_X, OcslWire.OPERAND_CONST_FLAG)));
+
+		byte[] stages = { OcslWire.STAGE_COMPUTE };
 		for (int i = 0; i < stages.length; i++) {
 			try {
 				enc(program(stages[i], new float[] { 1.0f }, 1,
@@ -262,17 +279,22 @@ public class IrCodecTest {
 	}
 
 	@Test
-	public void animatorRefusalIsDistinctFromAnUnknownStage() throws Exception {
+	public void aReservedRefusalIsDistinctFromAnUnknownStage() throws Exception {
 		// The other half of the same guarantee. If a genuinely unknown id also produced the
 		// pointer, the test above would pass with no tripwire in the code at all.
+		//
+		// RE-AIMED AT COMPUTE 2026-08-13. It asserted that an unknown stage does not claim to be the
+		// ANIMATOR, and the animator's pointer no longer exists — so the assertion had become true
+		// of every possible message and pinned nothing. It did not fail when the surface opened,
+		// which is exactly why a passing test is not evidence that it still checks something.
 		byte[] blob = enc(trivial());
 		blob[6] = (byte) 99;
 		try {
 			IrCodec.decode(blob, IrCodec.Source.TRANSIENT);
 			fail("an unknown stage must be refused");
 		} catch (CodecException e) {
-			assertTrue("unknown stages must NOT claim to be the animator: " + e.getMessage(),
-					!e.getMessage().contains("OCSL-ANIMATOR-DRYRUN"));
+			assertTrue("unknown stages must NOT claim to be a reserved one: " + e.getMessage(),
+					!e.getMessage().contains("DESIGN-RENDERER-V2"));
 			assertTrue(e.getMessage().toLowerCase().contains("unknown program stage"));
 		}
 	}

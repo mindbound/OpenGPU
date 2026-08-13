@@ -216,11 +216,16 @@ public strictfp class OcslComposeTest {
 	 */
 	@Test
 	public void beingShutAndMandatingNoOutputAreIndependentFacts() throws Exception {
-		// The animator holds both properties at once, which is what made the coupling a trap.
+		// The animator holds both properties at once, which is what made the coupling a trap — and
+		// since 2026-08-13 it DEMONSTRATES the separation instead of anticipating it. It is open and
+		// mandates nothing, a combination the single coupled predicate could not represent at all:
+		// under the old `requiredProperties(stage).length == 0` reading, this surface was
+		// unopenable without being given a mandatory property, which is precisely the trap ANIM-2
+		// warned about (every animator program would then be forced to own it).
 		assertEquals("an animator's OUT set is per-program, so it mandates nothing, forever",
 				0, SurfaceTable.requiredProperties(OcslWire.STAGE_ANIMATOR).length);
-		assertTrue("and it is shut for reasons that have nothing to do with that",
-				!SurfaceTable.isOpen(OcslWire.STAGE_ANIMATOR));
+		assertTrue("and it is OPEN, which the coupled predicate made impossible to express",
+				SurfaceTable.isOpen(OcslWire.STAGE_ANIMATOR));
 		assertTrue("while genuinely having a published property table",
 				SurfaceTable.propertyType(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_X) != null);
 
@@ -232,25 +237,37 @@ public strictfp class OcslComposeTest {
 		// read "has any property at id 0" and passed for the animator under a mutation that opened
 		// it -- the sibling assert caught that, not this loop. It also probed only id 0, so a future
 		// surface whose table starts at id 1 would have read as having none.
+		int mandating = 0;
 		for (int s = 0; s <= 255; s++) {
 			byte stage = (byte) s;
 			if (!OcslWire.isKnownStage(stage) || !SurfaceTable.isOpen(stage)) {
 				continue;
 			}
 			int[] required = SurfaceTable.requiredProperties(stage);
-			assertTrue("an open surface must mandate at least one output, or `it validated` means"
-					+ " nothing there", required.length > 0);
+			// NO LONGER "every open surface mandates an output" — that inference died with the
+			// animator opening, and it was the coincidence this test exists to name. What survives
+			// is the typing rule: whatever a surface mandates must have a type at its own stage.
+			if (required.length > 0) {
+				mandating++;
+			}
 			for (int i = 0; i < required.length; i++) {
 				assertTrue("every required property must have a type at its own stage",
 						SurfaceTable.propertyType(stage, required[i]) != null);
 			}
 		}
 
-		// And the gate that refuses actually asks isOpen: the animator is refused at the builder
-		// despite having a property table, which is the case the old inference could not express.
+		// The pixel family still mandates COLOR, so the two predicates genuinely differ rather than
+		// the mandating set having emptied out underneath this test.
+		assertTrue("some open surface must still mandate an output, or the distinction is vacuous"
+				+ " from the other side", mandating >= 4);
+
+		// And the gate asks isOpen rather than inferring from the mandate: the animator now BUILDS
+		// while mandating nothing, which is the case the old coupled inference could not express in
+		// either direction. A still-shut surface keeps the refusal honest.
+		OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
 		try {
-			OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
-			fail("the animator surface is shut and the builder must say so");
+			OcslBuilder.forStage(OcslWire.STAGE_COMPUTE);
+			fail("compute is still shut and the builder must say so");
 		} catch (OcslBuilder.BuildException e) {
 			assertTrue("the refusal should name openness, not a missing table, got: "
 					+ e.getMessage(), e.getMessage().contains("not open"));

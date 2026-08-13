@@ -39,10 +39,16 @@ public final class OcslWire {
 	public static final byte STAGE_BAKE = 4;
 	public static final byte STAGE_VERTEX = 5;
 	/**
-	 * Reserved and REFUSED. The animator surface's dry run (docs/dev/OCSL-ANIMATOR-DRYRUN.md)
-	 * found 0 of 9 programs encodable and left 18 amendments pending, so the id exists to keep
-	 * the namespace stable while the decoder turns this stage away by name. Deleting that refusal
-	 * is the act that reopens the surface, and it is the only way to reopen it.
+	 * OPEN since 2026-08-13. Programs on this stage build, validate, encode, decode and run.
+	 *
+	 * It was "Reserved and REFUSED" while its dry run's amendments were pending, and this javadoc
+	 * said deleting the decoder's refusal "is the act that reopens the surface, and it is the only
+	 * way to reopen it". <b>That was wrong twice over</b>, and both errors are worth keeping visible
+	 * because the second one is why this sentence went stale unnoticed: the decoder branch was one
+	 * of FOUR gates ({@link SurfaceTable#isOpen}, {@code IrStructure.checkStage}, that branch, and
+	 * {@link SurfaceTable#builtinType}), and describing the gate HERE, on the constant, put a fourth
+	 * copy of the claim in a file none of the four edits had to touch. The gate moved with its test;
+	 * this sentence did not, and only a review found it.
 	 */
 	public static final byte STAGE_ANIMATOR = 6;
 	/** Reserved for the post-Stage-D Data Card. No decoder support; refused as unknown. */

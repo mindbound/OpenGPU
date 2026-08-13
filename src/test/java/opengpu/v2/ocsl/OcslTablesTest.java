@@ -59,32 +59,58 @@ public class OcslTablesTest {
 		// test whose javadoc said it checked "the collision the reservation discipline exists to
 		// prevent". A coverage check that reads a hand-kept list checks the list, not the code.
 		// OcslGoldenTest learned this already and uses reflection for the same reason.
-		Set<Integer> readable = new HashSet<Integer>();
+		// PER-STAGE since 2026-08-13, and the rescope is the point rather than a concession. The set
+		// used to collapse stage identity, which was right while a reserved block meant "readable
+		// nowhere": the animator's registers were unreadable at every stage including its own. Now
+		// they are readable at the ANIMATOR and must stay unreadable everywhere else — a block
+		// reserved FOR a surface is not a block reserved FROM it. Collapsed, this test would fire on
+		// the reservation being honoured, which is the opposite of what it is for.
+		int checkedStages = 0;
 		for (int s = 0; s <= 255; s++) {
 			byte stage = (byte) s;
 			if (!OcslWire.isKnownStage(stage)) {
 				continue;
 			}
+			checkedStages++;
+			boolean ownsTheAnimatorBlock = stage == OcslWire.STAGE_ANIMATOR;
+			// COUNTED INSIDE THE BLOCK, not over the whole id space. The first version of this
+			// guard counted every readable register at the stage, which at the animator includes
+			// time, timePeriod and the parent block -- so the exemption it is guarding could have
+			// emptied out completely and the count would still have cleared its threshold.
+			int readableInBlock = 0;
 			for (int reg = 0; reg < SurfaceTable.UNIFORM_BASE; reg++) {
-				if (SurfaceTable.builtinType(stage, reg) != null) {
-					readable.add(Integer.valueOf(reg));
+				if (SurfaceTable.builtinType(stage, reg) == null) {
+					continue;
 				}
+				if (reg >= SurfaceTable.REG_ANIMATOR_BASE && reg < SurfaceTable.REG_ANIMATOR_LIMIT) {
+					readableInBlock++;
+				}
+				assertTrue("stage " + s + ": register " + reg + " ("
+						+ SurfaceTable.builtinName(reg) + ") is readable but sits inside the light"
+						+ " block reserved at " + SurfaceTable.REG_LIGHT_BASE,
+						reg < SurfaceTable.REG_LIGHT_BASE || reg >= SurfaceTable.REG_LIGHT_LIMIT);
+				assertTrue("stage " + s + ": register " + reg + " ("
+						+ SurfaceTable.builtinName(reg) + ") is readable but sits inside the"
+						+ " animator block reserved at " + SurfaceTable.REG_ANIMATOR_BASE
+						+ ", and this stage is not the animator",
+						ownsTheAnimatorBlock || reg < SurfaceTable.REG_ANIMATOR_BASE
+								|| reg >= SurfaceTable.REG_ANIMATOR_LIMIT);
+				assertTrue("stage " + s + ": register " + reg + " is readable but has no name, so"
+						+ " diagnostics and the frozen table would disagree about what it is",
+						!SurfaceTable.builtinName(reg).startsWith("builtin"));
+			}
+			if (ownsTheAnimatorBlock) {
+				// The other side of the carve-out: the animator must actually USE the block it is
+				// exempted from, or the exemption is hiding an empty case. 20 = its own 9 property
+				// reads + nodeSeed + sinceAttach + the 9-id parent block.
+				assertEquals("the animator must read its own block, or this exemption is vacuous",
+						20, readableInBlock);
+			} else {
+				assertEquals("stage " + s + " must read nothing in the animator's block",
+						0, readableInBlock);
 			}
 		}
-		assertTrue("expected the stages to expose built-ins at all", readable.size() > 4);
-		for (Integer reg : readable) {
-			int r = reg.intValue();
-			assertTrue("register " + r + " (" + SurfaceTable.builtinName(r) + ") is readable but"
-					+ " sits inside the light block reserved at " + SurfaceTable.REG_LIGHT_BASE,
-					r < SurfaceTable.REG_LIGHT_BASE || r >= SurfaceTable.REG_LIGHT_LIMIT);
-			assertTrue("register " + r + " (" + SurfaceTable.builtinName(r) + ") is readable but"
-					+ " sits inside the animator block reserved at "
-					+ SurfaceTable.REG_ANIMATOR_BASE,
-					r < SurfaceTable.REG_ANIMATOR_BASE || r >= SurfaceTable.REG_ANIMATOR_LIMIT);
-			assertTrue("register " + r + " is readable but has no name, so diagnostics and the"
-					+ " frozen table would disagree about what it is",
-					!SurfaceTable.builtinName(r).startsWith("builtin"));
-		}
+		assertTrue("expected several known stages, saw " + checkedStages, checkedStages >= 6);
 	}
 
 	/**

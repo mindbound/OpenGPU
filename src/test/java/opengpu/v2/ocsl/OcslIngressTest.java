@@ -25,20 +25,50 @@ public strictfp class OcslIngressTest {
 	private static final int U0 = SurfaceTable.UNIFORM_BASE;
 	private static final int W = SurfaceTable.WORKING_BASE;
 
-	/** One uniform, splatted to vec4, written to COLOR. Every open stage requires COLOR vec4. */
+	/**
+	 * The property this stage's sweep program writes.
+	 *
+	 * SWITCHED ON THE STAGE, never probed by id, and the difference is not cosmetic: the property
+	 * namespaces are per-stage and they ALIAS. {@code PROP_COLOR} is 0 and so is the animator's
+	 * {@code x}, so "does this stage have property 0" answers yes for both and means nothing —
+	 * the same aliasing that made an earlier probe in OcslComposeTest pass for a stage it should
+	 * have failed for.
+	 */
+	private static int sweepProperty(byte stage) {
+		return stage == OcslWire.STAGE_ANIMATOR ? OcslWire.PROP_ANIM_X : OcslWire.PROP_COLOR;
+	}
+
+	/**
+	 * One uniform written to a property this stage actually owns.
+	 *
+	 * Was "splatted to vec4, written to COLOR. Every open stage requires COLOR vec4" — true until
+	 * the animator opened, which owns no COLOR and requires nothing. The width comes from the
+	 * property's own row, so a float property is written directly and a vector one is splatted.
+	 */
 	private static OcslVm oneUniformProgram(byte stage) throws Exception {
 		List<String> names = new ArrayList<String>();
 		names.add("u");
-		IrProgram p = new IrProgram(stage, new float[0][], Arrays.asList(
-				new IrOp(OcslWire.OP_SPLAT, W, U0, 4),
-				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), names, W + 1);
+		int property = sweepProperty(stage);
+		OcslType type = SurfaceTable.propertyType(stage, property);
+		List<IrOp> ops = new ArrayList<IrOp>();
+		if (type.width == 1) {
+			ops.add(new IrOp(OcslWire.OP_OUT, -1, property, U0));
+		} else {
+			ops.add(new IrOp(OcslWire.OP_SPLAT, W, U0, type.width));
+			ops.add(new IrOp(OcslWire.OP_OUT, -1, property, W));
+		}
+		IrProgram p = new IrProgram(stage, new float[0][], ops, names, W + 1);
 		return new OcslVm(IrValidator.validate(p));
 	}
 
 	private static float readColor(OcslVm vm) throws Exception {
+		return readOut(vm, OcslWire.STAGE_PIXEL_MATERIAL);
+	}
+
+	private static float readOut(OcslVm vm, byte stage) throws Exception {
 		vm.run();
 		float[] out = new float[4];
-		vm.output(OcslWire.PROP_COLOR, out);
+		vm.output(sweepProperty(stage), out);
 		return out[0];
 	}
 
@@ -108,18 +138,27 @@ public strictfp class OcslIngressTest {
 		// scope exactly while looking like a conformance vector.
 		assertTrue("fewer than three open stages makes 'every stage' vacuous", open.length >= 3);
 
+		// THE ANIMATOR IS IN THIS SWEEP NOW, which is what the tripwire deleted below was for. The
+		// stage list derives from isOpen, so it arrived on its own the moment the surface opened;
+		// what it needed was a program it could actually run, since its property table has no COLOR.
+		boolean sawAnimator = false;
 		for (int i = 0; i < open.length; i++) {
-			OcslVm vm = oneUniformProgram(open[i]);
+			byte stage = open[i];
+			sawAnimator |= stage == OcslWire.STAGE_ANIMATOR;
+			OcslVm vm = oneUniformProgram(stage);
 			vm.set(U0, Float.NaN);
-			assertEquals("stage " + open[i] + ": a NaN binding reads 0", 0.0f, readColor(vm), 0f);
+			assertEquals("stage " + stage + ": a NaN binding reads 0", 0.0f, readOut(vm, stage), 0f);
 
 			vm.set(U0, Float.POSITIVE_INFINITY);
-			assertEquals("stage " + open[i] + ": an Inf binding reads 0", 0.0f, readColor(vm), 0f);
+			assertEquals("stage " + stage + ": an Inf binding reads 0", 0.0f, readOut(vm, stage), 0f);
 
 			vm.set(U0, 7.5f);
-			assertEquals("stage " + open[i] + ": a finite binding is untouched", 7.5f,
-					readColor(vm), 0f);
+			assertEquals("stage " + stage + ": a finite binding is untouched", 7.5f,
+					readOut(vm, stage), 0f);
 		}
+		// The amendment asked for "the conformance vector at the animator surface" specifically, and
+		// a sweep that silently skipped it would still satisfy every assertion above.
+		assertTrue("the animator is open and must be in this sweep", sawAnimator);
 	}
 
 	@Test
@@ -318,19 +357,14 @@ public strictfp class OcslIngressTest {
 				Math.abs(viaSubstitution[2]) > 0.5f);
 	}
 
-	// ------------------------------------------------------------------ the obligation, enforced
-
-	@Test
-	public void openingTheAnimatorSurfaceOwesARunningIngressVector() throws Exception {
-		// The amendment asks for "the conformance vector at the animator surface". The vectors above
-		// run a PROGRAM at every open stage, and the animator is shut -- no builder, no validator, no
-		// decode -- so its ingress is pinned here only through compose(), which is the part of that
-		// surface that exists. This assertion fails the moment the surface opens, which is the only
-		// form of "come back and finish this" this project has found to hold.
-		assertTrue("The animator surface is now OPEN. Add STAGE_ANIMATOR to the sweep in"
-				+ " aNonFiniteBindingReadsZeroAtEveryOpenStageNotOnlyThePixelOnes (it derives its"
-				+ " stage list from isOpen, so it will pick the animator up by itself -- but its"
-				+ " program writes COLOR, which the animator has no property for) and then delete"
-				+ " this test.", !SurfaceTable.isOpen(OcslWire.STAGE_ANIMATOR));
-	}
+	// The obligation that stood here — "opening the animator surface owes a running ingress vector"
+	// — was DISCHARGED 2026-08-13 and the tripwire deleted, which is what it asked for. The debt is
+	// paid in aNonFiniteBindingReadsZeroAtEveryOpenStageNotOnlyThePixelOnes: the animator is in that
+	// sweep, running a real program through validate → VM, and the sweep asserts it was there rather
+	// than trusting the stage list. Worth recording that the tripwire's instruction was exactly
+	// right about the one thing that would break — the sweep's program wrote COLOR, which the
+	// animator has no property for — which is the argument for a failing assertion over a roadmap
+	// line: it fired at the moment the change made it wrong, and named the fix. (It was one day
+	// old when it fired. A first draft of this note said "a year", which sounded better and was
+	// invented; the tripwire was planted 2026-08-12 and discharged 2026-08-13.)
 }

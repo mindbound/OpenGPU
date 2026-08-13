@@ -77,15 +77,25 @@ public final class IrStructure {
 		// encode() emitted and decode() then refused -- "a non-canonical swizzle, a uniform named
 		// `my name`, a 1025-entry pool, A RESERVED STAGE". Every other item on that list was
 		// implemented here; this one was not, so `encode()` happily produced a 36-byte animator
-		// blob that no decoder would take back. Reserved-but-known is exactly the state the
-		// animator and compute surfaces are in: their ids are frozen so nothing else claims them,
-		// and no program on them may exist yet.
-		if (stage == OcslWire.STAGE_ANIMATOR || stage == OcslWire.STAGE_COMPUTE) {
-			throw new StructureException(-1, "Stage " + (stage & 0xFF) + " ("
-					+ (stage == OcslWire.STAGE_ANIMATOR ? "animator" : "compute")
-					+ ") is RESERVED: its register and property ids are frozen so nothing else"
-					+ " takes them, but no program on this surface may be built, encoded or run"
-					+ " yet. Opening it is a deliberate act, not a side effect");
+		// blob that no decoder would take back.
+		//
+		// THE ANIMATOR LEFT THIS LIST 2026-08-13 when the surface opened; compute remains. The list
+		// stays explicit rather than becoming `!SurfaceTable.isOpen(stage)`: vertex is also not
+		// open, and it is deliberately NOT refused here. It reaches `IrValidator`'s isOpen throw
+		// instead, which says the surface is shut and explicitly disclaims any inference about its
+		// property table. Refusing it here would call it RESERVED -- a claim about frozen ids that
+		// nothing has made for vertex -- so the two shut stages get different words because they are
+		// shut for different reasons.
+		//
+		// (An earlier version of this note said validate refuses vertex "on the missing property
+		// table". It does not, and the comment saying so is 70 lines from the one at
+		// IrValidator's throw recording that the missing-table wording "became false the day the
+		// animator's was published". A review caught it in the same increment that wrote it.)
+		if (stage == OcslWire.STAGE_COMPUTE) {
+			throw new StructureException(-1, "Stage " + (stage & 0xFF) + " (compute) is RESERVED:"
+					+ " its register and property ids are frozen so nothing else takes them, but no"
+					+ " program on this surface may be built, encoded or run yet. Opening it is a"
+					+ " deliberate act, not a side effect");
 		}
 	}
 

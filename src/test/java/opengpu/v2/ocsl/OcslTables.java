@@ -146,13 +146,15 @@ public final class OcslTables {
 		line(out, "[open] stage open composes");
 		line(out, "# Whether a program may be built, validated or run on this surface at all.");
 		line(out, "# SEPARATE from whether it mandates an output -- see [properties] required. The");
-		line(out, "# animator is the surface that distinguishes them: it mandates nothing and is");
-		line(out, "# shut, and its required set must stay empty even after it opens.");
+		line(out, "# animator is the surface that distinguishes them, and since 2026-08-13 it does so");
+		line(out, "# by EXAMPLE rather than by prediction: it is open AND mandates nothing, a pair the");
+		line(out, "# single coupled predicate could not represent. Its required set must stay empty.");
 		line(out, "# composes: whether output values compose over a server-set base. It gates the");
 		line(out, "# absolute output form -- OUT_ABS is refused where this is no, because a stage");
 		line(out, "# whose output IS the value has no base to replace and would gain a second");
-		line(out, "# spelling for one behaviour. Independent of `open`: the animator composes and");
-		line(out, "# is shut, which is why the two columns exist rather than one.");
+		line(out, "# spelling for one behaviour. Independent of `open` -- the animator composes and");
+		line(out, "# the pixel family does not, while both are open -- which is why the two columns");
+		line(out, "# exist rather than one.");
 		for (int s = 0; s < stages.length; s++) {
 			line(out, stageName(stages[s]) + " "
 					+ (SurfaceTable.isOpen(stages[s]) ? "yes" : "no") + " "
@@ -257,7 +259,7 @@ public final class OcslTables {
 		// ANIM-3. In the artifact because a second executor composing differently produces a
 		// different picture from the same blob -- the dry run measured the two candidate readings
 		// 17 logical units apart on a node with sx=1.5.
-		line(out, "[composition] property rule identity");
+		line(out, "[composition] property rule identity own-read reg");
 		line(out, "# How an animator's output combines with the server-set base WHEN THE PROGRAM");
 		line(out, "# USED THE RELATIVE FORM, `OUT`. The rule below is the DEFAULT, not the whole");
 		line(out, "# story: an `OUT_ABS` write (opcode 81, see [ops]) means disp=out for any");
@@ -269,6 +271,16 @@ public final class OcslTables {
 		line(out, "# x and y compose IN THE PARENT'S FRAME -- they are NOT rotated by the server");
 		line(out, "# transform. The base is narrowed to float32 BEFORE composing, so the result is a");
 		line(out, "# pure function of what the VM saw and two clients cannot disagree on it.");
+		line(out, "#");
+		line(out, "# own-read: ANIM-7's double-apply rule. `forfeited` means a program writing this");
+		line(out, "# property with the RELATIVE form may not read the register in the last column --");
+		line(out, "# that write already composes over it, so building on it applies the base twice,");
+		line(out, "# and the read is refused at validate. `kept` means the read stays legal, which");
+		line(out, "# is exactly the REPLACE properties: the base never enters an accepted result");
+		line(out, "# there, so doubling is arithmetically impossible. OUT_ABS may always read it.");
+		line(out, "# reg is the property's own raw read register, and it is NOT base+id: z and");
+		line(out, "# visible hold property ids with no register, so tz and sz sit two below where");
+		line(out, "# arithmetic would put them.");
 		for (int prop = 0; prop < 32; prop++) {
 			int rule = OcslCompose.ruleFor(prop);
 			if (rule < 0) {
@@ -281,7 +293,9 @@ public final class OcslTables {
 			String identity = rule == OcslCompose.RULE_ADD ? "0"
 					: rule == OcslCompose.RULE_MULTIPLY ? "1"
 							: rule == OcslCompose.RULE_QUATERNION ? "0,0,0,1" : "none";
-			line(out, name + " " + ruleName + " " + identity);
+			int reg = SurfaceTable.animatorReadRegister(prop);
+			String ownRead = rule == OcslCompose.RULE_REPLACE ? "kept" : "forfeited";
+			line(out, name + " " + ruleName + " " + identity + " " + ownRead + " " + reg);
 		}
 		line(out, "# `none` is not an omission: tint REPLACES, so no output leaves the base alone.");
 		line(out, "");
@@ -307,7 +321,8 @@ public final class OcslTables {
 		line(out, "# The set-call may reject-and-retain because the uniform table is REPLICATED and the");
 		line(out, "# retained value is then identical on every client. The executor may NOT: a frame is");
 		line(out, "# per-client, so a retained value there is binding history -- the cross-frame state");
-		line(out, "# ANIM-9(a) removed. No host-facing setUniform exists while the surface is shut, so");
+		line(out, "# ANIM-9(a) removed. No host-facing setUniform exists YET -- the surface is open at");
+		line(out, "# the IR level but nothing in the running mod creates or attaches a program, so");
 		line(out, "# that row is a stated gap rather than an omission.");
 		line(out, "");
 
@@ -508,16 +523,19 @@ public final class OcslTables {
 		line(out, "blob-envelope OcslWire MAGIC/FORMAT_VERSION/TRAILING_GUARD");
 		line(out, "uniform-binding-rule declaration order from uniformBase, all float in v1");
 		line(out, "numeric-domain golden-vectors.txt (frozen there, deliberately not duplicated)");
-		line(out, "isOpen-independence SurfaceTable -- see below, NOT behaviourally detectable");
 		line(out, "#");
-		line(out, "# That last one is an honest gap rather than an oversight. `isOpen` and");
-		line(out, "# `requiredProperties(s).length != 0` return the same answer for all 256 stage");
-		line(out, "# bytes TODAY, so re-deriving one from the other is a source-level regression with");
-		line(out, "# no observable consequence -- no test and no frozen byte can catch it. It matters");
-		line(out, "# because the day the animator opens they diverge, and re-coupling them puts back");
-		line(out, "# the trap this split removed: clearing the validator gate by giving the animator");
-		line(out, "# a required property, which forces every animator program to own it (ANIM-2).");
-		line(out, "# If you are here to de-duplicate those two switches: don't.");
+		line(out, "# `isOpen-independence` WAS on this list and came off it on 2026-08-13, which is");
+		line(out, "# the one entry here that has ever been discharged rather than deferred. It read");
+		line(out, "# 'NOT behaviourally detectable': `isOpen` and `requiredProperties(s).length != 0`");
+		line(out, "# returned the same answer for all 256 stage bytes, so re-deriving one from the");
+		line(out, "# other was a source-level regression no test and no frozen byte could catch. The");
+		line(out, "# note said it mattered 'the day the animator opens', and that day came: the");
+		line(out, "# animator is open with an EMPTY required set, so the two predicates now disagree");
+		line(out, "# on stage 6 and the [open] column above is the frozen byte that shows it.");
+		line(out, "# Re-coupling them would put back the trap the split removed -- clearing the");
+		line(out, "# validator gate by giving the animator a required property, which forces every");
+		line(out, "# animator program to own it (ANIM-2) -- and it now fails a test instead of");
+		line(out, "# passing silently. If you are here to de-duplicate those two switches: don't.");
 	}
 
 	private static String kindName(int kind) {

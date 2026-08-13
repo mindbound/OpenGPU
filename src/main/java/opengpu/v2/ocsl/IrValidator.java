@@ -158,8 +158,11 @@ public final class IrValidator {
 			// requiredProperties as "reserved", and the message said "has no property table", which
 			// became false the day the animator's was published: it has one, in the frozen artifact,
 			// and is shut for entirely different reasons.
-			// The only stage that REACHES this throw is vertex: 6 and 7 are refused by name in
-			// IrStructure.check above, 0 and >=8 fail isKnownStage inside it, and 1-4 are open. A
+			// The only stage that REACHES this throw is still vertex, but the reason narrowed when
+			// the animator opened on 2026-08-13: 7 alone is now refused by name in IrStructure.check
+			// above, 0 and >=8 fail isKnownStage inside it, and 1-4 and 6 are open. Vertex reaches
+			// it by being shut with no reservation anywhere -- it is the one stage shut by ABSENCE,
+			// which is why this message must not call it reserved. A
 			// first draft branched the wording on whether the stage had a property table, to
 			// distinguish the animator -- a branch that could never execute, describing a message
 			// the validator had never emitted for the animator either before or after the change.
@@ -209,6 +212,18 @@ public final class IrValidator {
 		boolean[] written = new boolean[regCount];
 		List<Integer> writeOrder = new ArrayList<Integer>();
 		Map<Integer, Integer> outsByProperty = new LinkedHashMap<Integer, Integer>();
+		// ANIM-7's read rule, collected DURING the single pass and settled after it. Both halves
+		// have to be gathered before either can be judged: an OUT may follow the read it forbids,
+		// so checking at the read site would enforce the rule only for programs that happen to put
+		// their outputs first. A post-loop intersection is not a second traversal.
+		Map<Integer, Integer> relativeOuts = SurfaceTable.composesOutputs(stage)
+				? new LinkedHashMap<Integer, Integer>() : null;
+		// First op that reads each of the node's own property registers, [16, 25), or -1.
+		int[] ownReadAt = null;
+		if (relativeOuts != null) {
+			ownReadAt = new int[SurfaceTable.REG_ANIM_OWN_LIMIT - SurfaceTable.REG_ANIMATOR_BASE];
+			java.util.Arrays.fill(ownReadAt, -1);
+		}
 		int fetches = 0;
 		long unrollProduct = 1;
 		long multiplier = 1;
@@ -227,6 +242,28 @@ public final class IrValidator {
 
 			// Opcode, arity, dst presence, operand ranges, pool indices, swizzle canonical form,
 			// loop balance and ITOF's depth selector are all IrStructure's, checked above.
+
+			// Note every read of the node's own property registers as we go past. Done on the raw
+			// operands rather than inside readType because readType is reached from several call
+			// sites with different operand indices, and one of them is OUT's own value operand --
+			// `OUT x, anim.x`, the purest form of the defect, which a check hung off the arithmetic
+			// paths alone would walk straight past.
+			if (ownReadAt != null) {
+				for (int k = 0; k < shape.operandCount(); k++) {
+					if (shape.operandKinds[k] != OcslWire.KIND_VALUE) {
+						continue;
+					}
+					int operand = op.operand(k);
+					if ((operand & OcslWire.OPERAND_CONST_FLAG) != 0) {
+						continue;
+					}
+					int reg = operand & OcslWire.OPERAND_INDEX_MASK;
+					int slot = reg - SurfaceTable.REG_ANIMATOR_BASE;
+					if (slot >= 0 && slot < ownReadAt.length && ownReadAt[slot] < 0) {
+						ownReadAt[slot] = i;
+					}
+				}
+			}
 
 			if (op.opcode == OcslWire.OP_FOR) {
 				int trips = op.operand(0);
@@ -363,6 +400,9 @@ public final class IrValidator {
 					throw new ValidationException(i, "OUT inside a loop would write its property"
 							+ " once per iteration; one writer per property per frame");
 				}
+				if (relativeOuts != null && op.opcode == OcslWire.OP_OUT) {
+					relativeOuts.put(Integer.valueOf(property), Integer.valueOf(i));
+				}
 				Integer previous = outsByProperty.put(Integer.valueOf(property), Integer.valueOf(i));
 				if (previous != null) {
 					throw new ValidationException(i, "property "
@@ -374,6 +414,46 @@ public final class IrValidator {
 
 			if (shape.hasDst) {
 				assign(types, written, writeOrder, op.dst, result, i);
+			}
+		}
+
+		// ANIM-7: THE RELATIVE FORM FORFEITS THE READ OF ITS OWN PROPERTY.
+		//
+		// Relative composition already supplies the base, so `OUT x, ADD(anim.x, d)` displays
+		// base + base + d. The read is not merely redundant there, it is the defect -- and it
+		// cannot be told from the CORRECT absolute-seek idiom by any dependency analysis, because
+		// `OUT x, SUB(T, anim.x)` has the identical shape and is right. OUT_ABS is what separates
+		// them: it says "this value IS the displayed one", so it may read the base freely, and this
+		// rule applies only to the relative form.
+		//
+		// REPLACE properties are exempt because the arithmetic exempts them: `compose` returns the
+		// output and the base never enters the result, so tint cannot double-apply. Forbidding that
+		// read would cost the one idiom ANIM-21 needs (a tint animator that modulates the server
+		// colour instead of overwriting it) and buy nothing.
+		if (relativeOuts != null) {
+			for (Map.Entry<Integer, Integer> entry : relativeOuts.entrySet()) {
+				int property = entry.getKey().intValue();
+				if (OcslCompose.ruleFor(property) == OcslCompose.RULE_REPLACE) {
+					continue;
+				}
+				int reg = SurfaceTable.animatorReadRegister(property);
+				if (reg < 0) {
+					continue;
+				}
+				int readAt = ownReadAt[reg - SurfaceTable.REG_ANIMATOR_BASE];
+				if (readAt < 0) {
+					continue;
+				}
+				// The message names the FORM and the remedy, never "this stage has no such
+				// register" -- the stage has it, this program gave it up. That distinction is the
+				// false-refusal defect fixed in e5ea97c, one surface over.
+				throw new ValidationException(readAt, "reads `"
+						+ SurfaceTable.builtinName(reg) + "` (register " + reg + ") while writing `"
+						+ SurfaceTable.propertyName(stage, property) + "` with the relative OUT at"
+						+ " op " + entry.getValue() + "; that write already composes over this"
+						+ " value, so building on it applies the base twice. Write the property"
+						+ " with OUT_ABS if the output is an absolute value, which may read the"
+						+ " base, or drop the read if it is an offset");
 			}
 		}
 

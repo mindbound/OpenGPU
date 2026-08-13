@@ -199,16 +199,12 @@ public final class IrCodec {
 			if (!OcslWire.isKnownStage(stage)) {
 				throw new CodecException("Unknown program stage " + (stage & 0xFF));
 			}
-			if (stage == OcslWire.STAGE_ANIMATOR) {
-				// THE TRIPWIRE. Deliberately distinct from the unknown-stage rejection above: the
-				// animator stage id IS known and IS reserved, and its 18 pending amendments are
-				// the reason it cannot be accepted. Deleting this branch is the act that reopens
-				// the surface, which is why the pointer lives here rather than in a roadmap.
-				throw new CodecException("The OCSL animator stage is reserved and not yet"
-						+ " implemented: its dry run found 0 of 9 programs encodable and left 18"
-						+ " amendments pending, including the property table this decoder would"
-						+ " need. See docs/dev/OCSL-ANIMATOR-DRYRUN.md before enabling it.");
-			}
+			// THE ANIMATOR TRIPWIRE STOOD HERE and was removed 2026-08-13, the act that opened the
+			// surface. Two things about it are worth keeping, because both were nearly repeated:
+			// its message had gone stale independently of the gate -- it cited "the property table
+			// this decoder would need" long after that table shipped in `ac6c677` -- and the
+			// message was pinned BY CONTENT in IrCodecTest, so the gate and its test had to move
+			// together or the suite would have described a surface that no longer existed.
 			if (stage == OcslWire.STAGE_COMPUTE) {
 				throw new CodecException("The OCSL compute stage is reserved for after Stage D and"
 						+ " is not implemented; see docs/dev/DESIGN-RENDERER-V2.md § Future stage.");

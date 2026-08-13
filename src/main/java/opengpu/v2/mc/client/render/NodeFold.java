@@ -13,7 +13,11 @@ package opengpu.v2.mc.client.render;
  * already recorded what a clean play-test is worth on state-machine code.
  *
  * Extracted so ANIM-10's conformance vectors are real JVM tests today, with composed values supplied
- * by hand and no animator anywhere — the animator surface is shut and the vectors do not need it.
+ * by hand and no animator anywhere. That was originally because the animator surface was shut; the
+ * surface opened on 2026-08-13 and the vectors still supply values by hand, which is now a CHOICE
+ * rather than a constraint — the fold's arithmetic is what these pin, and feeding it from a running
+ * program would test the program instead. Nothing here consumes animator output yet in any case:
+ * that is the evaluation overlay, Phase 3.3.
  *
  * <h2>THE FOUR-TERM ORDER WAS NEVER FOUR FACTORS</h2>
  *

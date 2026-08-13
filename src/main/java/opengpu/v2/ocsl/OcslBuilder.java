@@ -773,6 +773,7 @@ public final class OcslBuilder {
 			throw new BuildException(tripStack.size() + " loop(s) left open");
 		}
 		checkFrameWidth();
+		checkRelativeWritesDoNotReadTheirOwnBase();
 		built = true;
 		IrProgram program = new IrProgram(stage, canonicalPool(), ops, uniformNames,
 				SurfaceTable.WORKING_BASE + registerTypes.size());
@@ -792,5 +793,59 @@ public final class OcslBuilder {
 					+ "; these must agree or the cap means two different things");
 		}
 		return program;
+	}
+
+	/**
+	 * ANIM-7's read rule, mirrored from {@link IrValidator} — and it has to be mirrored, not
+	 * delegated.
+	 *
+	 * {@code build()} attributes any validator refusal to "a defect in one of the two rather than in
+	 * this program", which is true of every rule the builder already enforces call-by-call and would
+	 * be a FALSE ACCUSATION here: an author writing {@code out(x, in_x.add(d))} has made an ordinary
+	 * mistake, and telling them the toolchain is broken sends them to read this file instead of
+	 * their program. The same reasoning is why the fetch cap is checked at the call site rather than
+	 * left to the validator.
+	 *
+	 * Checked at build rather than inside {@code out()} because a read may be emitted on either side
+	 * of the write — {@code builtin()} allocates no op, so the read materialises wherever the
+	 * expression consuming it does, which can be after the OUT.
+	 */
+	private void checkRelativeWritesDoNotReadTheirOwnBase() {
+		if (!SurfaceTable.composesOutputs(stage)) {
+			return;
+		}
+		for (int i = 0; i < ops.size(); i++) {
+			IrOp out = ops.get(i);
+			if (out.opcode != OcslWire.OP_OUT) {
+				continue;
+			}
+			int property = out.operand(0);
+			if (OcslCompose.ruleFor(property) == OcslCompose.RULE_REPLACE) {
+				continue;
+			}
+			int reg = SurfaceTable.animatorReadRegister(property);
+			if (reg < 0) {
+				continue;
+			}
+			for (int j = 0; j < ops.size(); j++) {
+				IrOp op = ops.get(j);
+				OcslWire.Shape shape = OcslWire.shapeOf(op.opcode);
+				for (int k = 0; k < shape.operandCount(); k++) {
+					if (shape.operandKinds[k] != OcslWire.KIND_VALUE) {
+						continue;
+					}
+					int operand = op.operand(k);
+					if ((operand & OcslWire.OPERAND_CONST_FLAG) == 0
+							&& (operand & OcslWire.OPERAND_INDEX_MASK) == reg) {
+						throw new BuildException("this program writes `"
+								+ SurfaceTable.propertyName(stage, property) + "` with out(), which"
+								+ " composes over the server-set base, and also reads `"
+								+ SurfaceTable.builtinName(reg) + "` — so the base would be applied"
+								+ " twice. Use outAbsolute() if the value is an absolute one, which"
+								+ " may read the base, or drop the read if it is an offset");
+					}
+				}
+			}
+		}
 	}
 }

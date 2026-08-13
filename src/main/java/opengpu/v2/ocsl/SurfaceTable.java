@@ -107,14 +107,20 @@ public final class SurfaceTable {
 	public static final int REG_LIGHT_BASE = 10;
 	public static final int REG_LIGHT_LIMIT = 16;
 	/**
-	 * The animator surface's input registers — ASSIGNED 2026-08-12 (ANIM-2), still UNREADABLE.
+	 * The animator surface's input registers — ASSIGNED 2026-08-12 (ANIM-2), READABLE since
+	 * 2026-08-13.
 	 *
-	 * The ids are frozen here and published in {@code surface-tables.txt}; nothing reads them,
-	 * because {@link #builtinType} returns null for {@code STAGE_ANIMATOR} and {@link IrCodec}
-	 * still refuses the stage by name. That split is deliberate and is exactly what ANIM-2 costs:
-	 * "a table; zero ops". The surface opens when the amendments that give these registers MEANING
-	 * land — composition (ANIM-3), time (ANIM-4), lifecycle (ANIM-15/17) — and opening it is a
-	 * behaviour change, not an id change, because the ids are settled now.
+	 * The ids were frozen here and published in {@code surface-tables.txt} a day before anything
+	 * could read them, which is exactly what ANIM-2 costs: "a table; zero ops". Opening the surface
+	 * was then a behaviour change rather than an id change, because the ids were already settled —
+	 * which was the whole argument for assigning them early.
+	 *
+	 * <b>This javadoc said "still UNREADABLE ... {@link #builtinType} returns null for
+	 * {@code STAGE_ANIMATOR} and {@link IrCodec} still refuses the stage by name" until a review
+	 * caught it.</b> Both clauses were falsified by edits in THIS SAME FILE — {@code builtinType}'s
+	 * animator arm is ~150 lines below — and neither the edit nor its tests touched this paragraph.
+	 * A note describing a gate that lives elsewhere goes stale silently; one describing the gate it
+	 * sits on cannot.
 	 *
 	 * Per ANIM-7 the readable value is the RAW server-set property, never the animator-composed one
 	 * (self-referential for an owned property) and never the interpolated display transform (that
@@ -276,6 +282,62 @@ public final class SurfaceTable {
 					case REG_OUTPUT_RESOLUTION: return OcslType.VEC2;
 					default: return null;
 				}
+			case OcslWire.STAGE_ANIMATOR:
+				// GATE EDIT 4 -- the one the isOpen note used to omit. Without it the surface opens
+				// onto a register set where every read is refused and only constant- and
+				// uniform-driven programs can be written.
+				//
+				// PERMISSIVE, per ANIM-7's decision. The double-apply mitigation is NOT a column
+				// here: it depends on which output form a program used and on which properties that
+				// program writes, and this is a pure function of (stage, reg) with no program to
+				// ask. The refusal lives in IrValidator; this table says only which registers the
+				// SURFACE carries.
+				//
+				// NOTE ON sinceAttach (26), against this file's own precedent that "a readable
+				// register must not advertise a value nothing can supply" -- the rule that kept
+				// timePeriod unreadable until P was published. The cases differ: P was an
+				// undecided VALUE, so the register would have promised a number nobody had chosen,
+				// while sinceAttach's rule is decided (ANIM-6: saturating, host-computed from the
+				// replicated attach stamp) and only its host fill is unwritten (Phase 3.3).
+				//
+				// BE PRECISE ABOUT WHO CAN REACH IT. "Nothing can reach it yet" is FALSE as of this
+				// commit: a program built in this package reads it today and gets 0.0, because
+				// nothing binds it. What nobody can do is reach it FROM THE GAME -- no callback
+				// creates a program and nothing attaches one -- so the register and its host fill
+				// become reachable to a player in the same step (Phase 3.1/3.3). Until then the 0.0
+				// is visible only to tests, which is the other half of the argument: OcslVm.set
+				// needs a frame slot and a frame slot needs a type here, so the first animator
+				// tests can bind it by hand.
+				switch (reg) {
+					case REG_TIME: return OcslType.FLOAT;
+					case REG_TIME_PERIOD: return OcslType.FLOAT;
+					// The node's own raw server-set properties, [16, 25).
+					case REG_ANIM_X: return OcslType.FLOAT;
+					case REG_ANIM_Y: return OcslType.FLOAT;
+					case REG_ANIM_SX: return OcslType.FLOAT;
+					case REG_ANIM_SY: return OcslType.FLOAT;
+					case REG_ANIM_ROT2D: return OcslType.FLOAT;
+					case REG_ANIM_ROT3D: return OcslType.VEC4;
+					case REG_ANIM_TINT: return OcslType.VEC4;
+					case REG_ANIM_TZ: return OcslType.FLOAT;
+					case REG_ANIM_SZ: return OcslType.FLOAT;
+					// Per-node, non-property.
+					case REG_ANIM_NODE_SEED: return OcslType.FLOAT;
+					case REG_ANIM_SINCE_ATTACH: return OcslType.FLOAT;
+					// The one-level parent block, [27, 36), same order as the node's own.
+					case REG_ANIM_PARENT_X: return OcslType.FLOAT;
+					case REG_ANIM_PARENT_Y: return OcslType.FLOAT;
+					case REG_ANIM_PARENT_SX: return OcslType.FLOAT;
+					case REG_ANIM_PARENT_SY: return OcslType.FLOAT;
+					case REG_ANIM_PARENT_ROT2D: return OcslType.FLOAT;
+					case REG_ANIM_PARENT_ROT3D: return OcslType.VEC4;
+					case REG_ANIM_PARENT_TINT: return OcslType.VEC4;
+					case REG_ANIM_PARENT_TZ: return OcslType.FLOAT;
+					case REG_ANIM_PARENT_SZ: return OcslType.FLOAT;
+					// 36..47 stay null: headroom with no names, and a readable id with no name fails
+					// OcslTablesTest -- diagnostics and the frozen table would disagree about it.
+					default: return null;
+				}
 			default:
 				return null;
 		}
@@ -362,6 +424,42 @@ public final class SurfaceTable {
 				return animatorPropertyType(propertyId);
 			default:
 				return null;
+		}
+	}
+
+	/**
+	 * The register carrying an animator property's own raw server-set value, or -1 if it has none.
+	 *
+	 * <b>Spelled out, because it is NOT {@code REG_ANIMATOR_BASE + propertyId} and the arithmetic
+	 * version is wrong in a way that would not throw.</b> {@code z} and {@code visible} hold
+	 * property ids 7 and 8 but own no registers — they are unownable in v1 — so the property ids
+	 * above them are offset by two: {@code tz} is property 9 at register 23, {@code sz} is property
+	 * 10 at register 24. Under {@code base + id} they would resolve to 25 and 26, which are
+	 * {@code nodeSeed} and {@code sinceAttach} — both live, readable registers of the wrong type's
+	 * neighbours. A rule keyed on that map would then forbid reading {@code nodeSeed} to a program
+	 * owning {@code tz}, silently and with a message naming the wrong register.
+	 *
+	 * This exact off-by-N in this exact block has already been caught once, while the ids were still
+	 * free: the first parent-block layout would have landed the parent's 8th and 9th values on the
+	 * node's own {@code tz}/{@code sz}. That one was caught by reading; this one is caught by a test
+	 * that asserts the wrong answer is not produced.
+	 *
+	 * Returns -1 rather than throwing: callers ask about arbitrary property ids from a decoded blob,
+	 * and "this property has no readable register" is an answer, not an error.
+	 */
+	public static int animatorReadRegister(int propertyId) {
+		switch (propertyId) {
+			case OcslWire.PROP_ANIM_X: return REG_ANIM_X;
+			case OcslWire.PROP_ANIM_Y: return REG_ANIM_Y;
+			case OcslWire.PROP_ANIM_SX: return REG_ANIM_SX;
+			case OcslWire.PROP_ANIM_SY: return REG_ANIM_SY;
+			case OcslWire.PROP_ANIM_ROT2D: return REG_ANIM_ROT2D;
+			case OcslWire.PROP_ANIM_ROT3D: return REG_ANIM_ROT3D;
+			case OcslWire.PROP_ANIM_TINT: return REG_ANIM_TINT;
+			case OcslWire.PROP_ANIM_TZ: return REG_ANIM_TZ;
+			case OcslWire.PROP_ANIM_SZ: return REG_ANIM_SZ;
+			// z and visible: ids held, no register, and that gap is what breaks the arithmetic.
+			default: return -1;
 		}
 	}
 
@@ -459,22 +557,45 @@ public final class SurfaceTable {
 	 * gate the obvious way — by making {@code requiredProperties} return a property — which forces
 	 * every animator program to own that property, directly against ANIM-2. It was written down as
 	 * a javadoc warning first, which is the one form this project has repeatedly found does not
-	 * hold; separating the predicates while the surface is still shut costs nothing and converts the
-	 * warning into a fact.
+	 * hold; separating the predicates <i>before</i> the surface opened cost nothing and converted the
+	 * warning into a fact. It was done on 2026-08-12 and collected on 2026-08-13, when the surface
+	 * opened with an empty required set — which the coupled predicate could not have expressed.
 	 *
 	 * <b>What is true: nothing else being edited can open a surface by accident.</b> Deleting the
 	 * {@link IrStructure} tripwire outright still leaves {@code forStage} and {@code validate}
 	 * refusing.
 	 *
 	 * <b>What is NOT true, and a first draft of this note claimed it was: "opening a surface is
-	 * editing THIS list, nothing else needs to move".</b> Measured — adding {@code STAGE_ANIMATOR}
-	 * here and changing nothing else gives a {@code forStage} that hands back a live builder while
+	 * editing THIS list, nothing else needs to move".</b> Measured — adding a stage here and changing
+	 * nothing else gives a {@code forStage} that hands back a live builder while
 	 * {@link IrStructure}, {@code validate}, {@code encode} and {@code decode} all still refuse by
 	 * name. That is exactly the state {@link OcslBuilder#forStage}'s early gate exists to prevent:
 	 * the author writes a whole program and discovers at {@code build()} that none of it could go
-	 * anywhere. <b>Opening the animator takes three edits</b> — this list,
-	 * {@code IrStructure.checkStage}, and {@code IrCodec.decode} — and a note that undercounts them
-	 * is worse than no note, because it reads as a checklist.
+	 * anywhere.
+	 *
+	 * <b>Opening the animator took FOUR edits, and the sentence here said three</b> — this list,
+	 * {@code IrStructure.checkStage}, {@code IrCodec.decode}, and <b>{@link #builtinType}</b>, which
+	 * the count omitted. Without the fourth the surface opens onto a register set where every read
+	 * is refused: the ids stay assigned-but-unreadable and no program can read {@code time}, its own
+	 * base, {@code nodeSeed}, {@code sinceAttach} or the parent block, so the stage accepts only
+	 * constant- and uniform-driven programs. A note that undercounts is worse than no note, because
+	 * it reads as a checklist — which is what this one was used as, and it was short by one.
+	 *
+	 * <b>The count is per-stage, and it is NOT four for the next one.</b> It is one edit per gate
+	 * that names the stage, and the two shut stages are named in different numbers of places:
+	 * <ul>
+	 * <li><b>compute — four</b>, the same as the animator: it is refused by name in
+	 *     {@code IrStructure.checkStage} and {@code IrCodec.decode} as well as being absent here
+	 *     and from {@link #builtinType}.</li>
+	 * <li><b>vertex — two</b>: this list and {@link #builtinType}. It has no arm in
+	 *     {@code IrStructure} or {@code IrCodec} at all ({@code STAGE_VERTEX} appears nowhere in
+	 *     this package outside {@code OcslWire}), so it is shut by <i>absence</i> and reaches
+	 *     {@code IrValidator}'s isOpen throw rather than a reserved-stage refusal.</li>
+	 * </ul>
+	 * Plus, either way, whatever the stage needs that the animator did not: a property table if it
+	 * mandates an output, and a {@link #composesOutputs} answer if its outputs compose over
+	 * anything. <b>Count the sites, do not reuse this number</b> — reusing it is how the sentence
+	 * above came to say three.
 	 */
 	public static boolean isOpen(byte stage) {
 		switch (stage) {
@@ -482,10 +603,15 @@ public final class SurfaceTable {
 			case OcslWire.STAGE_PIXEL_EFFECT:
 			case OcslWire.STAGE_PIXEL_POST:
 			case OcslWire.STAGE_BAKE:
+			// OPENED 2026-08-13. Its ids and composition were frozen first (ANIM-2/3/6/7/16), and
+			// the last decision it was waiting on -- ANIM-7's double-apply mitigation -- is made:
+			// the absolute output form carries absolute intent and the relative form forfeits the
+			// read of its own property. It mandates NO output, which is why isOpen and
+			// requiredProperties had to become separate predicates before this line could be added.
+			case OcslWire.STAGE_ANIMATOR:
 				return true;
-			// vertex   -- Stage C, no property table yet, refused by no tripwire.
-			// animator -- ids and composition frozen (ANIM-2/3/6/7/16), semantics still open.
-			// compute  -- post-Stage-D.
+			// vertex  -- Stage C, no property table yet, refused by no tripwire.
+			// compute -- post-Stage-D.
 			default:
 				return false;
 		}

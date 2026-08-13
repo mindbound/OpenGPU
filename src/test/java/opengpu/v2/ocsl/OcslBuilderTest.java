@@ -90,6 +90,52 @@ public class OcslBuilderTest {
 	}
 
 	@Test
+	public void theBuilderRefusesARelativeWriteThatReadsItsOwnBase() throws Exception {
+		// ANIM-7, mirrored from IrValidator. It has to be mirrored rather than delegated: build()
+		// attributes a validator refusal to "a defect in one of the two rather than in this
+		// program", which would tell an author with an ordinary mistake that the toolchain is
+		// broken and send them to read the compiler instead of their program.
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		b.out(OcslWire.PROP_ANIM_X, b.builtin(SurfaceTable.REG_ANIM_X).add(b.f(5.0f)));
+		try {
+			b.build();
+			fail("a relative write that reads its own base applies the base twice");
+		} catch (OcslBuilder.BuildException e) {
+			assertTrue("the builder must own this refusal, not attribute it to the validator: "
+					+ e.getMessage(), !e.getMessage().contains("defect in one of the two"));
+			assertTrue("and must name the remedy: " + e.getMessage(),
+					e.getMessage().contains("outAbsolute"));
+		}
+	}
+
+	@Test
+	public void theBuilderAcceptsTheAbsoluteFormReadingTheSameBase() throws Exception {
+		// The other side, and the reason the rule is about the FORM: this is snap-to-grid /
+		// ease-to-target, the idiom OUT_ABS exists to make expressible. A builder that refused it
+		// would leave absolute positioning with no spelling at all.
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		b.outAbsolute(OcslWire.PROP_ANIM_X, b.builtin(SurfaceTable.REG_ANIM_X).add(b.f(5.0f)));
+		IrProgram p = b.build();
+		assertEquals(OcslWire.OP_OUT_ABS, p.ops().get(p.ops().size() - 1).opcode);
+
+		// And reading a property it does not write stays legal in the relative form too.
+		OcslBuilder c = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		c.out(OcslWire.PROP_ANIM_ROT2D, c.builtin(SurfaceTable.REG_ANIM_X).mul(c.f(0.01f)));
+		c.build();
+
+		// TINT, THE REPLACE EXEMPTION — and it needs its own vector on THIS side, not only in the
+		// validator's copy. A review deleted the builder's REPLACE arm and the whole suite stayed
+		// green: every tint test lives in the validator, compose and ingress classes, and none of
+		// them goes through the builder. Since the builder is the only authoring path, losing that
+		// arm would refuse every tint animator ever written with a message telling the author to
+		// use outAbsolute() — which does not mean the same thing, because absolute would discard
+		// the server colour that this idiom exists to modulate (ANIM-21).
+		OcslBuilder t = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		t.out(OcslWire.PROP_ANIM_TINT, t.builtin(SurfaceTable.REG_ANIM_TINT).mul(t.f(0.5f)));
+		t.build();
+	}
+
+	@Test
 	public void plasmaAuthoredThroughTheBuilderChargesItsCommittedCount() throws Exception {
 		OcslBuilder b = plasma();
 		IrProgram p = b.build();
@@ -673,16 +719,22 @@ public class OcslBuilderTest {
 	}
 
 	@Test
-	public void theReservedAnimatorStageIsRefusedAtTheFirstCall() {
+	public void aShutStageIsRefusedAtTheFirstCallAndAnOpenOneIsNot() {
+		// THE ANIMATOR SIDE INVERTED 2026-08-13: it opened, so `forStage` must hand back a builder.
+		// This test's subject was never the animator specifically — it is that the gate fires at the
+		// FIRST call rather than at build(), so an author does not write a whole program before
+		// learning the surface will not take it. Compute carries that now.
+		OcslBuilder animator = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		assertTrue("an open surface hands back a usable builder", animator != null);
+
 		try {
-			OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
-			fail("the animator surface is deferred behind a tripwire");
+			OcslBuilder.forStage(OcslWire.STAGE_COMPUTE);
+			fail("compute is deferred behind a tripwire");
 		} catch (OcslBuilder.BuildException e) {
 			// Was `contains("reserved")`, which came from a message reading "has no property
 			// table... it is reserved". That message became FALSE the day the animator's property
 			// table was published, and the gate now asks SurfaceTable.isOpen instead of inferring
-			// reservation from an empty required-properties set. What this test is for is that the
-			// surface is shut at the FIRST call, which is unchanged.
+			// reservation from an empty required-properties set.
 			assertTrue(e.getMessage(), e.getMessage().contains("not open"));
 		}
 	}

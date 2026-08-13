@@ -128,6 +128,171 @@ public class IrValidatorTest {
 		expectReject(onlyPropertyWrong, "has no property 99");
 	}
 
+	// ------------------------------------------------- ANIM-7: the relative form forfeits the read
+
+	/** OUT x, ADD(anim.x, k) — the defect itself. */
+	private static IrProgram relativeSelfRead(int property, int reg) {
+		return prog(OcslWire.STAGE_ANIMATOR, new float[] { 0.5f }, W + 1,
+				new IrOp(OcslWire.OP_ADD, W, reg, k(0)),
+				new IrOp(OcslWire.OP_OUT, -1, property, W));
+	}
+
+	@Test
+	public void aRelativeWriteMayNotReadItsOwnBase() throws Exception {
+		expectReject(relativeSelfRead(OcslWire.PROP_ANIM_X, SurfaceTable.REG_ANIM_X), "twice");
+		// Every relatively-composed property, not just the one that is easy to think about. sx is
+		// the probe ANIM-3 uses for the same reason: its identity is 1, not 0.
+		expectReject(relativeSelfRead(OcslWire.PROP_ANIM_SX, SurfaceTable.REG_ANIM_SX), "twice");
+		expectReject(relativeSelfRead(OcslWire.PROP_ANIM_ROT2D, SurfaceTable.REG_ANIM_ROT2D),
+				"twice");
+
+		// tz is property 9 at register 23 -- the pair the naive `base + id` map gets wrong.
+		expectReject(relativeSelfRead(OcslWire.PROP_ANIM_TZ, SurfaceTable.REG_ANIM_TZ), "twice");
+
+		// And the message names the form and the remedy rather than claiming the stage lacks the
+		// register, which it has. e5ea97c is the precedent for a refusal that asserted something
+		// false about the table.
+		try {
+			IrValidator.validate(relativeSelfRead(OcslWire.PROP_ANIM_X, SurfaceTable.REG_ANIM_X));
+			fail("unreachable");
+		} catch (ValidationException e) {
+			String m = e.getMessage();
+			assertTrue("names the remedy: " + m, m.contains("OUT_ABS"));
+			assertTrue("must not claim the surface lacks the register: " + m,
+					!m.contains("does not have") && !m.contains("has no built-in"));
+		}
+	}
+
+	@Test
+	public void theReadRuleIsAboutTheFormAndTheProperty_notAboutReadingAtAll() throws Exception {
+		// THE FOUR EXEMPTIONS, each of which a blunter rule would break.
+
+		// 1. OUT_ABS may read its own base -- this is the idiom the opcode exists for. Snap-to-grid,
+		//    clamp-to-bounds and ease-to-target all have this shape and are all correct.
+		IrValidator.validate(prog(OcslWire.STAGE_ANIMATOR, new float[] { 0.5f }, W + 1,
+				new IrOp(OcslWire.OP_ADD, W, SurfaceTable.REG_ANIM_X, k(0)),
+				new IrOp(OcslWire.OP_OUT_ABS, -1, OcslWire.PROP_ANIM_X, W)));
+
+		// 2. Reading a property this program does NOT write is nothing to do with the rule: tilt in
+		//    proportion to how far right I am.
+		IrValidator.validate(prog(OcslWire.STAGE_ANIMATOR, new float[] { 0.01f }, W + 1,
+				new IrOp(OcslWire.OP_MUL, W, SurfaceTable.REG_ANIM_X, k(0)),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_ANIM_ROT2D, W)));
+
+		// 3. tint REPLACES, so the base never enters the result and doubling is impossible. This is
+		//    the read ANIM-21's lint requires a tint animator to perform.
+		IrValidator.validate(prog(OcslWire.STAGE_ANIMATOR, new float[] { 0.5f }, W + 1,
+				new IrOp(OcslWire.OP_MUL, W, SurfaceTable.REG_ANIM_TINT, k(0)),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_ANIM_TINT, W)));
+
+		// 4. The PARENT's copy of the same property is a different register and a different node;
+		//    no OUT can name a parent property, so the rule structurally cannot apply to it.
+		//
+		//    THIS ONE IS A BOUNDARY PIN, NOT AN EXEMPTION, and saying so is the honest version: no
+		//    production line exempts the parent block. It falls outside the window the validator
+		//    collects reads over, [REG_ANIMATOR_BASE, REG_ANIM_OWN_LIMIT) = [16, 25), so the rule
+		//    cannot reach it however it is written. A review pointed out that asserting this alone
+		//    is a tautology — nothing could make it fail — so it is paired below with the register
+		//    on the other side of the same edge.
+		IrValidator.validate(prog(OcslWire.STAGE_ANIMATOR, new float[] { 1.0f }, W + 1,
+				new IrOp(OcslWire.OP_ADD, W, SurfaceTable.REG_ANIM_PARENT_X, k(0)),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_ANIM_X, W)));
+	}
+
+	@Test
+	public void theOwnReadRegisterMapIsNotArithmetic() throws Exception {
+		// THE MAP IS THE BOUNDARY, so it gets pinned directly rather than only through the programs
+		// that consume it — and pinned with the WRONG answer asserted, because the wrong answer here
+		// is not a crash. `REG_ANIMATOR_BASE + propertyId` resolves for all nine properties and is
+		// silently wrong for two of them.
+		int[] props = { OcslWire.PROP_ANIM_X, OcslWire.PROP_ANIM_Y, OcslWire.PROP_ANIM_SX,
+				OcslWire.PROP_ANIM_SY, OcslWire.PROP_ANIM_ROT2D, OcslWire.PROP_ANIM_ROT3D,
+				OcslWire.PROP_ANIM_TINT, OcslWire.PROP_ANIM_TZ, OcslWire.PROP_ANIM_SZ };
+		int[] regs = { SurfaceTable.REG_ANIM_X, SurfaceTable.REG_ANIM_Y, SurfaceTable.REG_ANIM_SX,
+				SurfaceTable.REG_ANIM_SY, SurfaceTable.REG_ANIM_ROT2D, SurfaceTable.REG_ANIM_ROT3D,
+				SurfaceTable.REG_ANIM_TINT, SurfaceTable.REG_ANIM_TZ, SurfaceTable.REG_ANIM_SZ };
+		int divergences = 0;
+		for (int i = 0; i < props.length; i++) {
+			assertEquals("property " + props[i] + " reads its own value from register " + regs[i],
+					regs[i], SurfaceTable.animatorReadRegister(props[i]));
+			if (SurfaceTable.REG_ANIMATOR_BASE + props[i] != regs[i]) {
+				divergences++;
+			}
+		}
+		// tz (property 9 -> register 23) and sz (10 -> 24): z and visible hold ids with no
+		// registers, so everything above them is offset by two. If this ever reads 0 the arithmetic
+		// version has become correct and the assertions above stopped excluding anything.
+		assertEquals("exactly two properties diverge from base+id, and they are tz and sz",
+				2, divergences);
+		assertEquals(23, SurfaceTable.animatorReadRegister(OcslWire.PROP_ANIM_TZ));
+		assertEquals(24, SurfaceTable.animatorReadRegister(OcslWire.PROP_ANIM_SZ));
+		assertTrue("base+id would land tz on nodeSeed",
+				SurfaceTable.REG_ANIMATOR_BASE + OcslWire.PROP_ANIM_TZ
+						== SurfaceTable.REG_ANIM_NODE_SEED);
+		assertTrue("base+id would land sz on sinceAttach",
+				SurfaceTable.REG_ANIMATOR_BASE + OcslWire.PROP_ANIM_SZ
+						== SurfaceTable.REG_ANIM_SINCE_ATTACH);
+
+		// And the domain: everything unownable or unallocated has no read register at all.
+		assertEquals(-1, SurfaceTable.animatorReadRegister(OcslWire.PROP_ANIM_Z));
+		assertEquals(-1, SurfaceTable.animatorReadRegister(OcslWire.PROP_ANIM_VISIBLE));
+		assertEquals(-1, SurfaceTable.animatorReadRegister(60));
+		assertEquals(-1, SurfaceTable.animatorReadRegister(-1));
+	}
+
+	@Test
+	public void theReadWindowEndsExactlyAtTheNodesOwnBlock() throws Exception {
+		// The edge itself, from both sides, so widening or narrowing the window fails something.
+		// 24 (sz) is the last of the node's own property reads and 25 (nodeSeed) is the first
+		// register past them; the window is [16, 25).
+		assertEquals("the window's exclusive end", 25, SurfaceTable.REG_ANIM_OWN_LIMIT);
+
+		// INSIDE: sz is the highest own register, and owning sz relatively forfeits it.
+		expectReject(relativeSelfRead(OcslWire.PROP_ANIM_SZ, SurfaceTable.REG_ANIM_SZ), "twice");
+
+		// OUTSIDE, one register up: nodeSeed is not a property read at all, and no OUT can name it,
+		// so a program owning anything may read it.
+		//
+		// WHAT ACTUALLY PINS THIS EDGE is SurfaceTable.animatorReadRegister, NOT the width of the
+		// validator's collection window — a mutation sweep widening that window to the whole
+		// animator block SURVIVED, and an earlier version of this comment claimed it would fail.
+		// It cannot: the rule only ever looks the window up at a property's OWN register, which the
+		// map keeps inside [16, 25), so the extra slots are written and never read. The window is a
+		// locality choice; the map is the boundary, and theOwnReadRegisterMapIsNotArithmetic pins
+		// it directly.
+		IrValidator.validate(prog(OcslWire.STAGE_ANIMATOR, new float[] { 1.0f }, W + 1,
+				new IrOp(OcslWire.OP_MUL, W, SurfaceTable.REG_ANIM_NODE_SEED, k(0)),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_ANIM_SZ, W)));
+		IrValidator.validate(prog(OcslWire.STAGE_ANIMATOR, new float[] { 1.0f }, W + 1,
+				new IrOp(OcslWire.OP_MUL, W, SurfaceTable.REG_ANIM_SINCE_ATTACH, k(0)),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_ANIM_X, W)));
+	}
+
+	@Test
+	public void theReadIsFoundWhereverItSitsRelativeToTheWrite() throws Exception {
+		// The reason this is a post-loop check and not a check at the read site. Validate() makes
+		// ONE pass, so when a read is type-checked the OUT that forbids it may not have been seen.
+		// Both orders must refuse, or the rule holds only for programs that write last.
+		expectReject(prog(OcslWire.STAGE_ANIMATOR, new float[] { 0.5f }, W + 2,
+				new IrOp(OcslWire.OP_ADD, W, SurfaceTable.REG_ANIM_X, k(0)),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_ANIM_X, W)), "twice");
+
+		// Read AFTER the write: the OUT's value comes from a constant, and the read feeds a second,
+		// later property. The x-write is still relative and the x-read still happens.
+		expectReject(prog(OcslWire.STAGE_ANIMATOR, new float[] { 0.5f }, W + 2,
+				new IrOp(OcslWire.OP_ADD, W, k(0), k(0)),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_ANIM_X, W),
+				new IrOp(OcslWire.OP_MUL, W + 1, SurfaceTable.REG_ANIM_X, k(0)),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_ANIM_Y, W + 1)), "twice");
+
+		// THE OUT'S OWN OPERAND is a read too, and it is the purest form of the defect: a
+		// pass-through `OUT x, anim.x` displays 2*x_srv. A rule hung off the arithmetic ops alone
+		// would walk past it, since there is no arithmetic here at all.
+		expectReject(prog(OcslWire.STAGE_ANIMATOR, new float[] { 0.5f }, W + 1,
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_ANIM_X, SurfaceTable.REG_ANIM_X)),
+				"twice");
+	}
+
 	@Test
 	public void exactlyOneKnownStageComposesItsOutputsOverAServerBase() throws Exception {
 		// composesOutputs is what OUT_ABS is gated on, so it needs its own pin: if it ever answered
@@ -855,11 +1020,48 @@ public class IrValidatorTest {
 		assertEquals("x", SurfaceTable.propertyName(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_X));
 		assertNotNull(SurfaceTable.propertyType(OcslWire.STAGE_ANIMATOR, OcslWire.PROP_ANIM_X));
 
-		// THE OBLIGATION, enforced. When the animator surface opens, the RESERVED branch below
-		// becomes reachable for z/visible and must get its own vector.
-		assertFalse("The animator surface is now OPEN. Write the vector asserting an OUT to z or"
-				+ " visible is refused by NAME, and delete this assertion.",
-				SurfaceTable.isOpen(OcslWire.STAGE_ANIMATOR));
+		// THE OBLIGATION, DISCHARGED 2026-08-13 — the surface opened, so the RESERVED branch is
+		// reachable and gets the vector the tripwire here demanded, below.
+	}
+
+	@Test
+	public void owningZOrVisibleIsRefusedByNameNowThatTheSurfaceIsOpen() throws Exception {
+		// What the deleted tripwire asked for. ANIM-15(c) and SurfaceTable's javadoc promise these
+		// two are "refused ... with a documented error ... so the refusal can name them", and until
+		// the surface opened no program could reach the branch to prove it.
+		int[] reserved = { OcslWire.PROP_ANIM_Z, OcslWire.PROP_ANIM_VISIBLE };
+		String[] names = { "z", "visible" };
+		for (int i = 0; i < reserved.length; i++) {
+			IrProgram p = prog(OcslWire.STAGE_ANIMATOR, new float[] { 1.0f }, W + 1,
+					new IrOp(OcslWire.OP_OUT, -1, reserved[i], k(0)));
+			try {
+				IrValidator.validate(p);
+				fail(names[i] + " is not ownable in v1 and must be refused");
+			} catch (ValidationException e) {
+				String m = e.getMessage();
+				assertTrue("the refusal must NAME it, not interpolate the raw id: " + m,
+						m.contains(names[i]));
+				assertTrue("and must say why -- a reservation, not an absence: " + m,
+						m.contains("not ownable"));
+				// The discriminating half: an id with no allocation at all must NOT be dressed up
+				// as a reservation. This is the e5ea97c defect, at the stage that now reaches it.
+				assertTrue("it must not read as 'has no property', which is a different claim: " + m,
+						!m.contains("has no property"));
+			}
+		}
+
+		// The mirror: an unallocated animator property id gets the plain absence message, so the
+		// two branches are told apart by the code and not only by this test's expectations.
+		try {
+			IrValidator.validate(prog(OcslWire.STAGE_ANIMATOR, new float[] { 1.0f }, W + 1,
+					new IrOp(OcslWire.OP_OUT, -1, 60, k(0))));
+			fail("property 60 has no row at the animator stage");
+		} catch (ValidationException e) {
+			assertTrue("an unallocated id is absent, not reserved: " + e.getMessage(),
+					e.getMessage().contains("has no property 60"));
+			assertTrue("and must not claim a reservation nobody made: " + e.getMessage(),
+					!e.getMessage().contains("not ownable"));
+		}
 	}
 
 	@Test

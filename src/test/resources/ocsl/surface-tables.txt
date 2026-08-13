@@ -29,19 +29,21 @@
 [open] stage open composes
 # Whether a program may be built, validated or run on this surface at all.
 # SEPARATE from whether it mandates an output -- see [properties] required. The
-# animator is the surface that distinguishes them: it mandates nothing and is
-# shut, and its required set must stay empty even after it opens.
+# animator is the surface that distinguishes them, and since 2026-08-13 it does so
+# by EXAMPLE rather than by prediction: it is open AND mandates nothing, a pair the
+# single coupled predicate could not represent. Its required set must stay empty.
 # composes: whether output values compose over a server-set base. It gates the
 # absolute output form -- OUT_ABS is refused where this is no, because a stage
 # whose output IS the value has no base to replace and would gain a second
-# spelling for one behaviour. Independent of `open`: the animator composes and
-# is shut, which is why the two columns exist rather than one.
+# spelling for one behaviour. Independent of `open` -- the animator composes and
+# the pixel family does not, while both are open -- which is why the two columns
+# exist rather than one.
 material yes no
 effect yes no
 post yes no
 bake yes no
 vertex no no
-animator no yes
+animator yes yes
 compute no no
 
 [registers] id name material effect post bake vertex animator compute
@@ -52,12 +54,12 @@ compute no no
 0 uv vec2 vec2 vec2 vec2 - - -
 1 position vec2 vec2 - - - - -
 2 tint vec4 vec4 - - - - -
-3 time float float float - - - -
+3 time float float float - - float -
 4 inputTexelSize - vec2 vec2 - - - -
 5 resolution - - vec2 - - - -
 6 nodeSize - vec2 - - - - -
 7 outputResolution - - - vec2 - - -
-8 timePeriod float float float - - - -
+8 timePeriod float float float - - float -
 9 normal - - - - - - -
 10 builtin10 - - - - - - -
 11 builtin11 - - - - - - -
@@ -65,26 +67,26 @@ compute no no
 13 builtin13 - - - - - - -
 14 builtin14 - - - - - - -
 15 builtin15 - - - - - - -
-16 anim.x - - - - - - -
-17 anim.y - - - - - - -
-18 anim.sx - - - - - - -
-19 anim.sy - - - - - - -
-20 anim.rot2d - - - - - - -
-21 anim.rot3d - - - - - - -
-22 anim.tint - - - - - - -
-23 anim.tz - - - - - - -
-24 anim.sz - - - - - - -
-25 anim.nodeSeed - - - - - - -
-26 anim.sinceAttach - - - - - - -
-27 anim.parent.x - - - - - - -
-28 anim.parent.y - - - - - - -
-29 anim.parent.sx - - - - - - -
-30 anim.parent.sy - - - - - - -
-31 anim.parent.rot2d - - - - - - -
-32 anim.parent.rot3d - - - - - - -
-33 anim.parent.tint - - - - - - -
-34 anim.parent.tz - - - - - - -
-35 anim.parent.sz - - - - - - -
+16 anim.x - - - - - float -
+17 anim.y - - - - - float -
+18 anim.sx - - - - - float -
+19 anim.sy - - - - - float -
+20 anim.rot2d - - - - - float -
+21 anim.rot3d - - - - - vec4 -
+22 anim.tint - - - - - vec4 -
+23 anim.tz - - - - - float -
+24 anim.sz - - - - - float -
+25 anim.nodeSeed - - - - - float -
+26 anim.sinceAttach - - - - - float -
+27 anim.parent.x - - - - - float -
+28 anim.parent.y - - - - - float -
+29 anim.parent.sx - - - - - float -
+30 anim.parent.sy - - - - - float -
+31 anim.parent.rot2d - - - - - float -
+32 anim.parent.rot3d - - - - - vec4 -
+33 anim.parent.tint - - - - - vec4 -
+34 anim.parent.tz - - - - - float -
+35 anim.parent.sz - - - - - float -
 36 builtin36 - - - - - - -
 37 builtin37 - - - - - - -
 38 builtin38 - - - - - - -
@@ -133,7 +135,7 @@ clock render
 domain half-open-0-to-P
 producers 1
 
-[composition] property rule identity
+[composition] property rule identity own-read reg
 # How an animator's output combines with the server-set base WHEN THE PROGRAM
 # USED THE RELATIVE FORM, `OUT`. The rule below is the DEFAULT, not the whole
 # story: an `OUT_ABS` write (opcode 81, see [ops]) means disp=out for any
@@ -145,15 +147,25 @@ producers 1
 # x and y compose IN THE PARENT'S FRAME -- they are NOT rotated by the server
 # transform. The base is narrowed to float32 BEFORE composing, so the result is a
 # pure function of what the VM saw and two clients cannot disagree on it.
-x add 0
-y add 0
-sx mul 1
-sy mul 1
-rot2d add 0
-rot3d quat 0,0,0,1
-tint replace none
-tz add 0
-sz mul 1
+#
+# own-read: ANIM-7's double-apply rule. `forfeited` means a program writing this
+# property with the RELATIVE form may not read the register in the last column --
+# that write already composes over it, so building on it applies the base twice,
+# and the read is refused at validate. `kept` means the read stays legal, which
+# is exactly the REPLACE properties: the base never enters an accepted result
+# there, so doubling is arithmetically impossible. OUT_ABS may always read it.
+# reg is the property's own raw read register, and it is NOT base+id: z and
+# visible hold property ids with no register, so tz and sz sit two below where
+# arithmetic would put them.
+x add 0 forfeited 16
+y add 0 forfeited 17
+sx mul 1 forfeited 18
+sy mul 1 forfeited 19
+rot2d add 0 forfeited 20
+rot3d quat 0,0,0,1 forfeited 21
+tint replace none kept 22
+tz add 0 forfeited 23
+sz mul 1 forfeited 24
 # `none` is not an omission: tint REPLACES, so no output leaves the base alone.
 
 [ingress] site remedy
@@ -175,7 +187,8 @@ uniformSetCall not-implemented
 # The set-call may reject-and-retain because the uniform table is REPLICATED and the
 # retained value is then identical on every client. The executor may NOT: a frame is
 # per-client, so a retained value there is binding history -- the cross-frame state
-# ANIM-9(a) removed. No host-facing setUniform exists while the surface is shut, so
+# ANIM-9(a) removed. No host-facing setUniform exists YET -- the surface is open at
+# the IR level but nothing in the running mod creates or attaches a program, so
 # that row is a stated gap rather than an omission.
 
 [write-boundary] name value
@@ -340,13 +353,16 @@ decoder-caps OcslWire MAX_CONSTANTS/MAX_OPS/MAX_NAMES/MAX_BLOB_BYTES/etc
 blob-envelope OcslWire MAGIC/FORMAT_VERSION/TRAILING_GUARD
 uniform-binding-rule declaration order from uniformBase, all float in v1
 numeric-domain golden-vectors.txt (frozen there, deliberately not duplicated)
-isOpen-independence SurfaceTable -- see below, NOT behaviourally detectable
 #
-# That last one is an honest gap rather than an oversight. `isOpen` and
-# `requiredProperties(s).length != 0` return the same answer for all 256 stage
-# bytes TODAY, so re-deriving one from the other is a source-level regression with
-# no observable consequence -- no test and no frozen byte can catch it. It matters
-# because the day the animator opens they diverge, and re-coupling them puts back
-# the trap this split removed: clearing the validator gate by giving the animator
-# a required property, which forces every animator program to own it (ANIM-2).
-# If you are here to de-duplicate those two switches: don't.
+# `isOpen-independence` WAS on this list and came off it on 2026-08-13, which is
+# the one entry here that has ever been discharged rather than deferred. It read
+# 'NOT behaviourally detectable': `isOpen` and `requiredProperties(s).length != 0`
+# returned the same answer for all 256 stage bytes, so re-deriving one from the
+# other was a source-level regression no test and no frozen byte could catch. The
+# note said it mattered 'the day the animator opens', and that day came: the
+# animator is open with an EMPTY required set, so the two predicates now disagree
+# on stage 6 and the [open] column above is the frozen byte that shows it.
+# Re-coupling them would put back the trap the split removed -- clearing the
+# validator gate by giving the animator a required property, which forces every
+# animator program to own it (ANIM-2) -- and it now fails a test instead of
+# passing silently. If you are here to de-duplicate those two switches: don't.
