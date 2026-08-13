@@ -473,7 +473,18 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 			// would mean the dirty flag never reached markDirty. (Delivery and expiry
 			// themselves live in serverBeginTick, which is likewise not scene-gated.)
 			inputRouter.setWorldTime(worldObj != null ? worldObj.getTotalWorldTime() : 0L);
-			inputRouter.beginTick(tick);
+			// The resolution goes in because beginTick flushes coalesced moves, and a deferred
+			// emission has to be bounds-checked against the size that is live at EMIT time —
+			// same reason flushPending takes it below.
+			//
+			// The `scene == null` arm is DEFENSIVE, not routine: onInput returns early on a null
+			// scene, so route() cannot pend a move without one, and the only way to arrive here
+			// with a pending move and no scene is a teardown landing between the pend and this
+			// flush. 0, 0 rather than resolutionLocked()'s default-size fallback because that
+			// fallback would bounds-check against a size no scene has — pass a size nothing can
+			// be inside, and the pending move is dropped.
+			int[] moveRes = scene != null ? resolutionLocked() : new int[] { 0, 0 };
+			inputRouter.beginTick(tick, moveRes[0], moveRes[1]);
 			if (inputRouter.consumePersistenceDirty()) {
 				// Gesture state is persisted now, so a chunk that is never marked modified
 				// is never written: without this a press could fail to reach disk, and the

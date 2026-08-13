@@ -91,6 +91,16 @@ dependencies {
     // artifacts above, where the exclusion is load-bearing.
     runtimeOnly("com.github.GTNewHorizons:GTNHLib:0.11.24:dev")
     testImplementation("junit:junit:4.13.2")
+    // The OC API for TEST compilation. `compileOnly` deliberately does not extend to the test
+    // classpath in Gradle, so the first test to import li.cil.oc.api (InputRouterTest, mocking
+    // the Node interface via dynamic proxy) failed compileTestJava with "package does not
+    // exist" — and the failure was easy to misread as a green suite, because a compile failure
+    // leaves the PREVIOUS run's result XMLs in place. Runtime resolution needs nothing extra:
+    // testRuntimeClasspath inherits runtimeOnly, so the :dev artifact above already serves the
+    // interfaces to the proxy. Same exclusion, same reason as the main declaration.
+    testCompileOnly("com.github.GTNewHorizons:OpenComputers:1.12.55-GTNH:api") {
+        excludeDeps()
+    }
 }
 
 // ---------------------------------------------------------------------------

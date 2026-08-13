@@ -46,13 +46,83 @@ public final class InputRouter {
 	 * server-originated release lands where the gesture actually was, rather than at a
 	 * position a disqualified client got to choose.
 	 */
-	private static final class Pointer {
+	static final class Pointer {
 		final int id;
 		final int button;
 		/** The surface the DOWN was emitted from, by ADDRESS — never by Node reference. */
 		final String address;
 		int x;
 		int y;
+
+		/**
+		 * A move waiting for the tick flush — TRANSIENT, deliberately not persisted.
+		 *
+		 * Moves are COALESCED per gesture per tick rather than emitted per packet, because the
+		 * consumer measurably cannot keep up with per-packet emission. An uncoalesced drag emits
+		 * ~60 moves/s. The consumer's ceiling measured ~53 events/s: `event.pull` costs ~11 ms
+		 * per call on the OC side (it yields the machine even at a zero timeout), which would
+		 * allow ~90/s if pulling were all the program did, and pulls took ~60% of wall time in
+		 * the instrumented loop — 0.60 / 11 ms ≈ 53/s, which is also the loop rate that run
+		 * measured. Six in-game runs, see ingame/uidemo.lua; keep these figures in step with
+		 * that file, which is where they were measured. So the queue GROWS for the length of
+		 * every gesture — lag proportional to drag duration — and a backlog is unrecoverable
+		 * from Lua, because skipping a signal costs the same pull as handling it.
+		 *
+		 * READ THAT ~11 ms AS A LOADED-REGIME FIGURE, NOT A PROPERTY OF event.pull. The run
+		 * that confirmed this fix measured the same call at 1.0 ms with no backlog present
+		 * (uidemo run 7), an 11x difference. Part of that is the probe — uidemo times
+		 * event.pull(0) and deliberately leaves its idle event.pull(0.02) untimed, so the two
+		 * runs average different populations of call — but only part, and WHY a pull is dear
+		 * under backlog and cheap without one is NOT established. It does not need to be for
+		 * this design: the ceiling that bounds the emitter is the one that applies while the
+		 * queue is deep, which is the regime the ~53/s was measured in and the only regime
+		 * where the bound has to hold. Do not carry the 11 ms into an idle-path argument.
+		 *
+		 * OC's signal queue is 256 slots, and the two ways to fill it want separate arithmetic.
+		 * A program not listening for input at all drains none of it and overflows in 256/60 ≈
+		 * 4 s. That is the robust number and the nastier case, because the victim is a program
+		 * that never asked for a pointer: overflow drops KEY events for everything on the
+		 * machine. A program that IS draining overflows far more slowly — the net is 60 − 53 ≈
+		 * 7/s, so ~35 s — but treat that one as an order of magnitude rather than a figure: it
+		 * is the small difference of two measured rates that are themselves ±15%, and no
+		 * instrumented run actually observed the queue reach 256 while draining.
+		 *
+		 * So a move updates {@code x}/{@code y} (which route() already did) and parks the
+		 * emission references here; {@link InputRouter#flushCoalescedMoves} emits at most ONE
+		 * monitor_move per gesture per tick, carrying the NEWEST position.
+		 *
+		 * COST, stated honestly: this is not a delay, it is a DISCARD. Intermediate positions
+		 * between two flushes are overwritten and never emitted — at ~60 moves/s in and 20
+		 * ticks/s out, roughly two of every three moves never reach Lua at all. A program that
+		 * draws a stroke by joining consecutive monitor_move points therefore samples it at
+		 * 20 Hz, and a fast drag renders as a polygon with its corners cut. What is preserved is
+		 * the newest POSITION, which is what a drag, a hover, or a slider needs; what is lost is
+		 * the PATH between samples. Freehand drawing is the case that notices.
+		 *
+		 * BOUGHT: emission bounded at 20/s per gesture, comfortably under the consumer's
+		 * ceiling. Note the bound is per GESTURE, not per machine, and nothing bounds concurrent
+		 * gestures — activePointer is keyed per watcher AND per button, and several GPUs can
+		 * feed one machine's queue. Three simultaneous drags put 60/s back on the queue and the
+		 * original defect returns; two stay within budget. In practice that means several
+		 * PLAYERS dragging at once, not one player with several buttons: MC's GuiScreen reports
+		 * a single dragged button, so one player produces one move stream.
+		 *
+		 * The node and player references are held for AT MOST ONE TICK, only so the flush can
+		 * emit exactly what route() would have (same checked signal, same permission check).
+		 * They are dropped, not persisted: a pending move is meaningless across a save. MOST
+		 * stranding paths also remove this record from {@code activePointer} and take the
+		 * pending move with them — that is what orders a move against its own UP, see the UP
+		 * case. The exception is the screen's chunk unloading, which notifies the GPU of
+		 * nothing (flushScreen's javadoc documents the same hole); there the record survives
+		 * with its move pending, and what drops it is the dead-node guard in the flush rather
+		 * than any removal.
+		 */
+		// `moveNode != null` IS the pending-move flag. There was a separate boolean until a
+		// mutation sweep proved it equivalent: the flush nulls this reference after reading, so
+		// the flag tracked the nullness exactly, and a state that two fields must agree on is a
+		// desync waiting for the edit that updates one of them.
+		Node moveNode;
+		EntityPlayer movePlayer;
 
 		Pointer(int id, int button, String address, int x, int y) {
 			this.id = id;
@@ -90,17 +160,106 @@ public final class InputRouter {
 		}
 	}
 
-	private final Map<String, Pointer> activePointer = new HashMap<String, Pointer>();
+	// Package-private for InputRouterTest, on OcslDiagnostics.slot()'s precedent: the flush
+	// semantics are unit-testable (Pointer + the Node INTERFACE), while route() takes
+	// TileEntityScreen2 and a live EntityPlayer — MC concretes no unit test can construct —
+	// so the pend side stays field-verified like the rest of this class.
+	final Map<String, Pointer> activePointer = new HashMap<String, Pointer>();
 	private final Map<String, HeldKey> heldKeys = new HashMap<String, HeldKey>();
 	private final Map<String, Integer> eventsThisTick = new HashMap<String, Integer>();
 	private long currentTick = Long.MIN_VALUE;
 	private int nextPointerId = 1;
 
-	/** Called at the start of each pump so the per-tick allowance resets exactly once. */
-	public void beginTick(long tick) {
+	/**
+	 * Called at the start of each pump so the per-tick allowance resets exactly once — and,
+	 * since 2026-08-13, so coalesced moves flush exactly once per tick.
+	 *
+	 * This is deliberately NOT where the pending-RELEASE path emits, and the difference is worth
+	 * stating because the two look interchangeable. A release emits from serverBeginTick, at
+	 * {@code TickEvent.Phase.START}, because it must not be lost: a signal queued as the world
+	 * saves dies in OC's resume. A pending move is the opposite kind of object — transient,
+	 * superseded by the next move, and losable without harm (see {@link Pointer#moveNode} for
+	 * which paths drop one, and the single path that does not) — so it is placed for LATENCY
+	 * instead, and Phase.END is where the latency is. V2ServerRuntime runs
+	 * {@code drainInbound()} immediately before the serverPump loop in that same phase, so the
+	 * moves this flush emits were pended a few lines earlier in the SAME tick rather than
+	 * waiting for the next one.
+	 */
+	public void beginTick(long tick, int sceneWidth, int sceneHeight) {
 		if (tick != currentTick) {
 			currentTick = tick;
 			eventsThisTick.clear();
+			flushCoalescedMoves(sceneWidth, sceneHeight);
+		}
+	}
+
+	/**
+	 * Emit at most one monitor_move per live gesture, carrying its newest position.
+	 *
+	 * See {@link Pointer#moveNode} for why moves coalesce at all. Two drop rules, both
+	 * deliberate:
+	 * <ul>
+	 * <li>A gesture whose record left {@code activePointer} takes its pending move with it.
+	 *     For an UP that is the ORDERING guarantee — the release already emitted with the
+	 *     final coordinates, and a stale move emitted after it would run the gesture
+	 *     backwards. For a stranded gesture the synthesized release owns the ending the same
+	 *     way.</li>
+	 * <li>A node whose network is gone is dropped silently, because a signal into a dead node
+	 *     reaches nobody. Note what this does NOT promise: for a screen whose chunk unloaded,
+	 *     no release is synthesized in-session — that gesture is folded into NBT at the next
+	 *     save and released on reload. The break path is different again, and never reaches
+	 *     this branch at all: BlockScreen2 notifies before super.breakBlock, so flushScreen has
+	 *     already removed the Pointer by the time this runs.</li>
+	 * <li>A move that is out of bounds against the LIVE scene size is dropped, see below.</li>
+	 * </ul>
+	 *
+	 * @param sceneWidth  the scene's size AS OF NOW, not as of when the packet arrived. Callers
+	 *                    with no scene pass 0, 0 — a size nothing can be inside, so any move
+	 *                    pending across a teardown is dropped rather than measured against a
+	 *                    default size no scene has
+	 * @param sceneHeight see above
+	 */
+	void flushCoalescedMoves(int sceneWidth, int sceneHeight) {
+		for (Pointer p : activePointer.values()) {
+			if (p.moveNode == null) {
+				continue;
+			}
+			Node node = p.moveNode;
+			EntityPlayer player = p.movePlayer;
+			p.moveNode = null;
+			p.movePlayer = null;
+			if (node.network() == null) {
+				continue;
+			}
+			// Re-checked against the size that is live NOW, and deferring the emission is
+			// precisely what makes the two sizes able to differ: route() already documents that
+			// the server applies Lua's setResolution the instant it is called, from the machine
+			// thread, so a resize can land between the pend and this flush. route() DROPS an
+			// out-of-bounds move rather than clamping it (clamping is for releases, which must
+			// not be lost), so this drops one too — otherwise coalescing would emit the one
+			// thing route() guarantees it never emits, a monitor_move outside the current
+			// resolution. Reachable by a program that resizes while a player is mid-drag.
+			if (!inBounds(p.x, p.y, sceneWidth, sceneHeight)) {
+				continue;
+			}
+			// Guarded for the reason emitRelease states about its own identical send: this fans
+			// out through every third-party onMessage on the network, and an escaping throw here
+			// would reach V2ServerRuntime's Phase.END pump loop, which wraps te.serverPump in
+			// nothing — crashing the tick and skipping every GPU after this one. Per pointer, so
+			// one hostile consumer costs its own gesture's move and not the rest of the flush.
+			//
+			// NOT a claim that this file is now uniformly guarded: route()'s three emit sites
+			// are still bare, and onInput does not wrap route() either, so a monitor_down can
+			// still take the tick down. That is pre-existing and unchanged by this commit —
+			// recorded here rather than silently half-fixed.
+			try {
+				node.sendToReachable("computer.checked_signal", player, "monitor_move",
+						Integer.valueOf(p.x), Integer.valueOf(p.y),
+						Integer.valueOf(p.button), Integer.valueOf(p.id));
+			} catch (RuntimeException e) {
+				opengpu.OpenGPU.logger.warn("v2: coalesced monitor_move failed for gesture "
+						+ p.id, e);
+			}
 		}
 	}
 
@@ -759,7 +918,9 @@ public final class InputRouter {
 	/**
 	 * @param screen  the surface the input landed on, whose node sends the signal
 	 * @param player  the originating player, for OC's permission check
-	 * @return true when a signal was emitted
+	 * @return true when the input was ACCEPTED — for most kinds that means a signal was emitted
+	 *         now; for a pointer MOVE it means the position was recorded and the tick flush will
+	 *         emit at most one coalesced monitor_move for the gesture (see Pointer#moveNode)
 	 */
 	public boolean route(MessageCodec.Input input, String watcherKey, EntityPlayer player,
 			TileEntityScreen2 screen, int sceneWidth, int sceneHeight) {
@@ -890,13 +1051,25 @@ public final class InputRouter {
 					// last position the player actually reached rather than at the origin.
 					active.x = px;
 					active.y = py;
-					if (input.kind == MessageCodec.INPUT_POINTER_UP) {
-						activePointer.remove(slot);
-						persistenceDirty = true;
+					if (input.kind == MessageCodec.INPUT_POINTER_MOVE) {
+						// PENDED, not emitted — the tick flush sends at most one move per
+						// gesture, with whatever position is newest by then. See
+						// Pointer.moveNode for the measurements this rests on. The packet
+						// still charged the per-tick allowance above: coalescing bounds what
+						// LUA receives, and must not widen what a client may SEND.
+						active.moveNode = node;
+						active.movePlayer = player;
+						return true;
 					}
+					// UP: removing the record also discards any pending move, and that is
+					// the ordering guarantee — this release carries the final coordinates
+					// itself, and a stale move flushed after it would run the gesture
+					// backwards.
+					activePointer.remove(slot);
+					persistenceDirty = true;
 				}
 				String name = input.kind == MessageCodec.INPUT_POINTER_DOWN ? "monitor_down"
-						: input.kind == MessageCodec.INPUT_POINTER_MOVE ? "monitor_move" : "monitor_up";
+						: "monitor_up";
 				node.sendToReachable("computer.checked_signal", player, name,
 						Integer.valueOf(px), Integer.valueOf(py),
 						Integer.valueOf(input.c), Integer.valueOf(pointerId));
