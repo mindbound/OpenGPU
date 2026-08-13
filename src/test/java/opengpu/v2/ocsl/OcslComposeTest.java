@@ -1,5 +1,6 @@
 package opengpu.v2.ocsl;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -254,6 +255,184 @@ public strictfp class OcslComposeTest {
 			assertTrue("the refusal should name openness, not a missing table, got: "
 					+ e.getMessage(), e.getMessage().contains("not open"));
 		}
+	}
+
+	// ---------------------------------------------------- ANIM-7: the absolute output form
+
+	@Test
+	public void theAbsoluteFormReplacesTheBaseWhereTheRelativeFormAddsToIt() throws Exception {
+		// DESIGN's pinned example, both readings side by side. The relative reading IS the trap the
+		// decision exists to name: an author who reads their own x and adds to it emits 3.5 against
+		// a base of 3.0 and is drawn at 6.5.
+		assertEquals("relative composes over the base", 6.5f,
+				OcslCompose.compose(OcslWire.PROP_ANIM_X, 3.0, 3.5f, false), 0f);
+		float absolute = OcslCompose.compose(OcslWire.PROP_ANIM_X, 3.0, 3.5f, true);
+		assertEquals("absolute IS the displayed value", 3.5f, absolute, 0f);
+		assertTrue("6.5 is the relative answer and must not be reachable absolutely",
+				absolute != 6.5f);
+
+		// Pass-through, the purest statement of the defect: `OUT x, anim.x` displays 2*base.
+		assertEquals("relative pass-through doubles the base", 6.0f,
+				OcslCompose.compose(OcslWire.PROP_ANIM_X, 3.0, 3.0f, false), 0f);
+		assertEquals("absolute pass-through changes nothing", 3.0f,
+				OcslCompose.compose(OcslWire.PROP_ANIM_X, 3.0, 3.0f, true), 0f);
+
+		// The base is IRRELEVANT to an accepted absolute write, shown on a base LARGE BUT FINITE IN
+		// FLOAT32. The first version of this line used 1.0e300 and claimed a base "this hostile
+		// would derail any implementation that still touched it" -- backwards. 1.0e300 narrows to
+		// +Infinity, so OcslIngress.base substitutes the ADD identity 0.0f and the RELATIVE form
+		// returns add(0, 2.5) = 2.5 as well: at that base the two forms agree, and the assertion
+		// passed under the exact rule it was written to exclude. A hostile base is the one a
+		// relative implementation DISCARDS, so it is the least discriminating input available.
+		assertEquals(2.5f, OcslCompose.compose(OcslWire.PROP_ANIM_X, 1.0e30, 2.5f, true), 0f);
+		assertEquals("and the relative form is derailed by it, which is what makes the line bite",
+				1.0e30f, OcslCompose.compose(OcslWire.PROP_ANIM_X, 1.0e30, 2.5f, false), 0f);
+	}
+
+	@Test
+	public void theAbsoluteFormReplacesTheBaseWhereTheRelativeFormMultipliesByIt() throws Exception {
+		// Scale is the probe (ANIM-3), and under multiply the relative error is a FACTOR: the same
+		// output that means "1.65" absolutely means "+65% of a 1.5 base" relatively.
+		assertEquals("relative multiplies", 2.475f,
+				OcslCompose.compose(OcslWire.PROP_ANIM_SX, 1.5, 1.65f, false), 1e-6f);
+		float absolute = OcslCompose.compose(OcslWire.PROP_ANIM_SX, 1.5, 1.65f, true);
+		assertEquals("absolute IS the scale", 1.65f, absolute, 0f);
+		assertTrue("2.475 is the relative answer", Math.abs(absolute - 2.475f) > 1e-3f);
+
+		// sx_srv squared. The base is 1.5 and not 1.0 because the defect is INVISIBLE at the
+		// multiplicative identity, exactly as the additive one is invisible at 0.
+		assertEquals(2.25f, OcslCompose.compose(OcslWire.PROP_ANIM_SX, 1.5, 1.5f, false), 1e-6f);
+		assertEquals(1.5f, OcslCompose.compose(OcslWire.PROP_ANIM_SX, 1.5, 1.5f, true), 0f);
+	}
+
+	@Test
+	public void tintComposesIdenticallyInBothFormsBecauseItAlreadyReplaced() throws Exception {
+		// The one property the double-apply defect cannot reach: REPLACE means the base never
+		// enters an accepted result, so the two forms coincide. This is the arithmetic behind
+		// leaving anim.tint readable to a program that owns tint.
+		float relative = OcslCompose.compose(OcslWire.PROP_ANIM_TINT, 0.25, 0.75f, false);
+		float absolute = OcslCompose.compose(OcslWire.PROP_ANIM_TINT, 0.25, 0.75f, true);
+		assertEquals(0.75f, relative, 0f);
+		assertEquals("the two forms coincide for a REPLACE property", relative, absolute, 0f);
+		assertTrue("and neither is the base", absolute != 0.25f);
+	}
+
+	@Test
+	public void aRejectedAbsoluteWriteFallsBackToTheBaseAndNotToTheIdentity() throws Exception {
+		// The two forms AGREE on this answer, and the agreement is the design -- "falling back to
+		// the base IS composing with the identity". They reach it by different routes, though, and
+		// the wrong route is detectable: an absolute write that fell back through
+		// OcslWriteBoundary.accepted would display the IDENTITY, teleporting the node to x=0 or
+		// snapping it to unit scale on any frame with one bad output.
+		float x = OcslCompose.compose(OcslWire.PROP_ANIM_X, 3.0, Float.NaN, true);
+		assertEquals("a rejected absolute write displays the server base", 3.0f, x, 0f);
+		assertTrue("0 is the ADD identity, not the base", x != 0.0f);
+		assertEquals(3.0f, OcslCompose.compose(OcslWire.PROP_ANIM_X, 3.0, Float.NaN, false), 0f);
+
+		float sx = OcslCompose.compose(OcslWire.PROP_ANIM_SX, 1.5, Float.POSITIVE_INFINITY, true);
+		assertEquals(1.5f, sx, 0f);
+		assertTrue("1 is the MULTIPLY identity, not the base", sx != 1.0f);
+		assertEquals(1.5f,
+				OcslCompose.compose(OcslWire.PROP_ANIM_SX, 1.5, Float.POSITIVE_INFINITY, false), 0f);
+
+		// Both sides unusable: the base still goes through ingress, so the identity is what is left.
+		// That is the ingress rule doing its job, not a second fallback invented for this path.
+		assertEquals(0.0f, OcslCompose.compose(OcslWire.PROP_ANIM_X, Double.NaN, Float.NaN, true), 0f);
+		assertEquals(1.0f, OcslCompose.compose(OcslWire.PROP_ANIM_SX, Double.NaN, Float.NaN, true), 0f);
+	}
+
+	@Test
+	public void bothFormsRefuseTheSamePropertiesForTheSameReasons() throws Exception {
+		// The mirror check. Two adjacent switches only guard each other if a missing arm FAILS
+		// something -- one-sided fixes are this codebase's most-repeated defect.
+		for (int i = 0; i < 2; i++) {
+			boolean absolute = i == 1;
+			try {
+				OcslCompose.compose(OcslWire.PROP_ANIM_ROT3D, 0.0, 1.0f, absolute);
+				fail("rot3d is a vec4 and must not compose as a scalar (absolute=" + absolute + ")");
+			} catch (IllegalArgumentException expected) {
+				assertTrue(expected.getMessage(), expected.getMessage().contains("composeRot3d"));
+			}
+			try {
+				OcslCompose.compose(OcslWire.PROP_ANIM_Z, 0.0, 1.0f, absolute);
+				fail("z is not ownable in v1 (absolute=" + absolute + ")");
+			} catch (IllegalArgumentException expected) {
+				assertTrue(expected.getMessage(), expected.getMessage().contains("not composable"));
+			}
+		}
+	}
+
+	@Test
+	public void theAbsoluteQuaternionReplacesTheBaseAndIsStillNormalized() throws Exception {
+		final float A = (float) (Math.sqrt(2.0) / 2.0);
+		double[] server = { A, 0.0, 0.0, A };      // 90 degrees about x
+		float[] animator = { 0.0f, A, 0.0f, A };   // 90 degrees about y
+		float[] out = new float[4];
+
+		OcslCompose.composeRot3d(server, animator, out, false);
+		assertArrayEquals("the relative form is the Hamilton product",
+				new float[] { 0.5f, 0.5f, 0.5f, 0.5f }, out, 1e-6f);
+
+		OcslCompose.composeRot3d(server, animator, out, true);
+		assertArrayEquals("the absolute form is the animator's own rotation",
+				new float[] { 0.0f, A, 0.0f, A }, out, 1e-6f);
+		assertTrue("(0.5, 0.5, 0.5, 0.5) is the RELATIVE answer", Math.abs(out[0] - 0.5f) > 1e-3f);
+
+		// STILL NORMALIZED. That is a property of the runtime rather than of the Hamilton product,
+		// so it has to survive a form that performs no product at all: a non-unit quaternion would
+		// otherwise scale the node as a side effect of rotating it.
+		OcslCompose.composeRot3d(server, new float[] { 0.0f, 2.0f, 0.0f, 0.0f }, out, true);
+		assertArrayEquals(new float[] { 0.0f, 1.0f, 0.0f, 0.0f }, out, 1e-6f);
+	}
+
+	@Test
+	public void aRejectedAbsoluteQuaternionFallsBackToTheServerBase() throws Exception {
+		final float A = (float) (Math.sqrt(2.0) / 2.0);
+		double[] server = { A, 0.0, 0.0, A };
+		float[] out = new float[4];
+
+		OcslCompose.composeRot3d(server, new float[] { 0.0f, Float.NaN, 0.0f, 1.0f }, out, true);
+		assertArrayEquals("the base, not the identity",
+				new float[] { A, 0.0f, 0.0f, A }, out, 1e-6f);
+		assertTrue("(0,0,0,1) would silently unrotate a node the server had rotated",
+				out[0] != 0.0f);
+
+		// Both sides unusable -> the identity, the same two-step the scalar path takes.
+		OcslCompose.composeRot3d(new double[] { Double.NaN, 0.0, 0.0, 1.0 },
+				new float[] { 0.0f, Float.NaN, 0.0f, 1.0f }, out, true);
+		assertArrayEquals(new float[] { 0.0f, 0.0f, 0.0f, 1.0f }, out, 0f);
+	}
+
+	@Test
+	public void theAbsoluteBaseFallbackNarrowsToFloat32BeforeNormalizing() throws Exception {
+		// THE FROZEN RULE, and the absolute path had to be made to obey it: "The base is narrowed to
+		// float32 BEFORE composing, so the result is a pure function of what the VM saw and two
+		// clients cannot disagree on it" ([composition], surface-tables.txt). The relative path
+		// narrows each component on its way into the Hamilton product; the absolute fallback runs no
+		// product, so it has to narrow explicitly or the answer depends on bits float32 cannot hold.
+		//
+		// THE DISCRIMINATING INPUT is a base that UNDERFLOWS float32. 1e-50 is a perfectly finite
+		// double, so it passes the ingress check and reaches the normalizer -- where, as doubles, it
+		// normalizes to the unit quaternion (1,0,0,0), a 180-degree rotation. Narrowed first it is
+		// 0.0f, the norm is zero, and the degenerate guard returns the identity. Not a rounding
+		// difference: two clients would draw the node facing opposite ways.
+		assertEquals("the premise: this base underflows float32", 0.0f, (float) 1.0e-50, 0f);
+
+		float[] rejected = { 0.0f, Float.NaN, 0.0f, 1.0f };
+		float[] out = new float[4];
+		OcslCompose.composeRot3d(new double[] { 1.0e-50, 0.0, 0.0, 0.0 }, rejected, out, true);
+		assertArrayEquals("a base that vanishes under narrowing is degenerate, so: the identity",
+				new float[] { 0.0f, 0.0f, 0.0f, 1.0f }, out, 0f);
+		assertTrue("(1,0,0,0) is what normalizing the RAW doubles produces -- a 180-degree flip",
+				out[0] != 1.0f);
+
+		// And the two forms must agree on it, which is the cross-client property stated as a
+		// same-process one: the relative path narrows, so it already answers this way.
+		float[] relative = new float[4];
+		OcslCompose.composeRot3d(new double[] { 1.0e-50, 0.0, 0.0, 0.0 },
+				new float[] { 0.0f, 0.0f, 0.0f, 1.0f }, relative, false);
+		assertArrayEquals("the two paths must not disagree about the same base",
+				relative, out, 0f);
 	}
 
 	private static float length(float[] q) {

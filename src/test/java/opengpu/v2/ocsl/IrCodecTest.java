@@ -34,6 +34,33 @@ public class IrCodecTest {
 				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, 0));
 	}
 
+	@Test
+	public void theAbsoluteOutputFormRoundTripsAndCarriesOutsShape() throws Exception {
+		// ANIM-7's opcode, added while FORMAT_VERSION is 0 and no blob exists. IrCodec has no
+		// OP_OUT reference at all and dispatches through shapeOf, so "does it round-trip" is really
+		// "is the shape row registered" -- and a missing shape() call is the failure that would
+		// otherwise surface much later as a decoder refusing its own encoder's output.
+		OcslWire.Shape out = OcslWire.shapeOf(OcslWire.OP_OUT);
+		OcslWire.Shape abs = OcslWire.shapeOf(OcslWire.OP_OUT_ABS);
+		assertNotNull("OP_OUT_ABS without a shape decodes as an unknown opcode", abs);
+		assertEquals("OUT_ABS", abs.name);
+		assertEquals("the forms carry identical operands", out.operandCount(), abs.operandCount());
+		assertTrue("neither form writes a register", out.hasDst == abs.hasDst);
+		assertEquals("and they cost the same", out.structuralCharge, abs.structuralCharge);
+
+		IrProgram p = program(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 2.0f, 3.0f }, 1,
+				new IrOp(OcslWire.OP_MUL, 0, OcslWire.OPERAND_CONST_FLAG,
+						OcslWire.OPERAND_CONST_FLAG | 1),
+				new IrOp(OcslWire.OP_OUT_ABS, -1, OcslWire.PROP_COLOR, 0));
+		IrProgram back = dec(enc(p));
+		// The FORM has to survive, not merely the program: a codec that collapsed the distinction
+		// would hand back OP_OUT and every absolute program would then compose relatively --
+		// silently, and exactly once per frame per node.
+		assertEquals(OcslWire.OP_OUT_ABS, back.ops().get(1).opcode);
+		assertTrue("the form must not decay to OP_OUT", back.ops().get(1).opcode != OcslWire.OP_OUT);
+		assertEquals(OcslWire.PROP_COLOR, back.ops().get(1).operand(0));
+	}
+
 	private static byte[] enc(IrProgram p) throws Exception {
 		return IrCodec.encode(p);
 	}
@@ -91,8 +118,22 @@ public class IrCodecTest {
 		// Any opcode the shape table knows must survive encode/decode with its declared arity.
 		// This is what stops a new op being added to the table with an arity the codec cannot
 		// carry -- the failure would otherwise surface only when someone first emitted one.
+		//
+		// SCANNED, not bounded by a literal. This read `i <= 80`, the ceiling on the day it was
+		// written, so OP_OUT_ABS at 81 was exempt from the one general round-trip guard the codec
+		// has -- and the guard below could not notice, because it compared against a hardcoded 40
+		// while 48 shapes are registered, leaving room for eight opcodes to vanish from the walk
+		// under a message that says "the whole table". Proven by mutation: collapsing OP_OUT_ABS to
+		// OP_OUT inside IrCodec.decode left this test GREEN and was caught only by the one test
+		// written for that opcode specifically.
+		int registered = 0;
+		for (int i = 0; i <= 255; i++) {
+			if (OcslWire.shapeOf((byte) i) != null) {
+				registered++;
+			}
+		}
 		int checked = 0;
-		for (int i = 0; i <= 80; i++) {
+		for (int i = 0; i <= 255; i++) {
 			OcslWire.Shape shape = OcslWire.shapeOf((byte) i);
 			if (shape == null) {
 				continue;
@@ -125,7 +166,10 @@ public class IrCodecTest {
 			assertEquals(shape.name + " did not round-trip", p.ops(), back.ops());
 			checked++;
 		}
-		assertTrue("expected to exercise the whole table, saw " + checked, checked >= 40);
+		// EVERY registered shape, not "most of them". A floor admits skips; equality against the
+		// table's own size fires if a later edit adds a `continue` for an awkward op.
+		assertTrue("expected the wire to register shapes at all, saw " + registered, registered > 20);
+		assertEquals("every registered shape must round-trip, not merely most", registered, checked);
 	}
 
 	@Test

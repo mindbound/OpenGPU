@@ -26,18 +26,23 @@
 # The stage byte a blob carries. Absent from the first cut of this file, which
 # made it impossible to decode a blob's stage field from the table alone.
 
-[open] stage open
+[open] stage open composes
 # Whether a program may be built, validated or run on this surface at all.
 # SEPARATE from whether it mandates an output -- see [properties] required. The
 # animator is the surface that distinguishes them: it mandates nothing and is
 # shut, and its required set must stay empty even after it opens.
-material yes
-effect yes
-post yes
-bake yes
-vertex no
-animator no
-compute no
+# composes: whether output values compose over a server-set base. It gates the
+# absolute output form -- OUT_ABS is refused where this is no, because a stage
+# whose output IS the value has no base to replace and would gain a second
+# spelling for one behaviour. Independent of `open`: the animator composes and
+# is shut, which is why the two columns exist rather than one.
+material yes no
+effect yes no
+post yes no
+bake yes no
+vertex no no
+animator no yes
+compute no no
 
 [registers] id name material effect post bake vertex animator compute
 # type per stage, or - when the stage does not carry that register.
@@ -129,7 +134,12 @@ domain half-open-0-to-P
 producers 1
 
 [composition] property rule identity
-# How an animator's output combines with the server-set base. add: disp=srv+out.
+# How an animator's output combines with the server-set base WHEN THE PROGRAM
+# USED THE RELATIVE FORM, `OUT`. The rule below is the DEFAULT, not the whole
+# story: an `OUT_ABS` write (opcode 81, see [ops]) means disp=out for any
+# property, whatever its row here says, and one writer per property covers both
+# forms together. A backend implementing this section alone would apply the base
+# twice to every absolute write. add: disp=srv+out.
 # mul: disp=srv*out. replace: disp=out. quat: disp=q_srv*q_out normalized,
 # animator-local applied FIRST, components (x,y,z) vector and w scalar.
 # x and y compose IN THE PARENT'S FRAME -- they are NOT rotated by the server
@@ -289,6 +299,7 @@ CONS4_V2V2 v2,v2 v4 1
 71 ENDFOR 0 - -
 72 ITOF 1 dst imm
 80 OUT 1 - property,value
+81 OUT_ABS 1 - property,value
 
 [blocks] name base limit
 # Half-open [base, limit). Claimed now, assigned later.

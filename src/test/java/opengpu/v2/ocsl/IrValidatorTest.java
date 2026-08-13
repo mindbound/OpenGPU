@@ -56,6 +56,99 @@ public class IrValidatorTest {
 		}
 	}
 
+	// ---------------------------------------------------------------- ANIM-7: OUT_ABS's gate
+
+	@Test
+	public void theAbsoluteOutputFormIsRefusedWhereOutputsDoNotComposeOverABase() throws Exception {
+		// THE PAIR IS THE POINT. Each stage validates the SAME program written with OP_OUT first,
+		// so the refusal that follows is about the FORM and nothing else. Without that control half
+		// this test passes for any reason at all -- an unrecognised opcode would satisfy it just as
+		// well as the gate, and the gate is what is being claimed.
+		int exercised = 0;
+		for (int s = 0; s <= 255; s++) {
+			byte stage = (byte) s;
+			if (!OcslWire.isKnownStage(stage) || SurfaceTable.composesOutputs(stage)
+					|| !SurfaceTable.isOpen(stage)) {
+				continue;
+			}
+			IrProgram relative = prog(stage, new float[] { 1.0f }, W + 1,
+					new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+					new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W));
+			IrValidator.validate(relative);
+
+			IrProgram absolute = prog(stage, new float[] { 1.0f }, W + 1,
+					new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+					new IrOp(OcslWire.OP_OUT_ABS, -1, OcslWire.PROP_COLOR, W));
+			expectReject(absolute, "OUT_ABS");
+			exercised++;
+		}
+		// The vacuity guard: a loop that skipped every stage would otherwise pass silently.
+		assertTrue("expected the open non-composing stages to be exercised, got " + exercised,
+				exercised >= 4);
+	}
+
+	@Test
+	public void theFormIsRefusedBeforeTheProperty_soAnAuthorLearnsTheRealError() throws Exception {
+		// THE DISCRIMINATING INPUT, and the first attempt at this test did not have it. That version
+		// re-validated a program naming PROP_COLOR and asserted the message did not say "has no
+		// property" -- but PROP_COLOR is valid at every stage the sweep reaches, so that branch was
+		// unreachable for the input and the assertion excluded nothing under EITHER ordering.
+		//
+		// A program that is wrong in BOTH ways separates them. IrValidator checks the form before
+		// the property lookup, so this must name the form; moving the gate below the lookup makes it
+		// say "stage 1 has no property 99" and lead the author to fix the wrong thing -- OUT_ABS is
+		// not legal here whatever property it names.
+		IrProgram bothWrong = prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 1,
+				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+				new IrOp(OcslWire.OP_OUT_ABS, -1, 99, W));
+		// PREMISES, asserted rather than assumed. When this test failed on a message it should not
+		// have been able to produce, these were what separated "the gate moved" from "the input is
+		// not what I think it is" -- and reading the source had already failed to settle it.
+		assertTrue("premise: the material stage does not compose",
+				!SurfaceTable.composesOutputs(OcslWire.STAGE_PIXEL_MATERIAL));
+		assertEquals("premise: the op carries the absolute form",
+				OcslWire.OP_OUT_ABS, bothWrong.ops().get(1).opcode);
+		assertTrue("premise: property 99 is absent at this stage",
+				SurfaceTable.propertyType(OcslWire.STAGE_PIXEL_MATERIAL, 99) == null);
+		expectReject(bothWrong, "OUT_ABS");
+		try {
+			IrValidator.validate(bothWrong);
+			fail("unreachable");
+		} catch (ValidationException e) {
+			assertTrue("the form is the more fundamental error and must be reported, got: "
+					+ e.getMessage(), !e.getMessage().contains("has no property"));
+		}
+
+		// The control that keeps the pair honest: with the FORM right and only the property wrong,
+		// the property error is exactly what must come back. Without this, "always say OUT_ABS"
+		// would pass the assertion above.
+		IrProgram onlyPropertyWrong = prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 1,
+				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+				new IrOp(OcslWire.OP_OUT, -1, 99, W));
+		expectReject(onlyPropertyWrong, "has no property 99");
+	}
+
+	@Test
+	public void exactlyOneKnownStageComposesItsOutputsOverAServerBase() throws Exception {
+		// composesOutputs is what OUT_ABS is gated on, so it needs its own pin: if it ever answered
+		// true for a pixel stage, the gate above would still pass (that stage would simply stop
+		// being exercised) while the surface quietly gained a second spelling for one behaviour.
+		int composing = 0;
+		for (int s = 0; s <= 255; s++) {
+			byte stage = (byte) s;
+			if (!OcslWire.isKnownStage(stage)) {
+				assertTrue("an unknown stage cannot compose", !SurfaceTable.composesOutputs(stage));
+				continue;
+			}
+			if (SurfaceTable.composesOutputs(stage)) {
+				assertEquals("the animator is the only composing surface",
+						OcslWire.STAGE_ANIMATOR, stage);
+				composing++;
+			}
+		}
+		assertEquals(1, composing);
+	}
+
 	// ---------------------------------------------------------------- happy path
 
 	@Test

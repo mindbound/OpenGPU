@@ -143,14 +143,20 @@ public final class OcslTables {
 		// artifact. Once the predicate became its own function, opening a stage changed no frozen
 		// byte, and a clean `./gradlew ocslTables` diff would have read as "no contract moved" while
 		// a whole surface went live.
-		line(out, "[open] stage open");
+		line(out, "[open] stage open composes");
 		line(out, "# Whether a program may be built, validated or run on this surface at all.");
 		line(out, "# SEPARATE from whether it mandates an output -- see [properties] required. The");
 		line(out, "# animator is the surface that distinguishes them: it mandates nothing and is");
 		line(out, "# shut, and its required set must stay empty even after it opens.");
+		line(out, "# composes: whether output values compose over a server-set base. It gates the");
+		line(out, "# absolute output form -- OUT_ABS is refused where this is no, because a stage");
+		line(out, "# whose output IS the value has no base to replace and would gain a second");
+		line(out, "# spelling for one behaviour. Independent of `open`: the animator composes and");
+		line(out, "# is shut, which is why the two columns exist rather than one.");
 		for (int s = 0; s < stages.length; s++) {
 			line(out, stageName(stages[s]) + " "
-					+ (SurfaceTable.isOpen(stages[s]) ? "yes" : "no"));
+					+ (SurfaceTable.isOpen(stages[s]) ? "yes" : "no") + " "
+					+ (SurfaceTable.composesOutputs(stages[s]) ? "yes" : "no"));
 		}
 		line(out, "");
 
@@ -252,7 +258,12 @@ public final class OcslTables {
 		// different picture from the same blob -- the dry run measured the two candidate readings
 		// 17 logical units apart on a node with sx=1.5.
 		line(out, "[composition] property rule identity");
-		line(out, "# How an animator's output combines with the server-set base. add: disp=srv+out.");
+		line(out, "# How an animator's output combines with the server-set base WHEN THE PROGRAM");
+		line(out, "# USED THE RELATIVE FORM, `OUT`. The rule below is the DEFAULT, not the whole");
+		line(out, "# story: an `OUT_ABS` write (opcode 81, see [ops]) means disp=out for any");
+		line(out, "# property, whatever its row here says, and one writer per property covers both");
+		line(out, "# forms together. A backend implementing this section alone would apply the base");
+		line(out, "# twice to every absolute write. add: disp=srv+out.");
 		line(out, "# mul: disp=srv*out. replace: disp=out. quat: disp=q_srv*q_out normalized,");
 		line(out, "# animator-local applied FIRST, components (x,y,z) vector and w scalar.");
 		line(out, "# x and y compose IN THE PARENT'S FRAME -- they are NOT rotated by the server");
@@ -408,7 +419,17 @@ public final class OcslTables {
 		line(out, "[ops] opcode name charge dst kinds");
 		line(out, "# charge: structural ops debited per EXECUTION (post-unroll). dst: does it write");
 		line(out, "# a register. kinds: operand slots -- value/imm/property/slot/swizzle.");
-		for (int i = 0; i <= 80; i++) {
+		// The WHOLE byte space, not a hardcoded ceiling. This read `i <= 80`, the opcode ceiling on
+		// the day it was written, so OP_OUT_ABS at 81 rendered nothing at all here.
+		//
+		// The FREEZE check alone would not have caught that -- both sides of it derive from this
+		// same bound, so the rendered table and the frozen file agreed on an incomplete answer.
+		// everyKnownOpcodeAppearsInTheTable DID catch it, scanning the byte space against shapeOf
+		// exactly as this loop now does, which is why the failure arrived as "opcode 81 (OUT_ABS)
+		// is missing from the [ops] table" rather than silently. So this is not a repair of an
+		// undetected hole: it is the generator being made to scan the same space its coverage test
+		// already scans, so the two cannot disagree about which opcodes exist.
+		for (int i = 0; i <= 255; i++) {
 			OcslWire.Shape shape = OcslWire.shapeOf((byte) i);
 			if (shape == null) {
 				continue;

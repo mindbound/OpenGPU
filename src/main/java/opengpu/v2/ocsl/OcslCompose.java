@@ -156,6 +156,37 @@ public final strictfp class OcslCompose {
 	}
 
 	/**
+	 * Compose one scalar property written in either output form — ANIM-7's double-apply decision.
+	 *
+	 * {@code absolute} is {@link OcslWire#OP_OUT_ABS}: {@code disp = out}, so the base appears only
+	 * as the rejected write's fallback. That is the same shape {@code RULE_REPLACE} already had,
+	 * which is why the absolute path reuses {@link OcslWriteBoundary#acceptedTint} for {@code tint}
+	 * instead of inventing a second answer for a property that never composed in the first place.
+	 *
+	 * The arms MIRROR the relative overload above, deliberately and visibly: a rule that exists in
+	 * one form and not the other is this codebase's most-repeated defect, and the two switches
+	 * sitting adjacent is what makes a missing arm read as missing.
+	 */
+	public static float compose(int propertyId, double serverBase, float animatorOutput,
+			boolean absolute) {
+		if (!absolute) {
+			return compose(propertyId, serverBase, animatorOutput);
+		}
+		switch (ruleFor(propertyId)) {
+			case RULE_ADD:
+			case RULE_MULTIPLY:
+				return OcslWriteBoundary.acceptedAbsolute(propertyId, serverBase, animatorOutput);
+			case RULE_REPLACE:
+				return OcslWriteBoundary.acceptedTint(serverBase, animatorOutput);
+			case RULE_QUATERNION:
+				throw new IllegalArgumentException("rot3d is a vec4; use composeRot3d()");
+			default:
+				throw new IllegalArgumentException("property " + propertyId
+						+ " is not composable at the animator surface");
+		}
+	}
+
+	/**
 	 * {@code q_disp = q_srv * q_anim}, normalized — the animator's rotation applied FIRST, in the
 	 * node's local frame.
 	 *
@@ -197,11 +228,60 @@ public final strictfp class OcslCompose {
 		double z = (double) sw * az + (double) sx * ay - (double) sy * ax + (double) sz * aw;
 		double w = (double) sw * aw - (double) sx * ax - (double) sy * ay - (double) sz * az;
 
+		normalizeInto(x, y, z, w, out);
+	}
+
+	/**
+	 * {@code rot3d} written in either output form — the quaternion mirror of the scalar overload.
+	 *
+	 * Absolute means {@code q_disp = q_anim}, still NORMALIZED: the reason the relative path
+	 * normalizes is that float32 arithmetic makes a slightly non-unit quaternion routine and a
+	 * non-unit quaternion scales the node as a side effect of rotating it, and that reason does not
+	 * care which form produced the value. A rejected absolute write falls back to the server base
+	 * (normalized in its turn), and a base that is itself unusable falls back to the identity —
+	 * the same two-step the scalar path takes through {@link OcslWriteBoundary#acceptedAbsolute}
+	 * and {@link OcslIngress#base}.
+	 */
+	public static void composeRot3d(double[] server, float[] animator, float[] out,
+			boolean absolute) {
+		if (!absolute) {
+			composeRot3d(server, animator, out);
+			return;
+		}
+		if (OcslWriteBoundary.acceptsAll(animator)) {
+			normalizeInto(animator[0], animator[1], animator[2], animator[3], out);
+			return;
+		}
+		if (OcslIngress.acceptsAll(server)) {
+			// NARROWED TO FLOAT32 FIRST, which the relative path does one component at a time on its
+			// way into the product and this path has to do explicitly. The frozen [composition] rule
+			// is "the base is narrowed to float32 BEFORE composing, so the result is a pure function
+			// of what the VM saw and two clients cannot disagree on it" -- normalizing the raw
+			// doubles makes the answer depend on bits float32 cannot represent. It is not a rounding
+			// nicety: a base that underflows float32 normalizes to a UNIT quaternion as doubles and
+			// to the identity once narrowed, so a client that skipped the narrowing draws a
+			// different rotation, not a slightly different one.
+			normalizeInto((float) server[0], (float) server[1], (float) server[2],
+					(float) server[3], out);
+			return;
+		}
+		out[0] = 0.0f;
+		out[1] = 0.0f;
+		out[2] = 0.0f;
+		out[3] = 1.0f;
+	}
+
+	/**
+	 * Normalize a quaternion into {@code out}, falling back to the identity when it degenerates.
+	 *
+	 * Extracted so both output forms normalize through the SAME arithmetic rather than two spellings
+	 * that agree until one of them is edited. The guard is what it always was: a degenerate result
+	 * from finite inputs — non-finite input is stopped by the boundaries before it reaches here.
+	 */
+	private static void normalizeInto(double x, double y, double z, double w, float[] out) {
 		double norm = Math.sqrt(x * x + y * y + z * z + w * w);
 		if (!(norm > 0.0) || Double.isInfinite(norm)) {
-			// Back to what this guard was written for: a DEGENERATE product from two finite
-			// quaternions. Non-finite input no longer reaches it, and used to reach it on the wrong
-			// side. Inline for the same allocation reason as above.
+			// Inline for the same allocation reason as above: this runs per animated node per frame.
 			out[0] = 0.0f;
 			out[1] = 0.0f;
 			out[2] = 0.0f;

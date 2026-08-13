@@ -60,6 +60,8 @@ public final strictfp class OcslVm {
 	private final int[] outProperties;
 	private final IrOp[] outOps;
 	private final int[] outWidths;
+	/** Per written property: was it written with {@code OUT_ABS} rather than {@code OUT}? */
+	private final boolean[] outAbsolute;
 
 	/**
 	 * Textures bound per sampler slot. Null means unbound, which reads 0 rather than failing (S5).
@@ -92,21 +94,23 @@ public final strictfp class OcslVm {
 		List<IrOp> ops = program.ops();
 		int outs = 0;
 		for (int i = 0; i < ops.size(); i++) {
-			if (ops.get(i).opcode == OcslWire.OP_OUT) {
+			if (OcslWire.isOut(ops.get(i).opcode)) {
 				outs++;
 			}
 		}
 		this.outProperties = new int[outs];
 		this.outOps = new IrOp[outs];
 		this.outWidths = new int[outs];
+		this.outAbsolute = new boolean[outs];
 		int n = 0;
 		for (int i = 0; i < ops.size(); i++) {
 			IrOp op = ops.get(i);
-			if (op.opcode == OcslWire.OP_OUT) {
+			if (OcslWire.isOut(op.opcode)) {
 				int property = op.operand(0);
 				OcslType t = SurfaceTable.propertyType(program.stage, property);
 				outProperties[n] = property;
 				outOps[n] = op;
+				outAbsolute[n] = op.opcode == OcslWire.OP_OUT_ABS;
 				// The property's DECLARED width, which is what the validator type-checked the
 				// operand against. The caller's array length is not that number and never was.
 				outWidths[n] = t == null ? 0 : t.width;
@@ -219,6 +223,24 @@ public final strictfp class OcslVm {
 	}
 
 	/**
+	 * Whether a written property was written ABSOLUTELY — the form its value must be composed with.
+	 *
+	 * The VM hands back the raw output either way; the distinction has to survive the trip or the
+	 * consumer composes {@code OUT_ABS} relatively and silently applies the base twice, which is the
+	 * exact defect the opcode exists to prevent. Exposed here rather than left for the consumer to
+	 * re-derive from the op stream, because a consumer that has to re-derive it is a consumer that
+	 * can forget to.
+	 */
+	public boolean isAbsolute(int propertyId) {
+		for (int i = 0; i < outProperties.length; i++) {
+			if (outProperties[i] == propertyId) {
+				return outAbsolute[i];
+			}
+		}
+		throw new IllegalArgumentException("program writes no property " + propertyId);
+	}
+
+	/**
 	 * Evaluate the program once. Allocates nothing.
 	 *
 	 * Sampling reads whatever texture the host bound to the slot, by the S1-S5 rules; an unbound
@@ -252,7 +274,7 @@ public final strictfp class OcslVm {
 				}
 				continue;
 			}
-			if (code == OcslWire.OP_OUT) {
+			if (OcslWire.isOut(code)) {
 				continue; // read by output(), not evaluated
 			}
 			execute(op, code, depth);

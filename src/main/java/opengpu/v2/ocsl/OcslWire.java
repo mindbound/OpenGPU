@@ -172,7 +172,22 @@ public final class OcslWire {
 
 	public static final byte OP_OUT = 80;
 
-	private static final int MAX_OPCODE = 80;
+	/**
+	 * The ABSOLUTE output form: {@code disp = out}, whatever the property's default rule.
+	 *
+	 * ANIM-7's double-apply decision. Under a relative rule the only way to reach an absolute target
+	 * is {@code OUT x, SUB(T, anim.x)}, which is indistinguishable — by any dependency analysis —
+	 * from the double-apply bug {@code OUT x, ADD(anim.x, d)}. Giving absolute intent its own opcode
+	 * is what makes the bug's spelling refusable without also refusing the idiom. Accepted only where
+	 * {@link SurfaceTable#composesOutputs} holds; everywhere else "absolute" names no distinction,
+	 * because the program's output IS the value.
+	 *
+	 * Added while {@code FORMAT_VERSION} is 0 and no blob exists, which is the only window in which
+	 * an output form costs a shape row rather than a migration.
+	 */
+	public static final byte OP_OUT_ABS = 81;
+
+	private static final int MAX_OPCODE = 81;
 
 	// ---------------------------------------------------------------- caps
 	// Structural caps the DECODER enforces, so a malformed or hostile blob dies before any
@@ -319,6 +334,27 @@ public final class OcslWire {
 		// in its property table, PROP_COLOR — so there is no implicit destination anywhere and one
 		// code path serves every stage.
 		shape(OP_OUT, "OUT", false, new int[] { KIND_PROPERTY, KIND_VALUE }, 1);
+		// Identical shape to OUT on purpose: the two forms differ in what the COMPOSITION does with
+		// the value, not in what the op carries. A different arity would have made every existing
+		// hand-built program's bytes a special case for no gain.
+		shape(OP_OUT_ABS, "OUT_ABS", false, new int[] { KIND_PROPERTY, KIND_VALUE }, 1);
+	}
+
+	/**
+	 * Whether an opcode is an output in either form.
+	 *
+	 * ONE place, deliberately. Every rule about outputs — one writer per property, the frame's
+	 * output collection, "skip it during evaluation" — has to cover both forms, and this project's
+	 * recurring defect is closing one side of a symmetric rule and leaving the mirror open.
+	 *
+	 * The test to apply at a site naming one opcode is what the site is FOR, not which constant it
+	 * names: code that means "an output" and tests {@code opcode == OP_OUT} is the bug this method
+	 * exists to prevent, while code that means "which form is this" — {@code OcslVm}'s per-property
+	 * flag, {@code emitOut}'s stage gate, a test asserting the form survived a round trip — names
+	 * the specific opcode correctly and must keep doing so.
+	 */
+	public static boolean isOut(byte opcode) {
+		return opcode == OP_OUT || opcode == OP_OUT_ABS;
 	}
 
 	/** The shape of an opcode, or null if the opcode is not one of ours. */

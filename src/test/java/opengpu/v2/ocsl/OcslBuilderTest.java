@@ -57,6 +57,39 @@ public class OcslBuilderTest {
 	}
 
 	@Test
+	public void theBuilderRefusesTheAbsoluteOutputFormWhereOutputsDoNotCompose() throws Exception {
+		// The builder has to carry IrValidator's gate rather than lean on it: build() attributes a
+		// validator refusal to "a defect in one of the two rather than in this program", which is a
+		// false accusation for an author who simply reached for the wrong output form.
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_PIXEL_MATERIAL);
+		Expr colour = b.constant(0.5f, 0.5f, 0.5f, 1.0f);
+		try {
+			b.outAbsolute(OcslWire.PROP_COLOR, colour);
+			fail("a material's output IS its colour; there is no base to replace");
+		} catch (OcslBuilder.BuildException e) {
+			assertTrue("the refusal should name the form, got: " + e.getMessage(),
+					e.getMessage().contains("OUT_ABS"));
+		}
+
+		// THE CONTROL, doing double duty. The same property and the same value go through in the
+		// relative form, so the refusal was about the form -- and if the refused call had appended
+		// its op before throwing, the duplicate-writer scan would refuse this one as "already
+		// written". A refusal that mutates the builder is the shape CanvasSubmitTest pins for
+		// back-pressure and the same argument applies here.
+		b.out(OcslWire.PROP_COLOR, colour);
+		IrProgram p = b.build();
+		int outs = 0;
+		for (int i = 0; i < p.ops().size(); i++) {
+			if (OcslWire.isOut(p.ops().get(i).opcode)) {
+				outs++;
+				assertEquals("the surviving write is the relative one",
+						OcslWire.OP_OUT, p.ops().get(i).opcode);
+			}
+		}
+		assertEquals("exactly one write reached the program", 1, outs);
+	}
+
+	@Test
 	public void plasmaAuthoredThroughTheBuilderChargesItsCommittedCount() throws Exception {
 		OcslBuilder b = plasma();
 		IrProgram p = b.build();

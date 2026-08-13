@@ -330,6 +330,22 @@ public final class SurfaceTable {
 	}
 
 	/**
+	 * Whether this stage's outputs COMPOSE over a server-set base, rather than being the value.
+	 *
+	 * The gate on {@link OcslWire#OP_OUT_ABS}: "absolute" only names a distinction where a relative
+	 * default exists to differ from. At the pixel family the program's output IS the colour, so both
+	 * forms would mean the same thing and one of them would be a second spelling for nothing.
+	 *
+	 * Asked of the STAGE and not of {@link OcslCompose#ruleFor}, which is the trap here: property
+	 * ids are per-stage namespaces, so {@code ruleFor(0)} answers about {@code anim.x} even when the
+	 * program is a material writing {@code COLOR}, which is also property 0. Only at a composing
+	 * stage is {@code ruleFor} being asked about the property the program actually names.
+	 */
+	public static boolean composesOutputs(byte stage) {
+		return stage == OcslWire.STAGE_ANIMATOR;
+	}
+
+	/**
 	 * The type a property expects from its {@code OUT}, or null when this stage has no such
 	 * property. A1 makes this check possible at all: every OUT names its property, so the type is
 	 * decidable at {@code createProgram} rather than at attach.

@@ -2,6 +2,7 @@ package opengpu.v2.ocsl;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -39,6 +40,28 @@ public strictfp class OcslVmTest {
 		float[] out = new float[4];
 		vm.output(OcslWire.PROP_COLOR, out);
 		return out;
+	}
+
+	@Test
+	public void theOutputFormSurvivesTheTripThroughTheVm() throws Exception {
+		// The VM hands back the raw output whichever form wrote it, so the FORM has to be readable
+		// from here or the consumer composes an absolute write relatively — the exact defect the
+		// opcode exists to prevent, applied silently once per node per frame.
+		//
+		// Only the relative half is exercisable today: OUT_ABS is refused at every OPEN stage by
+		// design (SurfaceTable.composesOutputs), and the one stage that accepts it is shut. The
+		// true half lands with the first animator program tests, PLAN 1.3.
+		OcslVm vm = vm(prog(new float[][] { { 1.0f } }, W + 1,
+				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)));
+		assertTrue("a relative write must not report itself absolute",
+				!vm.isAbsolute(OcslWire.PROP_COLOR));
+		try {
+			vm.isAbsolute(7); // a property this program never wrote
+			fail("the VM must not answer for a property the program never wrote");
+		} catch (IllegalArgumentException expected) {
+			assertTrue(expected.getMessage(), expected.getMessage().contains("writes no property"));
+		}
 	}
 
 	@Test

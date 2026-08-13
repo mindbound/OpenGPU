@@ -583,10 +583,37 @@ public final class OcslBuilder {
 
 	// ---------------------------------------------------------------- output
 
-	/** Write a stage property. One writer per property, and never inside a loop. */
+	/**
+	 * Write a stage property RELATIVELY — the value composes over the server-set base by the
+	 * property's own rule. At a stage that does not compose, this is the only form and "relatively"
+	 * is vacuous: the output is the value.
+	 */
 	public void out(int propertyId, Expr value) {
+		emitOut(OcslWire.OP_OUT, propertyId, value);
+	}
+
+	/**
+	 * Write a stage property ABSOLUTELY — {@code disp = value}, whatever the property's rule.
+	 *
+	 * ANIM-7's double-apply decision: this is the spelling for "go to T", which under a relative
+	 * rule would otherwise have to be written {@code SUB(T, anim.x)} and would be indistinguishable
+	 * from the double-apply bug. Refused at a stage whose outputs do not compose.
+	 */
+	public void outAbsolute(int propertyId, Expr value) {
+		emitOut(OcslWire.OP_OUT_ABS, propertyId, value);
+	}
+
+	private void emitOut(byte opcode, int propertyId, Expr value) {
 		if (built) {
 			throw new BuildException("this builder has already produced a program");
+		}
+		// Mirrors IrValidator's gate, and the builder has to carry it: build() blames a
+		// validator-refused program on "a defect in one of the two rather than in this program",
+		// which would be a false accusation for an author who simply used the wrong form.
+		if (opcode == OcslWire.OP_OUT_ABS && !SurfaceTable.composesOutputs(stage)) {
+			throw new BuildException("OUT_ABS writes a value that replaces a server-set base, and"
+					+ " stage " + (stage & 0xFF) + " has no base to replace; its output is the"
+					+ " value, so use out()");
 		}
 		requireOwned(value);
 		OcslType expected = SurfaceTable.propertyType(stage, propertyId);
@@ -601,8 +628,11 @@ public final class OcslBuilder {
 			throw new BuildException("OUT inside a loop would write its property once per"
 					+ " iteration; one writer per property per frame");
 		}
+		// BOTH forms, counted together: `out(x)` then `outAbsolute(x)` is two writers for one
+		// displayed property, and a check that only saw OP_OUT would let the pair through to a
+		// consumer with no rule for which one wins.
 		for (int i = 0; i < ops.size(); i++) {
-			if (ops.get(i).opcode == OcslWire.OP_OUT && ops.get(i).operand(0) == propertyId) {
+			if (OcslWire.isOut(ops.get(i).opcode) && ops.get(i).operand(0) == propertyId) {
 				throw new BuildException("property " + SurfaceTable.propertyName(stage, propertyId)
 						+ " is already written");
 			}
@@ -617,8 +647,8 @@ public final class OcslBuilder {
 			warnings.add("this program's output has no data dependency on `tint`, so node and"
 					+ " group tinting will have no effect on it");
 		}
-		ops.add(new IrOp(OcslWire.OP_OUT, -1, propertyId, value.operand));
-		charge(OcslWire.shapeOf(OcslWire.OP_OUT).structuralCharge);
+		ops.add(new IrOp(opcode, -1, propertyId, value.operand));
+		charge(OcslWire.shapeOf(opcode).structuralCharge);
 	}
 
 	/** Build-time advisories. Empty for a program with nothing to say about it. */

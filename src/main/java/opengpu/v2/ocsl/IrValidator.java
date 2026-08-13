@@ -314,8 +314,23 @@ public final class IrValidator {
 				}
 			}
 
-			if (op.opcode == OcslWire.OP_OUT) {
+			if (OcslWire.isOut(op.opcode)) {
 				int property = op.operand(0);
+				// THE STAGE, not the property. "Absolute" only names a distinction where a relative
+				// default exists; at the pixel family the output IS the value, so accepting OUT_ABS
+				// there would publish a second spelling for identical behaviour.
+				//
+				// BEFORE the property lookup, and it matters for a program that is wrong in both
+				// ways: OUT_ABS is not legal at this stage whatever property it names, so the form
+				// is the more fundamental error and reporting the property instead would send the
+				// author to fix the wrong thing. Pinned by
+				// IrValidatorTest.theFormIsRefusedBeforeTheProperty_soAnAuthorLearnsTheRealError,
+				// which carries the control for the mirror case as well.
+				if (op.opcode == OcslWire.OP_OUT_ABS && !SurfaceTable.composesOutputs(stage)) {
+					throw new ValidationException(i, "OUT_ABS writes a value that replaces a"
+							+ " server-set base, and stage " + (stage & 0xFF) + " has no base to"
+							+ " replace; its output is the value, so use OUT");
+				}
 				OcslType expected = SurfaceTable.propertyType(stage, property);
 				if (expected == null) {
 					// NAMED ONLY WHERE THE ID IS ACTUALLY RESERVED. SurfaceTable's javadoc promises
@@ -603,6 +618,7 @@ public final class IrValidator {
 			case OcslWire.OP_ITOF:
 				return OcslType.FLOAT;
 			case OcslWire.OP_OUT:
+			case OcslWire.OP_OUT_ABS:
 				return null; // handled by the caller, which knows the property
 			default:
 				throw new ValidationException(i, "no type rule for opcode " + (code & 0xFF));

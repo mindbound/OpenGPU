@@ -95,6 +95,21 @@ public final strictfp class OcslWriteBoundary {
 	}
 
 	/**
+	 * An {@code OUT_ABS} write's value: the output, or the SERVER BASE when the output is rejected.
+	 *
+	 * The absolute form's fallback reaches the base DIRECTLY, where the relative form reaches it by
+	 * substituting the composition identity — {@link #accepted}. Same destination, and it has to be
+	 * spelled twice because the routes differ: an absolute write composes with nothing, so an
+	 * identity output would not leave the base alone, it would BE the displayed value (0 for
+	 * {@code x}, 1 for {@code sx}) and would teleport the node on any frame with a bad output.
+	 * {@link #acceptedTint} is this same shape for the one property that already replaced.
+	 */
+	public static float acceptedAbsolute(int propertyId, double serverBase, float animatorOutput) {
+		return accepts(animatorOutput) ? animatorOutput
+				: OcslIngress.base(propertyId, serverBase);
+	}
+
+	/**
 	 * {@code rot3d}'s spelling of {@link #accepted} — the animator's quaternion, or the identity.
 	 *
 	 * ANIM-9(a) SAID "a rejected write falls back to the server base" AND ROT3D DID NOT DO THAT.
