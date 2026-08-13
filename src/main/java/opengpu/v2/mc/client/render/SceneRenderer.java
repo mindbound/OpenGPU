@@ -380,6 +380,27 @@ public final class SceneRenderer {
 		// Re-render while anything is still mid-flight, not only when a batch arrived — that
 		// is the whole point, since batches land at 20 Hz and we draw at 60+. A settled scene
 		// still short-circuits here, so a static display costs nothing per frame.
+		//
+		// ANIM-19 OWES THIS GUARD ONE MORE TERM, and the obligation is written here rather than in a
+		// roadmap because this is the line that has to change. An attached animator is WORK: it
+		// recomputes node transforms every frame from `time`, while producing no batch, no upload
+		// and no interpolation. So on a settled scene all four conjuncts below are satisfied, this
+		// returns early, and **an animated node freezes the moment the scene stops changing** —
+		// while a scene with any other activity keeps it moving, which is what makes the bug look
+		// intermittent rather than total. That is also the in-game observation that distinguishes
+		// "the overlay is wrong" from "the trigger is missing", so it is worth reaching for before
+		// arguing from source: frozen-when-settled means this line, not the evaluator.
+		//
+		// The term to add is "any node in this scene has an attached animator". Count carefully when
+		// writing it: this condition has FOUR conjuncts today (a fresh batch, a pending texture
+		// upload, the never-drawn bootstrap, and interpolation), so the animator makes a FIFTH — the
+		// plan and DESIGN both called it "the third term", inherited from a paragraph written when
+		// `uploadDirty` and `everRendered` did not exist.
+		//
+		// Blocked on nothing here: it needs the attachment record (Phase 3.2), which is why this is
+		// a comment and not code. It must NOT be satisfied by making the mirror permanently dirty —
+		// that would re-render every frame for every scene, animated or not, and the short-circuit
+		// above is what keeps a static display free.
 		boolean interpolating = gl.interp.active(now);
 		if (!mirror.isDirty() && !gl.uploadDirty && gl.everRendered && !interpolating) {
 			return;

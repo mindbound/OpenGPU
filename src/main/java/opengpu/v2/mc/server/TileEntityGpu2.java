@@ -1496,7 +1496,10 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 			// order frees every child before its parent, and is the one order guaranteed never
 			// to hit that refusal. Ascending is guaranteed to hit it on the first parented group,
 			// half-clearing the scene, and this callback is what the Lua library calls from
-			// reset() and from connect(). Pinned by freeingInDescendingIdOrderNeverHitsTheRefusal.
+			// `Gpu:reset()` (unconditionally) and from `opengpu.bind` (only when opts.keepNodes is
+			// false). It said "from reset() and from connect()"; there is no connect() in the
+			// shipped library, and the same wrong name was mirrored in DESIGN and the dry run.
+			// Pinned by freeingInDescendingIdOrderNeverHitsTheRefusal.
 			java.util.List<Integer> doomed = new java.util.ArrayList<Integer>();
 			for (Integer id : scene.state().nodes.descendingKeySet()) {
 				if (id.intValue() != implicitCanvasNode) {

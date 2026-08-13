@@ -125,7 +125,21 @@ public final strictfp class OcslTime {
 	 *
 	 * @param renderNanos  the frame's render instant — {@code ServerTimeline.renderNanos}, i.e. the
 	 *                     same instant the frame's transforms are sampled at, NOT the raw estimate
-	 * @param creationTick the scene's creation tick, one long persisted in scene NBT
+	 * @param creationTick the scene's creation tick. <b>Nothing supplies this yet</b> — it has no
+	 *                     field, no NBT entry and no protocol entry anywhere (ANIM-13, deferred to
+	 *                     Phase 3.2 so one {@code PROTOCOL_VERSION} bump covers attach and the tick
+	 *                     together). This {@code @param} said "one long persisted in scene NBT"
+	 *                     until 2026-08-13, contradicting the comment nine lines below it in this
+	 *                     same method; every caller today passes a value it made up.
+	 *                     <p>
+	 *                     <b>The clock domain is an open question, not a detail.</b> The only tick
+	 *                     domain in the system is {@code V2ServerRuntime.tickCounter}, which is
+	 *                     SESSION-LOCAL and reset to 0 at server stop. Persisting a raw tick in that
+	 *                     domain and subtracting it in a later session gives a negative elapsed,
+	 *                     which the clamp below silently pins to {@code t = 0.0} — an animator clock
+	 *                     frozen for as long as it takes the new session to overtake the stored
+	 *                     value, with no exception and nothing to fail. Whoever wires this must
+	 *                     first decide: remap at restore, store world time, or store 0.
 	 */
 	public static float time(long renderNanos, long creationTick) {
 		// SATURATING, not merely clamped, and the difference is a real one. An earlier note claimed
