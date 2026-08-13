@@ -9,13 +9,52 @@ package opengpu.v2.ocsl;
  * That sentence is the only cross-frame state anywhere in the animator design, and it is per-client
  * — which makes it the one place the purity guarantee is defeated. A client watching for a minute
  * holds the last good angle; a client that joined on the failing frame has no previous value at all;
- * and if the cause persists — one {@code setAnimatorUniform(node, "speed", 0/0)} is enough — the two
- * <b>disagree indefinitely, with no path to reconciliation</b>, because a resync snaps the BASE and
- * the server holds no animator output to snap to.
+ * and if the cause persisted the two would <b>disagree indefinitely, with no path to
+ * reconciliation</b>, because a resync snaps the BASE and the server holds no animator output to
+ * snap to. So a rejected write is stateless instead — see below.
  *
- * The program cannot defend itself either: the only NaN test the op set can express is
- * {@code select(EQ(x,x), x, fallback)}, and {@code EQ} is separately documented as tolerance-hostile
- * with no domain-table row at a non-finite argument.
+ * <h2>THE REJECT ARM IS UNREACHABLE FROM THE CPU VM, and the argument above no longer names a live
+ * hazard</h2>
+ *
+ * This javadoc cited {@code setAnimatorUniform(node, "speed", 0/0)} as "enough" to cause that
+ * indefinite disagreement. <b>It is not, and has not been since ANIM-9(b) landed.</b> Two rules
+ * written after this one close it, and neither is this boundary:
+ * <ul>
+ * <li><b>Ingress substitutes zero for a non-finite binding</b> ({@code registerBinding
+ *     substitute-zero}), so {@code 0/0} never enters the frame — swept at every open stage by
+ *     {@code OcslIngressTest}.</li>
+ * <li><b>A4's catch-all sanitizes op RESULTS, not only operands</b> ({@link OcslMath}), so an
+ *     in-domain evaluation that overflows float32 yields 0 rather than infinity.</li>
+ * </ul>
+ * Constants are refused non-finite at the pool, so every value in an animator frame is finite and
+ * {@link #accepts} never answers false for a VM output. {@code AnimatorProgramTest} demonstrates it
+ * end to end: {@code 1e30 * 1e30} composes to the base because the offset is <b>zero</b>, not
+ * because a write was rejected — and those two look identical downstream, which is why that test
+ * asserts the raw value rather than the composed one.
+ *
+ * <b>That induction was stated here as "every op result" and audited only afterwards, which is the
+ * wrong order and turned up a real gap.</b> Of the VM's register-writes, the computing ones all
+ * reach {@code OcslMath} and the rest are literals or copies of already-sanitized values — except
+ * {@code OP_BNOT}, which computed {@code 1f - x} and so was total only CONDITIONALLY, on the
+ * validator having typed its operand BOOL. It now emits a literal like its five siblings, so the
+ * property holds inside the VM instead of leaning on another class. {@code OP_SELECT} remains a
+ * deliberate exemption and says so: it copies the chosen arm and never reads the other.
+ *
+ * <b>The boundary stays regardless.</b> {@link OcslCompose#compose} takes a float from a CALLER and
+ * applies ingress and this accept/reject arm itself, because "an ordering obligation that has never
+ * once been met is not a contract" — the guarantee is about what compose accepts, not about who
+ * happens to call it today. The reject arm is redundancy that became total, which is a fine state
+ * for a guard. What would be wrong is citing VM totality as grounds to weaken it.
+ *
+ * <b>The CLAMP arm is a different case and must not be described as live: {@link #clampForWrite} has
+ * NO caller in {@code src/main}.</b> {@code compose} does not clamp, so the rule below is defined,
+ * frozen in the table, and unwired — it binds at the Phase 3.3 consumer that hands composed values
+ * to the renderer, and that is exactly where the ordering obligation this class warns about will
+ * come due.
+ *
+ * The program could not defend itself either, when this mattered: the only NaN test the op set can
+ * express is {@code select(EQ(x,x), x, fallback)}, and {@code EQ} is separately documented as
+ * tolerance-hostile with no domain-table row at a non-finite argument.
  *
  * So a rejected write <b>falls back to the server base for that property, on that frame</b>. Identical
  * on every client regardless of history, needs no retained state, and is exactly what detach and

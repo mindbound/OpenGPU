@@ -396,7 +396,24 @@ public final strictfp class OcslVm {
 				frame[dst] = (component(op, 0, 0) != 0f || component(op, 1, 0) != 0f) ? 1f : 0f;
 				return;
 			case OcslWire.OP_BNOT:
-				frame[dst] = 1f - component(op, 0, 0);
+				// A LITERAL, like every other boolean op here, and it used to be `1f - x`.
+				//
+				// That made BNOT the ONLY computing register-write in this method that did not go
+				// through OcslMath — every arithmetic path reaches `binary`/`unary`/`clamp`/`dot`/
+				// `distance`/`length`, and every other write is either a literal or a copy of an
+				// already-sanitized value. So the catch-all's "each op is total" held for BNOT only
+				// CONDITIONALLY, on its operand being a canonical bool, which is a guarantee owned
+				// by a different class (the validator types it BOOL, and every bool producer emits
+				// exactly 1f or 0f). It also made OP_SELECT's comment below — "select is the one
+				// exemption from the catch-all" — false, since there were two.
+				//
+				// The two forms agree exactly on 0f and 1f, so no validated program can tell them
+				// apart and no test can discriminate this change; it is stated that way rather than
+				// given a vector that would only look like coverage. What the literal buys is that
+				// the invariant stops depending on someone else's type checking, and that a
+				// non-canonical bool is CANONICALIZED rather than propagated: `1f - 0.5` is 0.5,
+				// which BAND and BOR above would then read as true, and `0.5 != 0f ? 0f : 1f` is 0f.
+				frame[dst] = component(op, 0, 0) != 0f ? 0f : 1f;
 				return;
 			case OcslWire.OP_SELECT: {
 				// WHOLE-VALUE STRICT PICK, and this is where the frozen guarantee is kept: the
