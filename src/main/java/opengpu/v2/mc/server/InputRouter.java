@@ -68,15 +68,27 @@ public final class InputRouter {
 		 * every gesture — lag proportional to drag duration — and a backlog is unrecoverable
 		 * from Lua, because skipping a signal costs the same pull as handling it.
 		 *
-		 * READ THAT ~11 ms AS A LOADED-REGIME FIGURE, NOT A PROPERTY OF event.pull. The run
-		 * that confirmed this fix measured the same call at 1.0 ms with no backlog present
-		 * (uidemo run 7), an 11x difference. Part of that is the probe — uidemo times
-		 * event.pull(0) and deliberately leaves its idle event.pull(0.02) untimed, so the two
-		 * runs average different populations of call — but only part, and WHY a pull is dear
-		 * under backlog and cheap without one is NOT established. It does not need to be for
-		 * this design: the ceiling that bounds the emitter is the one that applies while the
-		 * queue is deep, which is the regime the ~53/s was measured in and the only regime
-		 * where the bound has to hold. Do not carry the 11 ms into an idle-path argument.
+		 * THE ~11 ms IS A LOADED-REGIME FIGURE, NOT A PROPERTY OF event.pull, and the original
+		 * wording of this paragraph — "it yields the machine even at a zero timeout", offered as
+		 * the mechanism — was simply wrong. uidemo run 8 timed the three populations separately
+		 * instead of averaging them together:
+		 *
+		 *   zero-timeout pull that RETURNED an event   1.4 ms  (11.1 ms under backlog, run 6)
+		 *   zero-timeout pull that returned NOTHING    0.3 ms
+		 *   event.pull(0.02), the idle wait           50.2 ms
+		 *
+		 * So the yield is cheap; what is expensive is a TIMED wait, which rounds up to a whole
+		 * Minecraft tick — ask for 20 ms and you wait 50. That, not the pull, is where an idle
+		 * Lua event loop spends its life: run 8 accounted for 28.9 s of 29.0 s elapsed, and
+		 * 572 idle waits x 50.2 ms is 28.7 s of it.
+		 *
+		 * The ~11 ms is real but CONDITIONAL: identical calls returning identical events cost
+		 * 11.1 ms with a deep queue and 1.4 ms with a shallow one, an 8x swing that is not a
+		 * sampling artifact (run 6's pulls were 97.6% hits, so its mean was essentially the hit
+		 * cost). WHY depth makes a pull dear is still unestablished, and it does not need to be
+		 * here: the ceiling that bounds the emitter is the loaded one, ~53/s, measured directly
+		 * in the regime the bound must survive. Do not carry the 11 ms into an idle-path
+		 * argument, and do not carry the yield explanation anywhere at all.
 		 *
 		 * OC's signal queue is 256 slots, and the two ways to fill it want separate arithmetic.
 		 * A program not listening for input at all drains none of it and overflows in 256/60 ≈
