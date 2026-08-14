@@ -145,9 +145,25 @@ public class TileEntityScreen2 extends TileEntity implements Environment {
 		if (node == null || node.address() == null || !isOrigin()) {
 			return;
 		}
-		node.sendToReachable("computer.signal", "monitor_wall_resized",
-				Integer.valueOf(wallW), Integer.valueOf(wallH));
+		// Guarded like every other third-party fan-out since 2026-08-14: this runs from the
+		// vanilla TE tick, outside all of V2ServerRuntime's guard layers, and an onMessage
+		// participant that throws would otherwise crash the tick on an ordinary wall rescan.
+		// Throttled like the other guard warns — rescans are event-driven, but repeated
+		// placement against a throwing participant is still a spam vector.
+		try {
+			node.sendToReachable("computer.signal", "monitor_wall_resized",
+					Integer.valueOf(wallW), Integer.valueOf(wallH));
+		} catch (RuntimeException e) {
+			long now = System.currentTimeMillis();
+			if (now - lastResizeWarnMillis >= 1000L) {
+				lastResizeWarnMillis = now;
+				opengpu.OpenGPU.logger.warn("v2: monitor_wall_resized emission failed"
+						+ " (further failures muted for 1s)", e);
+			}
+		}
 	}
+
+	private long lastResizeWarnMillis;
 
 	/** Ask for a rescan on the next tick (placement, break, or orphan sweep). */
 	public void markWallDirty() {

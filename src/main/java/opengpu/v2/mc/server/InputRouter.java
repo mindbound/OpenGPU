@@ -1,6 +1,7 @@
 package opengpu.v2.mc.server;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import li.cil.oc.api.network.Node;
@@ -34,6 +35,26 @@ import opengpu.v2.protocol.MessageCodec;
 public final class InputRouter {
 	/** Max input events accepted from one watcher per tick; excess is dropped silently. */
 	public static final int MAX_EVENTS_PER_WATCHER_PER_TICK = 20;
+
+	/**
+	 * Max monitor_move emissions per flush — the per-ROUTER bound the per-gesture bound could
+	 * not provide. Coalescing caps each gesture at 20/s, but nothing capped gestures: several
+	 * players dragging on one GPU multiply, while the consumer's ceiling measured ~53/s loaded
+	 * (see ingame/uidemo.lua runs 6-8 and PLAN's ledger; the candidate mechanism additionally
+	 * puts a ~83/s hard floor on any consumer, but the cap is sized against the MEASUREMENT,
+	 * which stands whether or not that hypothesis survives its probe).
+	 *
+	 * 2 per flush = 40 moves/s per GPU: under the measured ceiling with room left for the
+	 * downs, ups and keys that share the queue. On trip the excess is DEFERRED to the next
+	 * flush — never dropped while its gesture lives (a gesture that ENDS discards its pending
+	 * move, deliberately: the release owns the ending) — served oldest-pend-first, so the wait
+	 * is bounded at ceil(gestures / 2) flushes; per-gesture rate under contention degrades to
+	 * (40 / gestures)/s. Deliberately NOT configurable — a server
+	 * owner raising it past the consumer floor would reintroduce the queue-overflow defect
+	 * this whole mechanism exists to prevent. This bounds one GPU; several GPUs feeding one
+	 * machine still sum, which is the server's topology to manage.
+	 */
+	public static final int MAX_MOVE_EMISSIONS_PER_FLUSH = 2;
 
 	/**
 	 * A gesture in flight: everything needed to END it without the client's help.
@@ -82,22 +103,30 @@ public final class InputRouter {
 		 * Lua event loop spends its life: run 8 accounted for 28.9 s of 29.0 s elapsed, and
 		 * 572 idle waits x 50.2 ms is 28.7 s of it.
 		 *
-		 * The ~11 ms is real but CONDITIONAL: identical calls returning identical events cost
-		 * 11.1 ms with a deep queue and 1.4 ms with a shallow one, an 8x swing that is not a
-		 * sampling artifact (run 6's pulls were 97.6% hits, so its mean was essentially the hit
-		 * cost). WHY depth makes a pull dear is still unestablished, and it does not need to be
-		 * here: the ceiling that bounds the emitter is the loaded one, ~53/s, measured directly
-		 * in the regime the bound must survive. Do not carry the 11 ms into an idle-path
-		 * argument, and do not carry the yield explanation anywhere at all.
+		 * The ~11 ms is real but CONDITIONAL, and a 2026-08-14 source dive (OpenComputers-GTNH)
+		 * identified the candidate mechanism — a HYPOTHESIS until ingame/pullprobe.lua runs.
+		 * Two facts: computer.uptime() is TICK-QUANTIZED (a per-tick counter / 20.0), so every
+		 * per-call figure above is a boundary-straddle probability x 50 ms, not a duration; and
+		 * every pullSignal resume costs a FIXED executionDelay (~12 ms wall), one signal per
+		 * resume, in every regime — the loaded/unloaded difference is clock PHASE, not cost.
+		 * Full argument and the killed alternatives in PLAN-STAGE-B's ledger. What stands
+		 * regardless of the probe's verdict, and is what this design is sized against: the
+		 * loaded consumer ceiling is ~53/s MEASURED, and a machine's queue drops at 256 (source
+		 * fact, not hypothesis). The ~83/s "hard floor" is NOT in that list — it derives from
+		 * the fixed-delay mechanism and falls with it if the probe's alternative arms fire.
+		 * Do not carry the 11 ms into an idle-path argument, and do not carry the old yield
+		 * explanation anywhere at all.
 		 *
 		 * OC's signal queue is 256 slots, and the two ways to fill it want separate arithmetic.
 		 * A program not listening for input at all drains none of it and overflows in 256/60 ≈
 		 * 4 s. That is the robust number and the nastier case, because the victim is a program
 		 * that never asked for a pointer: overflow drops KEY events for everything on the
 		 * machine. A program that IS draining overflows far more slowly — the net is 60 − 53 ≈
-		 * 7/s, so ~35 s — but treat that one as an order of magnitude rather than a figure: it
-		 * is the small difference of two measured rates that are themselves ±15%, and no
-		 * instrumented run actually observed the queue reach 256 while draining.
+		 * 7/s, so ~35 s — treat that as an order of magnitude. (Run 6's receive rate ran
+		 * ~15/s under the nominal ~60/s emission. Pin-drops can explain only the tail of that
+		 * gap — at net +7/s a 256-slot queue fills in ~35 s of a ~22 s window — so most of the
+		 * shortfall needs another cause, most plausibly emission below nominal. Consistent
+		 * with reaching the pin near the end; NOT proof the pin was sat at throughout.)
 		 *
 		 * So a move updates {@code x}/{@code y} (which route() already did) and parks the
 		 * emission references here; {@link InputRouter#flushCoalescedMoves} emits at most ONE
@@ -111,16 +140,17 @@ public final class InputRouter {
 		 * the newest POSITION, which is what a drag, a hover, or a slider needs; what is lost is
 		 * the PATH between samples. Freehand drawing is the case that notices.
 		 *
-		 * BOUGHT: emission bounded at 20/s per gesture, comfortably under the consumer's
-		 * ceiling. Note the bound is per GESTURE, not per machine, and nothing bounds concurrent
-		 * gestures — activePointer is keyed per watcher AND per button, and several GPUs can
-		 * feed one machine's queue. Three simultaneous drags put 60/s back on the queue and the
-		 * original defect returns; two stay within budget. In practice that means several
-		 * PLAYERS dragging at once, not one player with several buttons: MC's GuiScreen reports
-		 * a single dragged button, so one player produces one move stream.
+		 * BOUGHT: emission bounded at 20/s per gesture AND at
+		 * {@link #MAX_MOVE_EMISSIONS_PER_FLUSH} x 20/s per router, so concurrent gestures
+		 * divide the router's 40/s between them instead of summing past the consumer's
+		 * ceiling. (Concurrent gestures mean several PLAYERS: MC's GuiScreen reports a single
+		 * dragged button, so one player produces one move stream.) Several GPUs feeding one
+		 * machine still sum — that remains the server's topology to manage.
 		 *
-		 * The node and player references are held for AT MOST ONE TICK, only so the flush can
-		 * emit exactly what route() would have (same checked signal, same permission check).
+		 * The node and player references are held only so the flush can emit exactly what
+		 * route() would have (same checked signal, same permission check) — typically for one
+		 * tick, or a few when the per-flush cap defers this gesture behind others; always
+		 * bounded by the gesture's own life.
 		 * They are dropped, not persisted: a pending move is meaningless across a save. MOST
 		 * stranding paths also remove this record from {@code activePointer} and take the
 		 * pending move with them — that is what orders a move against its own UP, see the UP
@@ -135,6 +165,14 @@ public final class InputRouter {
 		// desync waiting for the edit that updates one of them.
 		Node moveNode;
 		EntityPlayer movePlayer;
+		/**
+		 * The tick this move first pended since it was last emitted — the fairness key the
+		 * flush sorts by (oldest first). Stamped only on the clean->pending transition, NOT on
+		 * every coalesced update: a gesture's priority is how long it has been WAITING, and
+		 * restamping on each packet would reset the clock ~3x per tick, turning oldest-first
+		 * into newest-first for exactly the continuous drags the cap exists to arbitrate.
+		 */
+		long movePendTick;
 
 		Pointer(int id, int button, String address, int x, int y) {
 			this.id = id;
@@ -176,7 +214,11 @@ public final class InputRouter {
 	// semantics are unit-testable (Pointer + the Node INTERFACE), while route() takes
 	// TileEntityScreen2 and a live EntityPlayer — MC concretes no unit test can construct —
 	// so the pend side stays field-verified like the rest of this class.
-	final Map<String, Pointer> activePointer = new HashMap<String, Pointer>();
+	// LinkedHashMap since the per-flush cap exists: fairness is oldest-pend-first, and this
+	// map's insertion order is the tie-breaker when pend ticks are equal — press order, which
+	// a stable sort preserves. Over a HashMap the tie-break would be arbitrary and the cap's
+	// tests nondeterministic.
+	final Map<String, Pointer> activePointer = new LinkedHashMap<String, Pointer>();
 	private final Map<String, HeldKey> heldKeys = new HashMap<String, HeldKey>();
 	private final Map<String, Integer> eventsThisTick = new HashMap<String, Integer>();
 	private long currentTick = Long.MIN_VALUE;
@@ -206,7 +248,9 @@ public final class InputRouter {
 	}
 
 	/**
-	 * Emit at most one monitor_move per live gesture, carrying its newest position.
+	 * Emit at most one monitor_move per live gesture — and at most
+	 * {@link #MAX_MOVE_EMISSIONS_PER_FLUSH} in total — each carrying its gesture's newest
+	 * position. Gestures past the cap keep their pending move for the next flush.
 	 *
 	 * See {@link Pointer#moveNode} for why moves coalesce at all. Two drop rules, both
 	 * deliberate:
@@ -232,10 +276,39 @@ public final class InputRouter {
 	 * @param sceneHeight see above
 	 */
 	void flushCoalescedMoves(int sceneWidth, int sceneHeight) {
+		java.util.ArrayList<Pointer> dirty = null;
 		for (Pointer p : activePointer.values()) {
-			if (p.moveNode == null) {
-				continue;
+			if (p.moveNode != null) {
+				if (dirty == null) {
+					dirty = new java.util.ArrayList<Pointer>(4);
+				}
+				dirty.add(p);
 			}
+		}
+		if (dirty == null) {
+			return;
+		}
+		// OLDEST PENDING FIRST. The per-router bound needs a fairness rule, and the first
+		// design — a rotation cursor into this list — was positional: the list is rebuilt each
+		// flush, so when its composition changed the cursor pointed at a POSITION, not a
+		// gesture, and a review constructed both organic unfairness (a gesture served twice
+		// before an already-deferred one once) and adversarial starvation from it. Age is
+		// identity-based: a deferred move keeps its pend tick, everything newly pended stamps
+		// the current tick, so a deferred gesture outranks all fresh traffic and the delay
+		// bound is provable — at most ceil(gestures / cap) flushes, monotone in age. Stable
+		// sort + insertion-ordered map make ties deterministic (press order).
+		java.util.Collections.sort(dirty, new java.util.Comparator<Pointer>() {
+			public int compare(Pointer a, Pointer b) {
+				return Long.compare(a.movePendTick, b.movePendTick);
+			}
+		});
+		// The per-ROUTER bound: at most MAX_MOVE_EMISSIONS_PER_FLUSH sends per flush, so this
+		// GPU puts at most 40 moves/s on its machine's queue no matter how many gestures are
+		// live. A gesture past the cap is DEFERRED, not dropped — its pending move (and the
+		// refs it carries) survive to the next flush, where its age wins.
+		int emitted = 0;
+		for (int i = 0; i < dirty.size() && emitted < MAX_MOVE_EMISSIONS_PER_FLUSH; i++) {
+			Pointer p = dirty.get(i);
 			Node node = p.moveNode;
 			EntityPlayer player = p.movePlayer;
 			p.moveNode = null;
@@ -254,26 +327,50 @@ public final class InputRouter {
 			if (!inBounds(p.x, p.y, sceneWidth, sceneHeight)) {
 				continue;
 			}
-			// Guarded for the reason emitRelease states about its own identical send: this fans
-			// out through every third-party onMessage on the network, and an escaping throw here
-			// would reach V2ServerRuntime's Phase.END pump loop, which wraps te.serverPump in
-			// nothing — crashing the tick and skipping every GPU after this one. Per pointer, so
-			// one hostile consumer costs its own gesture's move and not the rest of the flush.
-			//
-			// NOT a claim that this file is now uniformly guarded: route()'s three emit sites
-			// are still bare, and onInput does not wrap route() either, so a monitor_down can
-			// still take the tick down. That is pre-existing and unchanged by this commit —
-			// recorded here rather than silently half-fixed.
-			try {
-				node.sendToReachable("computer.checked_signal", player, "monitor_move",
-						Integer.valueOf(p.x), Integer.valueOf(p.y),
-						Integer.valueOf(p.button), Integer.valueOf(p.id));
-			} catch (RuntimeException e) {
-				opengpu.OpenGPU.logger.warn("v2: coalesced monitor_move failed for gesture "
-						+ p.id, e);
+			emitChecked(node, player, "monitor_move",
+					Integer.valueOf(p.x), Integer.valueOf(p.y),
+					Integer.valueOf(p.button), Integer.valueOf(p.id));
+			// Counted HERE, after the guards: a dropped move (dead node, out of bounds) put
+			// nothing on the queue, and the cap bounds the QUEUE, so charging drops against it
+			// would under-deliver for no protective gain. A failed send still counts — the
+			// fan-out ran.
+			emitted++;
+		}
+	}
+
+	/**
+	 * The ONE place a checked signal leaves this class, and the guard lives here so that "every
+	 * emit site in this file is guarded" is a fact a grep can check rather than a claim a
+	 * comment makes. sendToReachable fans out through every third-party onMessage on the OC
+	 * network, and the call paths INTO this class are not uniformly guarded — the in-world
+	 * click (BlockScreen2.onBlockActivated -> onSurfaceClick -> route()) enters from vanilla
+	 * packet handling with no try/catch anywhere above, so before this existed a single
+	 * throwing network participant crashed the server tick on an ordinary right-click.
+	 * Swallowing is correct for every caller: the signal is best-effort delivery, and the
+	 * router's own state was already updated for the input that caused it.
+	 *
+	 * Throttled to one stack per second because a participant that throws once usually throws
+	 * every time — at 40 coalesced moves/s an unthrottled warn is a self-inflicted log flood,
+	 * the exact thing V2ServerRuntime.warnCodec exists to prevent on its own path.
+	 */
+	private void emitChecked(Node node, EntityPlayer player, String name, Object... rest) {
+		Object[] args = new Object[rest.length + 2];
+		args[0] = player;
+		args[1] = name;
+		System.arraycopy(rest, 0, args, 2, rest.length);
+		try {
+			node.sendToReachable("computer.checked_signal", args);
+		} catch (RuntimeException e) {
+			long now = System.currentTimeMillis();
+			if (now - lastEmitWarnMillis >= 1000L) {
+				lastEmitWarnMillis = now;
+				opengpu.OpenGPU.logger.warn("v2: " + name + " emission failed (a network"
+						+ " participant threw; further failures muted for 1s)", e);
 			}
 		}
 	}
+
+	private long lastEmitWarnMillis;
 
 	private static String pointerSlot(String watcherKey, int button) {
 		return watcherKey + '#' + button;
@@ -1069,6 +1166,11 @@ public final class InputRouter {
 						// Pointer.moveNode for the measurements this rests on. The packet
 						// still charged the per-tick allowance above: coalescing bounds what
 						// LUA receives, and must not widen what a client may SEND.
+						// The pend stamp only on the clean->pending transition — see the field's
+						// javadoc for why restamping per packet would invert the fairness rule.
+						if (active.moveNode == null) {
+							active.movePendTick = currentTick;
+						}
 						active.moveNode = node;
 						active.movePlayer = player;
 						return true;
@@ -1082,7 +1184,7 @@ public final class InputRouter {
 				}
 				String name = input.kind == MessageCodec.INPUT_POINTER_DOWN ? "monitor_down"
 						: "monitor_up";
-				node.sendToReachable("computer.checked_signal", player, name,
+				emitChecked(node, player, name,
 						Integer.valueOf(px), Integer.valueOf(py),
 						Integer.valueOf(input.c), Integer.valueOf(pointerId));
 				return true;
@@ -1099,7 +1201,7 @@ public final class InputRouter {
 				Pointer active = activePointer.get(pointerSlot(watcherKey, 0));
 				int scrollGesture = active != null && active.address.equals(node.address())
 						? active.id : 0;
-				node.sendToReachable("computer.checked_signal", player, "monitor_scroll",
+				emitChecked(node, player, "monitor_scroll",
 						Integer.valueOf(input.a), Integer.valueOf(input.b),
 						Integer.valueOf(input.c), Integer.valueOf(scrollGesture));
 				return true;
@@ -1160,7 +1262,7 @@ public final class InputRouter {
 						return false;
 					}
 				}
-				node.sendToReachable("computer.checked_signal", player,
+				emitChecked(node, player,
 						down ? "monitor_key_down" : "monitor_key_up",
 						Integer.valueOf(input.a), Integer.valueOf(input.b));
 				return true;

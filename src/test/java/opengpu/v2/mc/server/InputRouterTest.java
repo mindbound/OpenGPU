@@ -321,6 +321,162 @@ public class InputRouterTest {
 	}
 
 	@Test
+	public void theCapIsTwoAndTrippingItDefersRatherThanDrops() throws Exception {
+		// The VALUE is pinned deliberately (caps have two sides): 2 x 20 ticks/s = 40 moves/s
+		// per GPU, under the ~53/s measured consumer ceiling with room for downs/ups/keys.
+		// Raising it past the ceiling reintroduces the queue-overflow defect; a change here
+		// must re-justify against ingame/uidemo.lua's measurements, not just edit a constant.
+		assertEquals(2, InputRouter.MAX_MOVE_EMISSIONS_PER_FLUSH);
+
+		InputRouter router = new InputRouter();
+		List<Sent> sent = new ArrayList<Sent>();
+		Node node = mockNode(sent, true, "screen-addr");
+		InputRouter.Pointer a = plant(router, "watcher#0", 1, 0, node, sentinelPlayer(), 1, 1);
+		InputRouter.Pointer b = plant(router, "watcher#1", 2, 0, node, sentinelPlayer(), 2, 2);
+		InputRouter.Pointer c = plant(router, "watcher#2", 3, 0, node, sentinelPlayer(), 3, 3);
+
+		router.flushCoalescedMoves(W, H);
+		assertEquals("the cap holds: two of three emitted", 2, sent.size());
+		// DEFERRED, not dropped. Under oldest-pend-first with equal stamps the tie breaks in
+		// press order, so the deferred one is deterministically c — but this test pins only
+		// the count, leaving the ordering contract to the contention test below.
+		int pending = (a.moveNode != null ? 1 : 0) + (b.moveNode != null ? 1 : 0)
+				+ (c.moveNode != null ? 1 : 0);
+		assertEquals("exactly one deferred, none dropped", 1, pending);
+
+		// A dropping implementation would emit nothing here; the deferred move must land.
+		router.flushCoalescedMoves(W, H);
+		assertEquals("the deferred gesture emits next flush", 3, sent.size());
+		assertTrue("and nothing is pending after that",
+				a.moveNode == null && b.moveNode == null && c.moveNode == null);
+
+		// All three ids reached the wire exactly once — deferral must not duplicate either.
+		boolean saw1 = false, saw2 = false, saw3 = false;
+		for (Sent s : sent) {
+			int id = ((Integer) s.args[5]).intValue();
+			if (id == 1) saw1 = true;
+			else if (id == 2) saw2 = true;
+			else if (id == 3) saw3 = true;
+		}
+		assertTrue("every gesture's move arrived", saw1 && saw2 && saw3);
+	}
+
+	@Test
+	public void continuousContentionServesOldestFirstInsteadOfStarving() throws Exception {
+		// Three gestures ALL re-pending after every flush — three players dragging without
+		// pause. Under a fixed iteration order the same two would win every tick and the third
+		// would never emit. Fairness is AGE-based (oldest pend tick first): a deferred gesture
+		// keeps its stamp while freshly emitted ones re-pend with a NEWER one, so the deferred
+		// gesture must win the very next flush. The re-pend below mimics route()'s stamping
+		// rule exactly — stamp only on the clean->pending transition — because restamping a
+		// still-pending gesture would reset its age and invert the rule.
+		InputRouter router = new InputRouter();
+		List<Sent> sent = new ArrayList<Sent>();
+		Node node = mockNode(sent, true, "screen-addr");
+		EntityPlayer p1 = sentinelPlayer(), p2 = sentinelPlayer(), p3 = sentinelPlayer();
+		InputRouter.Pointer a = plant(router, "watcher#0", 1, 0, node, p1, 1, 1);
+		InputRouter.Pointer b = plant(router, "watcher#1", 2, 0, node, p2, 2, 2);
+		InputRouter.Pointer c = plant(router, "watcher#2", 3, 0, node, p3, 3, 3);
+		InputRouter.Pointer[] all = { a, b, c };
+		EntityPlayer[] players = { p1, p2, p3 };
+
+		java.util.Set<Integer> seen = new java.util.HashSet<Integer>();
+		for (long tick = 1; tick <= 6; tick++) {
+			router.flushCoalescedMoves(W, H);
+			for (Sent s : sent) {
+				seen.add((Integer) s.args[5]);
+			}
+			for (int i = 0; i < all.length; i++) {
+				if (all[i].moveNode == null) {
+					all[i].movePendTick = tick;
+					all[i].moveNode = node;
+					all[i].movePlayer = players[i];
+				}
+			}
+		}
+		assertEquals("no gesture starves under continuous contention", 3, seen.size());
+
+		// Sharper than no-starvation: after flush 1 emitted a and b (tie broken by press
+		// order), c is the oldest pending, so flush 2's winners MUST include it. Bounded
+		// delay of ceil(3/2) = 2 flushes is the contract the constant's javadoc states.
+		java.util.Set<Integer> firstTwoFlushes = new java.util.HashSet<Integer>();
+		for (int i = 0; i < Math.min(4, sent.size()); i++) {
+			firstTwoFlushes.add((Integer) sent.get(i).args[5]);
+		}
+		assertTrue("the deferred gesture emitted within its delay bound",
+				firstTwoFlushes.contains(Integer.valueOf(3)));
+	}
+
+	@Test
+	public void aDeferredGestureOutranksNewcomersEvenWhenTheCompositionChanges() throws Exception {
+		// THE SCENARIO THAT BROKE THE FIRST FAIRNESS DESIGN, pinned so no positional scheme
+		// can come back. A rotation cursor indexes a list rebuilt each flush; when the list's
+		// composition changes between flushes (a gesture ends, another presses), the cursor
+		// points at a POSITION, and the review's concrete failure was a gesture served TWICE
+		// before an already-deferred one was served once. Age cannot alias that way: the
+		// deferred gesture's stamp is older than every newcomer's, so it must win flush 2
+		// regardless of what joined or left the map in between.
+		InputRouter router = new InputRouter();
+		List<Sent> sent = new ArrayList<Sent>();
+		Node node = mockNode(sent, true, "screen-addr");
+		EntityPlayer p1 = sentinelPlayer(), p2 = sentinelPlayer();
+		InputRouter.Pointer a = plant(router, "watcher#0", 1, 0, node, p1, 1, 1);
+		InputRouter.Pointer b = plant(router, "watcher#1", 2, 0, node, p2, 2, 2);
+		InputRouter.Pointer c = plant(router, "watcher#2", 3, 0, node, sentinelPlayer(), 3, 3);
+
+		router.flushCoalescedMoves(W, H);
+		assertEquals("flush 1: a and b (press order on tied age)", 2, sent.size());
+		assertTrue("c is the deferred one", c.moveNode != null);
+
+		// Composition change: b's gesture ENDS (release removes the record), a re-pends with
+		// a fresh stamp, and a brand-new gesture d presses and pends — both NEWER than c.
+		router.activePointer.remove("watcher#1");
+		a.movePendTick = 5;
+		a.moveNode = node;
+		a.movePlayer = p1;
+		InputRouter.Pointer d = plant(router, "watcher#3", 4, 0, node, sentinelPlayer(), 4, 4);
+		d.movePendTick = 5;
+
+		sent.clear();
+		router.flushCoalescedMoves(W, H);
+		assertEquals("flush 2 emits two", 2, sent.size());
+		// The deferred gesture MUST be among them — under the old cursor it demonstrably was
+		// not, in exactly this shape.
+		boolean sawC = false;
+		for (Sent s : sent) {
+			if (((Integer) s.args[5]).intValue() == 3) {
+				sawC = true;
+			}
+		}
+		assertTrue("the gesture deferred before the composition change emitted first", sawC);
+	}
+
+	@Test
+	public void droppedMovesDoNotChargeTheCap() throws Exception {
+		// The cap bounds what reaches the QUEUE. A dead-node or out-of-bounds move puts
+		// nothing there, so it must not consume an emission slot — otherwise two dead
+		// gestures could silence a router that had live moves to deliver.
+		InputRouter router = new InputRouter();
+		List<Sent> sent = new ArrayList<Sent>();
+		Node live = mockNode(sent, true, "screen-addr");
+		Node dead = mockNode(sent, false, "screen-addr");
+		plant(router, "watcher#0", 1, 0, dead, sentinelPlayer(), 1, 1);
+		plant(router, "watcher#1", 2, 0, live, sentinelPlayer(), 500, 500); // outside W x H
+		plant(router, "watcher#2", 3, 0, live, sentinelPlayer(), 3, 3);
+		plant(router, "watcher#3", 4, 0, live, sentinelPlayer(), 4, 4);
+
+		router.flushCoalescedMoves(W, H);
+		assertEquals("both LIVE moves emitted; the two drops charged nothing", 2, sent.size());
+		boolean saw3 = false, saw4 = false;
+		for (Sent s : sent) {
+			int id = ((Integer) s.args[5]).intValue();
+			if (id == 3) saw3 = true;
+			else if (id == 4) saw4 = true;
+		}
+		assertTrue("and they are the live gestures", saw3 && saw4);
+	}
+
+	@Test
 	public void beginTickFlushesOncePerTickNotOncePerCall() throws Exception {
 		InputRouter router = new InputRouter();
 		List<Sent> sent = new ArrayList<Sent>();

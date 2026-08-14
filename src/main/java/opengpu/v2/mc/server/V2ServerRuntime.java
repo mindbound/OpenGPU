@@ -198,7 +198,15 @@ public final class V2ServerRuntime {
 		// Copy: a TE can unregister (chunk unload) from inside the loop via world interactions.
 		List<TileEntityGpu2> tes = new ArrayList<TileEntityGpu2>(hostsByScene.values());
 		for (TileEntityGpu2 te : tes) {
-			te.serverPump(tickCounter, policyTick);
+			// Guarded per host for the same reason the Phase.START loop above is, and with the
+			// same consequence on escape: serverPump reaches third-party code (the coalesced
+			// monitor_move flush fans out through every onMessage on the OC network), and an
+			// uncaught throw here would crash the tick and skip every GPU after this one.
+			try {
+				te.serverPump(tickCounter, policyTick);
+			} catch (RuntimeException e) {
+				warnRuntime("v2: pump failed for GPU scene " + te.sceneId(), e);
+			}
 		}
 	}
 
@@ -212,6 +220,16 @@ public final class V2ServerRuntime {
 				}
 			} catch (CodecException e) {
 				warnCodec("v2 inbound from " + entry.senderUuid + ": " + e.getMessage());
+			} catch (RuntimeException e) {
+				// One of THREE guard layers added 2026-08-14 (this per-packet arm, the per-TE pump
+				// guard in onServerTick, and InputRouter.emitChecked at every checked-signal emit
+				// site) — deliberately not called "the last", because that word shipped false
+				// once already: the in-world click path (BlockScreen2 -> onSurfaceClick ->
+				// route()) bypasses this method entirely and is covered only by emitChecked.
+				// Per entry, so one poisoned packet costs itself, not the queue behind it.
+				// CodecException keeps its own arm above: malformed input is an EXPECTED event;
+				// landing here is a bug — ours or a network participant's.
+				warnRuntime("v2: inbound dispatch failed for " + entry.senderUuid, e);
 			}
 		}
 	}
@@ -261,6 +279,22 @@ public final class V2ServerRuntime {
 		}
 	}
 
+	/**
+	 * warnCodec's discipline for the guard arms, WITH the stack trace — a repeat offender
+	 * throws identically every time, so one stack per second identifies it while an
+	 * unthrottled warn at packet rate is a log flood a hostile participant controls. Separate
+	 * throttle window from warnCodec's, so a codec flood cannot mute a runtime failure or
+	 * vice versa.
+	 */
+	private long lastRuntimeWarnTick = Long.MIN_VALUE / 2;
+
+	private void warnRuntime(String message, RuntimeException e) {
+		if (tickCounter - lastRuntimeWarnTick >= CODEC_WARN_INTERVAL_TICKS) {
+			lastRuntimeWarnTick = tickCounter;
+			OpenGPU.logger.warn(message + " (further failures muted for 1s)", e);
+		}
+	}
+
 	@SubscribeEvent
 	public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
 		String uuid = event.player.getUniqueID().toString();
@@ -295,8 +329,12 @@ public final class V2ServerRuntime {
 			store = null;
 		}
 		tickCounter = 0;
-		// The INSTANCE is static and survives an integrated-server stop/start cycle.
+		// The INSTANCE is static and survives an integrated-server stop/start cycle. BOTH warn
+		// throttles reset with the tick counter they are measured against — the runtime one was
+		// missed when it was added (the exact one-sided mirror of the field it copied), which
+		// muted guard-arm warnings for up to a prior session's length after a world reload.
 		lastCodecWarnTick = -CODEC_WARN_INTERVAL_TICKS;
+		lastRuntimeWarnTick = -CODEC_WARN_INTERVAL_TICKS;
 	}
 
 	/**
