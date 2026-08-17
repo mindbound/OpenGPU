@@ -40,9 +40,9 @@ public final class InputRouter {
 	 * Max monitor_move emissions per flush — the per-ROUTER bound the per-gesture bound could
 	 * not provide. Coalescing caps each gesture at 20/s, but nothing capped gestures: several
 	 * players dragging on one GPU multiply, while the consumer's ceiling measured ~53/s loaded
-	 * (see ingame/uidemo.lua runs 6-8 and PLAN's ledger; the candidate mechanism additionally
-	 * puts a ~83/s hard floor on any consumer, but the cap is sized against the MEASUREMENT,
-	 * which stands whether or not that hypothesis survives its probe).
+	 * with real handler work, and a bare pull spin measured 76/s — the fixed-executionDelay
+	 * floor, confirmed by ingame/pullprobe.lua (see uidemo runs 6-8 and PLAN's ledger). The
+	 * cap is sized against the 53/s, the ceiling a program that DOES something actually has.
 	 *
 	 * 2 per flush = 40 moves/s per GPU: under the measured ceiling with room left for the
 	 * downs, ups and keys that share the queue. On trip the excess is DEFERRED to the next
@@ -103,19 +103,19 @@ public final class InputRouter {
 		 * Lua event loop spends its life: run 8 accounted for 28.9 s of 29.0 s elapsed, and
 		 * 572 idle waits x 50.2 ms is 28.7 s of it.
 		 *
-		 * The ~11 ms is real but CONDITIONAL, and a 2026-08-14 source dive (OpenComputers-GTNH)
-		 * identified the candidate mechanism — a HYPOTHESIS until ingame/pullprobe.lua runs.
-		 * Two facts: computer.uptime() is TICK-QUANTIZED (a per-tick counter / 20.0), so every
-		 * per-call figure above is a boundary-straddle probability x 50 ms, not a duration; and
-		 * every pullSignal resume costs a FIXED executionDelay (~12 ms wall), one signal per
-		 * resume, in every regime — the loaded/unloaded difference is clock PHASE, not cost.
-		 * Full argument and the killed alternatives in PLAN-STAGE-B's ledger. What stands
-		 * regardless of the probe's verdict, and is what this design is sized against: the
-		 * loaded consumer ceiling is ~53/s MEASURED, and a machine's queue drops at 256 (source
-		 * fact, not hypothesis). The ~83/s "hard floor" is NOT in that list — it derives from
-		 * the fixed-delay mechanism and falls with it if the probe's alternative arms fire.
-		 * Do not carry the 11 ms into an idle-path argument, and do not carry the old yield
-		 * explanation anywhere at all.
+		 * The ~11 ms is not real per-call cost at all — a 2026-08-14 source dive identified the
+		 * mechanism and ingame/pullprobe.lua CONFIRMED it against predictions registered before
+		 * the run. Two facts: computer.uptime() is TICK-QUANTIZED (a per-tick counter / 20.0),
+		 * so every per-call figure above is a boundary-straddle probability x 50 ms, not a
+		 * duration; and every pullSignal — hit or miss, loaded or idle — costs a FIXED
+		 * executionDelay reschedule, measured at ~13 ms wall (12 ms scheduled + pool slop),
+		 * one signal per resume. A pure pull spin measured 76/s: the consumption floor
+		 * demonstrated. The loaded/idle "8x" was clock phase, and the probe caught the
+		 * quantizer red-handed — identical-cost populations read 44 vs 8 ms on uptime brackets.
+		 * Full record in PLAN-STAGE-B's ledger and pullprobe's header. The design numbers
+		 * stand as before: ~53/s measured consumer ceiling with real handler work, 256-slot
+		 * queue drop. Do not use computer.uptime() to time anything sub-tick, and do not carry
+		 * the old yield explanation anywhere.
 		 *
 		 * OC's signal queue is 256 slots, and the two ways to fill it want separate arithmetic.
 		 * A program not listening for input at all drains none of it and overflows in 256/60 ≈
