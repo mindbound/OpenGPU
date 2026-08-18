@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Map;
 
 import opengpu.v2.scene.ResourceInfo;
+import opengpu.v2.scene.ProgramInfo;
 import opengpu.v2.scene.SceneCanvas;
 import opengpu.v2.scene.SceneNode;
 import opengpu.v2.scene.SceneSnapshot;
@@ -78,6 +79,24 @@ public final class SnapshotCodec {
 				// is what lets a v4 record be read at its own width by the gate in decode().
 				out.writeInt(node.parent);
 			}
+			// APPENDED in v6, the same shape the v5 `parent` append used: strictly after every
+			// earlier field, so a v5 payload is consumed at its own width by the gate in decode()
+			// and needs no separate decoder. Programs ride the structure INLINE (own table, own
+			// section — DESIGN, "Program storage"): they are immutable, bounded per blob by
+			// OcslWire.MAX_BLOB_BYTES and per scene by ServerScene's 256 KiB ledger (a fraction
+			// of the 2 MiB of canvas commands this snapshot already carries), and the client
+			// needs them to run an animator at all, so the out-of-band body protocol built for
+			// textures would buy nothing.
+			out.writeInt(state.nextProgramId);
+			out.writeInt(state.programs.size());
+			for (Map.Entry<Integer, ProgramInfo> e : state.programs.entrySet()) {
+				ProgramInfo prog = e.getValue();
+				out.writeInt(prog.id);
+				out.writeByte(prog.stage);
+				out.writeInt(prog.structuralOps);
+				out.writeInt(prog.blobLength());
+				out.write(prog.blobCopy());
+			}
 			byte[] encoded = bytes.toByteArray();
 			// "Legal to create" must imply "deliverable": a snapshot the chunker cannot carry
 			// would make the scene permanently unresyncable. Budget caps (open numbers in the
@@ -106,6 +125,13 @@ public final class SnapshotCodec {
 	 *       record, 58 bytes to 62, and moved nothing. decode() reads that field only when
 	 *       version >= 5, so a v4 node record is consumed at 58 bytes and the node loop still
 	 *       ends flush against the trailing-data guard. The op table did not change in this bump.
+	 *   5 — READ AT ITS OWN WIDTH BY A GATE, the same shape one bump later. The 5 → 6 bump
+	 *       APPENDED a whole SECTION after the node loop (nextProgramId, then a program count,
+	 *       then per-program id / stage / structuralOps / length / blob) and moved no existing
+	 *       field. decode() reads
+	 *       that section only when version >= 6, so a v5 payload ends where it always did and
+	 *       lands flush on the trailing-data guard; a v5 world simply restores with an empty
+	 *       program table, which is what it had. The op table did not change in this bump.
 	 *
 	 * IF A FUTURE BUMP MOVES, RESIZES OR REORDERS AN EXISTING FIELD, IT DOES NOT BELONG HERE, and
 	 * no gate rescues it. Write a decoder for the old layout instead, as
@@ -128,7 +154,7 @@ public final class SnapshotCodec {
 	 * TE saves before its scene is initialised. A world can therefore carry a v3 structure
 	 * through any number of v4 sessions.
 	 */
-	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4 };
+	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4, 5 };
 
 	/**
 	 * Legality of a decoded parent, answered identically on both paths — and answered DIFFERENTLY
@@ -319,6 +345,50 @@ public final class SnapshotCodec {
 				node.tint = tint;
 				state.nodes.put(id, node);
 			}
+			// THE v6 GATE, same rule as the v5 one above: >= 6, not >= 5. A v5 payload ends
+			// after the node loop, so it reads at its own width and still lands flush on the
+			// trailing-data guard below; reading the section unconditionally would consume that
+			// guard's bytes and turn every pre-upgrade scene into "Truncated snapshot".
+			if (version >= 6) {
+				state.nextProgramId = in.readInt();
+				int programCount = in.readInt();
+				// Bounded before the loop allocates, using the same MAX_ENTRIES the resource and
+				// node counts use: a crafted count must not spin this into an OOM before the
+				// per-entry reads fail. Generous for programs, which the scene ledger caps far
+				// lower — this guards the decoder, not the policy.
+				if (programCount < 0 || programCount > MAX_ENTRIES)
+					throw new CodecException("Program count " + programCount + " out of range");
+				for (int i = 0; i < programCount; i++) {
+					int id = in.readInt();
+					byte stage = in.readByte();
+					int structuralOps = in.readInt();
+					int length = in.readInt();
+					// THE SAME BOUNDS THE BATCH DECODER ENFORCES, deliberately: no OpenGPU
+					// encoder can write a record these refuse, so a payload carrying one is
+					// corrupt, and on this path throwing is the designed answer (restoreOrFresh
+					// treats a codec failure as an unusable save). A first draft checked only
+					// the blob length here, which left the PERSISTED path accepting three shapes
+					// the wire path refuses — an asymmetry with no reason, found by review.
+					if (id < 1 || id == Integer.MAX_VALUE)
+						throw new CodecException("Program id " + id + " out of range");
+					if (!opengpu.v2.ocsl.OcslWire.isKnownStage(stage))
+						throw new CodecException("Unknown program stage " + (stage & 0xFF));
+					if (structuralOps < 0
+							|| structuralOps > opengpu.v2.ocsl.IrValidator.MAX_STRUCTURAL_OPS)
+						throw new CodecException("Program structural charge out of range: "
+								+ structuralOps);
+					// The blob ceiling is the codec's own, so a crafted length cannot allocate
+					// past what a legal program could ever be.
+					if (length < 1 || length > opengpu.v2.ocsl.OcslWire.MAX_BLOB_BYTES)
+						throw new CodecException("Program blob length " + length + " out of range");
+					byte[] blob = new byte[length];
+					in.readFully(blob);
+					if (state.programs.containsKey(Integer.valueOf(id)))
+						throw new CodecException("Duplicate program id " + id);
+					state.programs.put(Integer.valueOf(id),
+							new ProgramInfo(id, stage, blob, structuralOps));
+				}
+			}
 			if (in.read() != -1)
 				throw new CodecException("Trailing data after snapshot");
 			// Counter consistency: ids must never be reallocatable below existing entries
@@ -330,6 +400,11 @@ public final class SnapshotCodec {
 			if (state.nextNodeId < 1
 					|| (!state.nodes.isEmpty() && state.nextNodeId <= state.nodes.lastKey()))
 				throw new CodecException("Node id counter inconsistent with contents");
+			// Same contract for programs: an attach delta references a program by id, so a
+			// counter that could reallocate a live id is the same hazard as for resources.
+			if (state.nextProgramId < 1
+					|| (!state.programs.isEmpty() && state.nextProgramId <= state.programs.lastKey()))
+				throw new CodecException("Program id counter inconsistent with contents");
 			return new SceneSnapshot(sceneId, epoch, seq, tick, state);
 		} catch (EOFException e) {
 			throw new CodecException("Truncated snapshot", e);

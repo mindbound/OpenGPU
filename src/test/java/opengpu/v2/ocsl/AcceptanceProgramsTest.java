@@ -402,4 +402,5 @@ public class AcceptanceProgramsTest {
 				new ArrayList<String>(), W + 1);
 		assertEquals(2L, IrValidator.validate(mix).structuralOps);
 	}
+
 }

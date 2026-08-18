@@ -306,6 +306,111 @@ public abstract class Delta {
 		}
 	}
 
+	/**
+	 * A validated OCSL program entering the scene, blob and all (v6).
+	 *
+	 * The blob is carried, not referenced: see {@link V2Wire#DELTA_PROGRAM_CREATE} for why inline
+	 * beats the texture bodies' out-of-band protocol here.
+	 *
+	 * {@code stage} and {@code structuralOps} are the SERVER's validation verdict travelling with
+	 * the bytes. A mirror does not re-validate — it cannot act on a disagreement except by
+	 * diverging — so these are the verdict of record on both sides, and the applier checks only
+	 * what it must to keep its own tables sane.
+	 */
+	public static final class ProgramCreate extends Delta {
+		public final int programId;
+		public final byte stage;
+		public final int structuralOps;
+		/**
+		 * PRIVATE, unlike TextureWrite's pixels, because {@link #equals} makes this array the
+		 * object's identity — a mutated blob would silently change what "equal" means. The first
+		 * draft declared it public while its accessor's javadoc claimed it never left unwrapped;
+		 * review caught the code contradicting the sentence, and the code was what moved.
+		 */
+		private final byte[] blob;
+
+		public ProgramCreate(int programId, byte stage, int structuralOps, byte[] blob) {
+			if (blob == null)
+				throw new IllegalArgumentException("Program create needs a blob");
+			if (blob.length == 0)
+				throw new IllegalArgumentException("Program blob is empty");
+			if (blob.length > opengpu.v2.ocsl.OcslWire.MAX_BLOB_BYTES)
+				throw new IllegalArgumentException("Program blob exceeds MAX_BLOB_BYTES");
+			if (structuralOps < 0)
+				throw new IllegalArgumentException("Structural op charge must be non-negative");
+			this.programId = programId;
+			this.stage = stage;
+			this.structuralOps = structuralOps;
+			// Deltas are immutable value objects, and this array reaches here from a Lua-supplied
+			// buffer we do not own. The same reasoning TextureWrite states for its pixels.
+			this.blob = blob.clone();
+		}
+
+		/** The blob, copied — the array is this object's identity and never leaves it unwrapped. */
+		public byte[] blobCopy() {
+			return blob.clone();
+		}
+
+		/** Length without copying, for codec sizing and byte accounting. */
+		public int blobLength() {
+			return blob.length;
+		}
+
+		@Override
+		public byte typeId() {
+			return V2Wire.DELTA_PROGRAM_CREATE;
+		}
+
+		@Override
+		public boolean equals(Object o) {
+			if (!(o instanceof ProgramCreate))
+				return false;
+			ProgramCreate d = (ProgramCreate) o;
+			// EVERY field, blob included. These exist for codec round-trip tests, so a field left
+			// out here is a field assertEquals(batch, decoded) structurally cannot see dropped on
+			// the wire — the point NodeCreate's equals makes about `parent`, and the blob is the
+			// one field whose loss would be invisible in every other assertion.
+			return programId == d.programId && stage == d.stage && structuralOps == d.structuralOps
+					&& java.util.Arrays.equals(blob, d.blob);
+		}
+
+		@Override
+		public int hashCode() {
+			return ((programId * 31 + stage) * 31 + structuralOps) * 31
+					+ java.util.Arrays.hashCode(blob);
+		}
+	}
+
+	/**
+	 * Removes a program from the scene's table and releases its ledger bytes (v6).
+	 *
+	 * Ids are NOT reused — {@code nextProgramId} only ever climbs — so a freed id stays dead
+	 * rather than coming back attached to different code, which is the failure mode that makes a
+	 * dangling attach reference dangerous rather than merely stale.
+	 */
+	public static final class ProgramFree extends Delta {
+		public final int programId;
+
+		public ProgramFree(int programId) {
+			this.programId = programId;
+		}
+
+		@Override
+		public byte typeId() {
+			return V2Wire.DELTA_PROGRAM_FREE;
+		}
+
+		@Override
+		public boolean equals(Object o) {
+			return o instanceof ProgramFree && ((ProgramFree) o).programId == programId;
+		}
+
+		@Override
+		public int hashCode() {
+			return programId;
+		}
+	}
+
 	/** Reserved scene-level state slot (post-chain order, scene uniforms — Stage D). */
 	public static final class SceneProp extends Delta {
 		public final int propId;

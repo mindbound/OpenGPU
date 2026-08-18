@@ -34,7 +34,7 @@ public final class V2Wire {
 	 * version number, disagree about the op table, and an old client decodes the new op's
 	 * argument as some other op's payload. See ProtocolVersionTest.
 	 */
-	public static final short PROTOCOL_VERSION = 5;
+	public static final short PROTOCOL_VERSION = 6;
 
 	// Delta type ids
 	public static final byte DELTA_NODE_CREATE = 1;
@@ -63,6 +63,20 @@ public final class V2Wire {
 	public static final byte DELTA_UNBIND = 10;
 	/** Packed-RGBA region write into a texture (v3). Always carries its pixels. */
 	public static final byte DELTA_TEX_WRITE = 11;
+	/**
+	 * OCSL program create/free (v6). The blob travels INLINE, like a canvas publish and unlike a
+	 * texture body: a program is at most {@link opengpu.v2.ocsl.OcslWire#MAX_BLOB_BYTES} and a
+	 * mirror cannot run an attached animator without it, so the out-of-band body protocol built
+	 * for textures would add a pending state to the render path and buy nothing.
+	 *
+	 * CREATE carries the validator's verdict (stage, structural charge) alongside the bytes, so
+	 * that the scene TABLES agree on both sides without either re-deriving them at apply time —
+	 * a disagreement there could only diverge the tables. This does not weaken the rule that a
+	 * client re-validates before it EXECUTES anything (IrCodec's class javadoc); the two happen at
+	 * different moments and answer different questions.
+	 */
+	public static final byte DELTA_PROGRAM_CREATE = 12;
+	public static final byte DELTA_PROGRAM_FREE = 13;
 
 	// Node types
 	public static final byte NODE_CANVAS = 1;
@@ -73,7 +87,10 @@ public final class V2Wire {
 	// Resource types
 	public static final byte RES_TEXTURE = 1;
 	public static final byte RES_CANVAS = 2;
-	// Reserved: 3 = MESH, 4 = FONT, 5 = PROGRAM
+	// Reserved: 3 = MESH, 4 = FONT.
+	// 5 WAS "PROGRAM" and is now reserved-but-unclaimed: 3.1 decided against a program resource
+	// type (SceneState.programs is its own table — ProgramInfo's javadoc gives the three code-level
+	// reasons). The id stays burned rather than reused, because the wire is append-only by id.
 
 	// Producer- AND consumer-side sanity caps. Enforced at seal/construction time as well as
 	// decode time so an over-cap payload is impossible to produce, not a decode-time surprise.
@@ -226,6 +243,29 @@ public final class V2Wire {
 	 * also satisfy.
 	 */
 	public static final int MAX_STANDING_COMMAND_BYTES = 2 * 1024 * 1024;
+
+	/**
+	 * Program blob bytes one BATCH may carry, producer- and decoder-side.
+	 *
+	 * The scene's 256 KiB ledger does NOT stand in for this, and assuming it did was the hole this
+	 * constant closes: {@code freeProgram} releases ledger bytes, so a create/free loop inside one
+	 * tick stages unbounded ProgramCreate deltas while the live total never exceeds one blob. Both
+	 * other byte-carrying deltas already keep a per-batch counter for exactly this reason
+	 * ({@link #MAX_WRITE_BYTES_PER_BATCH}, {@link #MAX_SUBMIT_BYTES_PER_BATCH}); the program delta
+	 * shipped without one.
+	 *
+	 * What that cost, precisely: {@code MAX_DELTAS} (32768) and the ledger both stay far from their
+	 * caps while the batch grows past {@code BatchCodec.MAX_INFLATED_BYTES} (4 MiB), so the server
+	 * builds a batch EVERY client refuses whole — a silent desync no convergence check can see,
+	 * because no mirror ever applies it. That is the same failure MAX_DELTAS was lowered from
+	 * 1&lt;&lt;16 to close, arriving on a new axis.
+	 *
+	 * Sized at 2x the ledger, the same "a batch spans up to two tick allowances" reasoning
+	 * MAX_WRITE_BYTES_PER_BATCH is built on: the most a legitimate caller needs in one batch is to
+	 * populate the whole program table, and churn beyond that is not traffic worth carrying. 512
+	 * KiB against a 4 MiB decoder ceiling leaves the 8x margin the batch caps are chosen to keep.
+	 */
+	public static final int MAX_PROGRAM_BYTES_PER_BATCH = 2 * 256 * 1024;
 
 	/** Self-describing persisted body blob: 'OGPB'. */
 	public static final int PERSIST_BODY_MAGIC = 0x4F475042;

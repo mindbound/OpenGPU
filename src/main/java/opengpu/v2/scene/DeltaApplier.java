@@ -171,6 +171,43 @@ public final class DeltaApplier {
 			Delta.CanvasAppend d = (Delta.CanvasAppend) delta;
 			validateEmbeddedRefs(state, d.commands);
 			canvasOf(state, d.resId).append(d.commands);
+		} else if (delta instanceof Delta.ProgramCreate) {
+			Delta.ProgramCreate d = (Delta.ProgramCreate) delta;
+			if (state.programs.containsKey(Integer.valueOf(d.programId)))
+				throw new IllegalStateException("Program " + d.programId + " already exists");
+			// Keeps `nextProgramId > lastKey` true of any state reachable through this method,
+			// which is the invariant SnapshotCodec.decode refuses a snapshot for violating. The
+			// `+ 1` cannot overflow because both producers bound the id first: the server's
+			// counter refuses at Integer.MAX_VALUE, and BatchCodec refuses a wire id of
+			// MAX_VALUE (or < 1) precisely so a crafted delta cannot wrap this into the state
+			// the snapshot check rejects. It is redundant on the server (createProgram allocates
+			// from the counter) and mirrors do not allocate at all — so this is not fixing a
+			// live collision. What it buys is that the invariant belongs to the class rather
+			// than to one caller's discipline, which is the difference between a rule and a
+			// habit.
+			if (d.programId >= state.nextProgramId)
+				state.nextProgramId = d.programId + 1;
+			// NOT re-validated AT APPLY TIME, which is a narrower claim than it looks: IrCodec's
+			// security model has clients independently re-validate every blob they receive, and
+			// that still holds — it happens where the blob is DECODED TO RUN (3.3), not here.
+			// Validating in this method would be the wrong place for it twice over. Both sides run
+			// this code, so a disagreement could only diverge the tables; and a throw here is a
+			// resync trigger, which would answer a bad program by refetching the same bad program
+			// forever. Storing bytes is not executing them. Structural bounds on the way in live
+			// in BatchCodec, before these bytes are ever a Delta.
+			state.programs.put(Integer.valueOf(d.programId),
+					new ProgramInfo(d.programId, d.stage, d.blobCopy(), d.structuralOps));
+		} else if (delta instanceof Delta.ProgramFree) {
+			Delta.ProgramFree d = (Delta.ProgramFree) delta;
+			// No child-reference scan, unlike NodeFree: nothing in SceneState points AT a program
+			// yet. When 3.2 adds the attachment record, the choice made there decides whether this
+			// grows a refusal (the NodeFree shape) or lets the reference dangle (the ResourceFree
+			// shape) — and dangling is the shape that fits, since an attachment is a node's
+			// property rather than a structural edge, and a node whose animator vanished simply
+			// renders at its server value. Whichever is chosen, it belongs HERE, at the one path
+			// both sides run.
+			if (state.programs.remove(Integer.valueOf(d.programId)) == null)
+				throw new IllegalStateException("Freeing unknown program " + d.programId);
 		} else if (delta instanceof Delta.SceneProp) {
 			// Reserved (Stage D); carrying it is legal, applying it is a no-op for now.
 		} else {

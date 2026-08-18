@@ -40,6 +40,14 @@ public final class ServerScene {
 	/** Canvas-submit payload charged this TICK and to the current unsealed BATCH. */
 	private int tickSubmitBytes;
 	private int stagedSubmitBytes;
+	/**
+	 * Program blob bytes staged into the CURRENT UNSEALED BATCH; reset at seal.
+	 *
+	 * There is deliberately no per-TICK twin. The other two payload kinds have one because their
+	 * cost is per-frame and recurring; a program is created once and then referenced, so the
+	 * scene ledger is the standing bound and this is only about what one batch can carry.
+	 */
+	private int stagedProgramBytes;
 	private int writeBudgetBytes = V2Wire.MAX_WRITE_BYTES_PER_TICK;
 	private int manifestGen;
 	private final ArrayList<Delta> staged = new ArrayList<Delta>();
@@ -281,6 +289,142 @@ public final class ServerScene {
 	}
 
 	/**
+	 * Total OCSL program bytes one scene may hold, decided with the user 2026-08-17.
+	 *
+	 * Enforced HERE and not in DeltaApplier, for the reason {@link #MAX_NODES} states: this is
+	 * admission policy, and a decode-time cap the two sides could disagree about would turn a
+	 * legitimate batch into a permanent resync loop. Restores go through SnapshotCodec, so
+	 * lowering it can never brick a save — it only refuses new creates.
+	 *
+	 * A PROVISIONAL number, and its capacity must be stated against the BLOB CEILING, not against
+	 * example programs. The first sizing here quoted "a program charging the full op budget is
+	 * 1810 bytes, so ~145 maximal programs" — measured, and still wrong as a bound, because the op
+	 * cap does not bound bytes: the constant pool is charged by nothing on the accept path, so a
+	 * program charging 2 structural ops legally encodes to ~17 KiB (measured,
+	 * ProgramLedgerBoundTest), and the only real per-program byte bound is
+	 * {@code OcslWire.MAX_BLOB_BYTES} (64 KiB). Honest capacity: 4 ceiling-sized programs, ~15
+	 * pool-heavy ones, ~145 of the cheapest op-chain shape, ~1100 at the sizes committed programs
+	 * happen to be today — and per the user (2026-08-18), today's examples must NOT be read as a
+	 * bound on what real programs will weigh. REVISIT AT ANIM-16, with the per-program sizes 3.3's
+	 * evaluation overlay will report from real scenes; raising this is free (admission policy,
+	 * monotonic), which is why holding a data-free 256 KiB now beats guessing a bigger number.
+	 *
+	 * The COUNT dimension is bounded through the envelope floor (17 bytes; a program that
+	 * VALIDATES measures >= 41), so this ledger admits ~15k programs at most against
+	 * {@code SnapshotCodec.MAX_ENTRIES} of 65536 — the margin that stops the server producing a
+	 * snapshot every client refuses, which is the silent-desync failure MAX_DELTAS was lowered to
+	 * close. The per-BATCH byte dimension needs its own bound and has one:
+	 * {@link V2Wire#MAX_PROGRAM_BYTES_PER_BATCH}. {@code ProgramLedgerBoundTest} pins all three
+	 * relationships, so moving any constant past a crossing fails there rather than in a save.
+	 *
+	 * A restore does NOT re-check this ledger, deliberately: a save written under a larger value
+	 * must reload after the value shrinks, same stance as MAX_NODES. An over-budget restored scene
+	 * simply refuses new creates until frees bring it under.
+	 */
+	public static final int MAX_PROGRAM_BYTES = 256 * 1024;
+
+	/** Program bytes this scene currently holds; the ledger's running total. */
+	public long programBytes() {
+		long total = 0;
+		for (ProgramInfo p : state.programs.values()) {
+			total += p.sizeBytes;
+		}
+		return total;
+	}
+
+	/** Program bytes still admissible. Clamped at zero, like every other *Remaining here: a
+	 * restore of a save written under a larger ledger can legally hold more than the current cap,
+	 * and a caller pacing itself must read "no room", not a negative number. */
+	public long programBudgetRemaining() {
+		return Math.max(0L, MAX_PROGRAM_BYTES - programBytes());
+	}
+
+	/**
+	 * Validate a program blob and store it on the scene, returning its id.
+	 *
+	 * ADMISSION IS CHARGED BEFORE THE WORK, which is the whole shape of this method. The blob's
+	 * LENGTH is known without parsing anything, and the expensive part — decode plus validate, an
+	 * unroll-bounded walk over up to 4096 ops — happens only for a blob the ledger would accept.
+	 * The reverse order is the admission-after-work defect {@code canvasSubmit} shipped on
+	 * 2026-08-03 (decoded up to ~65,500 command objects before consulting the tick allowance,
+	 * with a costless-refusal twin beside it — both documented at that callback).
+	 *
+	 * @throws IllegalStateException if the scene's program ledger cannot fit the blob
+	 * @throws IllegalArgumentException if the blob is malformed or fails validation; the message
+	 *         is the codec's or validator's own and is meant to reach the author
+	 */
+	public int createProgram(byte[] blob) {
+		if (blob == null || blob.length == 0)
+			throw new IllegalArgumentException("Program bytes required");
+		// The codec ceiling first: it is the cheaper refusal and it bounds what the ledger check
+		// below can even be asked about.
+		if (blob.length > opengpu.v2.ocsl.OcslWire.MAX_BLOB_BYTES)
+			throw new IllegalArgumentException("Program blob is " + blob.length
+					+ " bytes, over the " + opengpu.v2.ocsl.OcslWire.MAX_BLOB_BYTES + " ceiling");
+		// THE ADMISSION GATE. Long arithmetic: the running total is a long precisely so a scene
+		// near the cap cannot wrap an int sum negative and read as having room.
+		if (programBytes() + (long) blob.length > MAX_PROGRAM_BYTES)
+			throw new IllegalStateException("Scene program budget exhausted ("
+					+ MAX_PROGRAM_BYTES + " bytes); free a program first");
+		// The BATCH bound, which the ledger above does not imply: freeProgram returns ledger bytes
+		// but does not un-stage the delta that put them there, so a create/free loop within one
+		// tick stages unbounded blob bytes while programBytes() stays at one program. Without
+		// this the server can build a batch past the decoder's ceiling and every mirror refuses
+		// it whole — see V2Wire.MAX_PROGRAM_BYTES_PER_BATCH.
+		if (stagedProgramBytes + (long) blob.length > V2Wire.MAX_PROGRAM_BYTES_PER_BATCH)
+			throw new IllegalStateException("Batch program payload exhausted ("
+					+ V2Wire.MAX_PROGRAM_BYTES_PER_BATCH + " bytes); it refills next tick");
+		if (state.nextProgramId == Integer.MAX_VALUE)
+			throw new IllegalStateException("Scene program id space exhausted; recreate the scene");
+
+		opengpu.v2.ocsl.IrProgram program;
+		opengpu.v2.ocsl.IrValidator.Validated validated;
+		try {
+			// TRANSIENT: this blob came from a caller in memory, not off a disk. The persisted
+			// path is SnapshotCodec's, and it stores bytes rather than decoding them.
+			program = opengpu.v2.ocsl.IrCodec.decode(blob,
+					opengpu.v2.ocsl.IrCodec.Source.TRANSIENT);
+			validated = opengpu.v2.ocsl.IrValidator.validate(program);
+		} catch (opengpu.v2.protocol.CodecException e) {
+			throw new IllegalArgumentException(e.getMessage(), e);
+		} catch (opengpu.v2.ocsl.ValidationException e) {
+			throw new IllegalArgumentException(e.getMessage(), e);
+		}
+		// Narrowing is safe BECAUSE validate() returned: the charge is a long only so the
+		// validator can detect an unroll product overflowing on the way to this cap, and anything
+		// above MAX_STRUCTURAL_OPS (256) threw above. Asserted rather than assumed, because the
+		// value crosses into an int field and a future cap raise is planned work (ANIM-16).
+		if (validated.structuralOps < 0
+				|| validated.structuralOps > opengpu.v2.ocsl.IrValidator.MAX_STRUCTURAL_OPS)
+			throw new IllegalStateException("Validator returned an out-of-range structural charge "
+					+ validated.structuralOps + "; it should have refused the program");
+
+		int id = state.nextProgramId++;
+		applyAndStage(new Delta.ProgramCreate(id, program.stage,
+				(int) validated.structuralOps, blob));
+		stagedProgramBytes += blob.length;
+		return id;
+	}
+
+	/**
+	 * Drop a program and release its ledger bytes.
+	 *
+	 * Programs OUTLIVE the Lua program that created them, exactly as canvases do — server-side
+	 * scene state. Without this, an ordinary create-on-startup script exhausts the ledger after
+	 * hundreds to thousands of reboots (the count depends entirely on program size, which today's
+	 * examples do not bound) with no recovery short of replacing the GPU block — the leak
+	 * `ingame/vramreclaim.lua` exists to mop up on the resource side. Unlike that side, the ids
+	 * are also ENUMERABLE from Lua (the `programs` callback), so recovery does not need a
+	 * brute-force id sweep. Ids are never reused, so a freed id stays dead rather than returning
+	 * attached to different code.
+	 */
+	public void freeProgram(int programId) {
+		if (!state.programs.containsKey(Integer.valueOf(programId)))
+			throw new IllegalStateException("Freeing unknown program " + programId);
+		applyAndStage(new Delta.ProgramFree(programId));
+	}
+
+	/**
 	 * {@code parent} is 0 for none. It is fixed here and never afterwards — see
 	 * {@link SceneNode#parent} for why re-parenting is not offered.
 	 *
@@ -517,6 +661,7 @@ public final class ServerScene {
 		staged.clear();
 		stagedWriteBytes = 0;
 		stagedSubmitBytes = 0;
+		stagedProgramBytes = 0;
 		return batch;
 	}
 

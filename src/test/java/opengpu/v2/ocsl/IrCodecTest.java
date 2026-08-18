@@ -36,7 +36,9 @@ public class IrCodecTest {
 
 	@Test
 	public void theAbsoluteOutputFormRoundTripsAndCarriesOutsShape() throws Exception {
-		// ANIM-7's opcode, added while FORMAT_VERSION is 0 and no blob exists. IrCodec has no
+		// ANIM-7's opcode, added 2026-08-13 while FORMAT_VERSION was still 0 and no blob existed —
+		// that window closed with the 3.1 freeze, so a further output form now needs a version
+		// bump and a migration rather than just a shape row. IrCodec has no
 		// OP_OUT reference at all and dispatches through shapeOf, so "does it round-trip" is really
 		// "is the shape row registered" -- and a missing shape() call is the failure that would
 		// otherwise surface much later as a decoder refusing its own encoder's output.
@@ -299,17 +301,49 @@ public class IrCodecTest {
 		}
 	}
 
+	/**
+	 * RE-AIMED 2026-08-18, when Phase 3.1 opened persistence and FORMAT_VERSION froze at 1.
+	 *
+	 * The asymmetry this used to assert is gone by design: a format-0 blob is now refused from
+	 * EVERY source, because 0 is a past version rather than the current one. Left as written, the
+	 * test would have failed on its first line — a current blob is now legal from a save, which is
+	 * the entire point of the freeze.
+	 *
+	 * What survives is worth keeping and is what this now pins: a pre-release blob found in a save
+	 * gets the SPECIFIC diagnosis, not the generic version mismatch. That depends on the two checks
+	 * being in the right ORDER in the decoder, and nothing else would notice if they were swapped —
+	 * both orders refuse, only the message differs.
+	 */
 	@Test
-	public void refusesAPreReleaseBlobReadBackFromASave() throws Exception {
-		byte[] blob = enc(trivial());
-		// The same bytes are fine in memory and refused from a save. That asymmetry IS the gate:
-		// Stage B ships no program surface, so nothing should have persisted one.
-		assertNotNull(IrCodec.decode(blob, IrCodec.Source.TRANSIENT));
+	public void aPreReleaseBlobFromASaveGetsTheSpecificDiagnosisNotTheGenericOne() throws Exception {
+		byte[] current = enc(trivial());
+		assertNotNull("a CURRENT blob must be readable from a save now that programs persist",
+				IrCodec.decode(current, IrCodec.Source.PERSISTED));
+
+		// Hand-craft the pre-release envelope: same bytes, version short forced back to 0.
+		byte[] preRelease = enc(trivial());
+		preRelease[4] = 0;
+		preRelease[5] = 0;
+
 		try {
-			IrCodec.decode(blob, IrCodec.Source.PERSISTED);
+			IrCodec.decode(preRelease, IrCodec.Source.PERSISTED);
 			fail("a format-0 blob must not be accepted from a world save");
 		} catch (CodecException e) {
-			assertTrue(e.getMessage(), e.getMessage().contains("pre-release"));
+			assertTrue("expected the pre-release explanation, got: " + e.getMessage(),
+					e.getMessage().contains("pre-release"));
+			// The exclusion: the generic refusal also fires on these bytes and also contains the
+			// word "format", so asserting on that would pass with the checks in either order.
+			assertTrue("this is the GENERIC message; the specific check must run first: "
+					+ e.getMessage(), !e.getMessage().contains("this build reads"));
+		}
+		// And off the wire the same bytes get the ordinary version refusal, since there is no
+		// save to explain.
+		try {
+			IrCodec.decode(preRelease, IrCodec.Source.TRANSIENT);
+			fail("a format-0 blob is not this build's format from any source");
+		} catch (CodecException e) {
+			assertTrue("expected the version refusal, got: " + e.getMessage(),
+					e.getMessage().contains("this build reads"));
 		}
 	}
 

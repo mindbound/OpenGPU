@@ -74,6 +74,10 @@ public class SnapshotCanvasCapBoundTest {
 			out.writeByte(V2Wire.OP_FILL); // zero arity: one byte per command
 		}
 		out.writeInt(0);    // no nodes
+		// v6 program section: this fixture is written at PROTOCOL_VERSION, so it must carry
+		// every field that version defines. Empty, since the cap under test is the canvas's.
+		out.writeInt(1);    // nextProgramId
+		out.writeInt(0);    // no programs
 		out.flush();
 		return bytes.toByteArray();
 	}

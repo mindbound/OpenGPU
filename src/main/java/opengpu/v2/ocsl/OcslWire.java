@@ -8,11 +8,13 @@ package opengpu.v2.ocsl;
  * file the security boundary's vocabulary: every id is an explicit constant, nothing depends on
  * enum ordinals or declaration order, and the decoder rejects anything it does not recognize.
  *
- * FORMAT VERSION 0 MEANS PRE-RELEASE, AND THAT IS LOAD-BEARING RIGHT NOW. Stage B builds the
- * language skeleton with no player-reachable surface, so no blob may reach a world save yet; the
- * decoder enforces that by refusing format 0 from a persisted source (see
- * {@link IrCodec#decode(byte[], Source)}). When the first surface ships, the version moves to 1
- * in the same change that opens persistence.
+ * FORMAT VERSION 1 IS FROZEN, since 2026-08-18. Version 0 meant pre-release, and while it held,
+ * no blob could reach a world save — that is what made every id below free to renumber. Phase 3.1
+ * opened the {@code createProgram} surface and began persisting blobs, so the window shut in the
+ * same change, exactly as {@link IrCodec.Source} said it would. Every opcode id, shape row and
+ * register block is now format identity: changing one is a version bump plus a migration for
+ * stored blobs. Adding a NEW id at the end remains free, and so does raising a validator cap —
+ * acceptance policy is not layout.
  */
 public final class OcslWire {
 	private OcslWire() {}
@@ -21,10 +23,23 @@ public final class OcslWire {
 	public static final int MAGIC = 0x4F43534C;
 
 	/**
-	 * Pre-release. Refused by the decoder on the persisted path, so "the format freeze moved to
-	 * the first shipped surface" is enforced behaviour rather than a note in a roadmap.
+	 * FROZEN 0 -> 1 on 2026-08-18, by Phase 3.1 — the change that opened persistence, which is
+	 * exactly the trigger {@link IrCodec.Source} had been carrying since the format was drawn.
+	 *
+	 * The pre-release window is closed. Until this bump, no blob could reach a world save (there
+	 * was no surface that made one), which is what let the opcode table and
+	 * {@link SurfaceTable}'s register blocks be renumbered for free — {@code SurfaceTable}'s
+	 * widening note relies on that in as many words. 3.1 ships {@code createProgram} and writes
+	 * program blobs into the snapshot section that {@code ScenePersistence} persists, so from
+	 * this version on BOTH are format identity: renumbering a register or changing an op's shape
+	 * needs a version bump and a migration, not a comment saying it is still free.
+	 *
+	 * Raising a VALIDATOR cap is unaffected and stays a non-event — {@code IrValidator}'s caps are
+	 * monotonic acceptance policy, not layout. That distinction is the whole reason the two live
+	 * in different classes, and it is what keeps ANIM-16's op-cap raise a Phase 4 decision rather
+	 * than a format break.
 	 */
-	public static final short FORMAT_VERSION = 0;
+	public static final short FORMAT_VERSION = 1;
 
 	/** Closes the payload; a blob whose ops decode but whose tail is wrong is truncated or lying. */
 	public static final short TRAILING_GUARD = 0x0C51;
@@ -188,8 +203,10 @@ public final class OcslWire {
 	 * {@link SurfaceTable#composesOutputs} holds; everywhere else "absolute" names no distinction,
 	 * because the program's output IS the value.
 	 *
-	 * Added while {@code FORMAT_VERSION} is 0 and no blob exists, which is the only window in which
-	 * an output form costs a shape row rather than a migration.
+	 * Added 2026-08-13, while {@code FORMAT_VERSION} was still 0 and no blob existed — the only
+	 * window in which a new OUTPUT FORM cost a shape row rather than a migration, since it changes
+	 * what an existing op means rather than appending to the table. That window closed with the
+	 * 3.1 freeze; a further output form now needs a version bump.
 	 */
 	public static final byte OP_OUT_ABS = 81;
 

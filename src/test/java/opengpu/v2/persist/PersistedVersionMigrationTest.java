@@ -224,6 +224,39 @@ public class PersistedVersionMigrationTest {
 			return this;
 		}
 
+		/**
+		 * The v6 program SECTION: next-id, then a count, then that many records. A NEW writer
+		 * rather than an edit to any above, for the reason {@link #node} states — a fixture that
+		 * tracks the current layout stops describing the version it is named for, and these
+		 * fixtures are the only executable record of what each old world holds on disk.
+		 *
+		 * Empty is the interesting case for the version-gate tests: a v6 scene that has no
+		 * programs still writes the two ints, and a decoder that skipped them would land on the
+		 * trailing-data guard rather than EOF. (The first draft wrote only the header while its
+		 * comment claimed to be "parameterised so the first program-carrying fixture does not
+		 * need a second writer" — with count > 0 it produced a truncated fixture. Review caught
+		 * the sentence; now the records exist.)
+		 */
+		StructureWriter programsV6(int nextProgramId, int count) throws IOException {
+			out.writeInt(nextProgramId);
+			out.writeInt(count);
+			for (int i = 0; i < count; i++) {
+				programRecordV6(1 + i, (byte) 1, 1, new byte[] { (byte) (0x40 + i) });
+			}
+			return this;
+		}
+
+		/** One hand-written program record, field order the layout comment's: id, stage, charge, length, blob. */
+		StructureWriter programRecordV6(int id, byte stage, int structuralOps, byte[] blob)
+				throws IOException {
+			out.writeInt(id);
+			out.writeByte(stage);
+			out.writeInt(structuralOps);
+			out.writeInt(blob.length);
+			out.write(blob);
+			return this;
+		}
+
 		byte[] done() throws IOException {
 			out.flush();
 			return bytes.toByteArray();
@@ -248,6 +281,13 @@ public class PersistedVersionMigrationTest {
 		} else {
 			w.node(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF)
 					.node(2, V2Wire.NODE_SPRITE, TEX_ID, 3.5, -1.25, 2, 0x80FF00FF);
+		}
+		// The v6 TAIL SECTION, chosen by version for the same reason the node record is: a
+		// fixture must carry exactly what its version defines, no more and no less. A v5 sample
+		// with this section would not be a v5 save, and appendedBytesAreRejectedNeverIgnored
+		// would then be proving the guard against a fixture that is already malformed.
+		if (version >= 6) {
+			w.programsV6(1, 0);
 		}
 		return w.done();
 	}
@@ -379,6 +419,7 @@ public class PersistedVersionMigrationTest {
 				.nodeV5(4, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 9)   // ...but 9 is above 4
 				.nodeV5(5, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 2)   // 2 is already a child
 				.nodeV5(10, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7); // 7 was never written
+		w.programsV6(1, 0); // v6 section: this fixture is pinned to PROTOCOL_VERSION
 
 		SceneSnapshot snap = SnapshotCodec.decodePersisted(w.done());
 
@@ -412,6 +453,7 @@ public class PersistedVersionMigrationTest {
 		w.nodes(2)
 				.nodeV5(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0)
 				.nodeV5(2, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7); // 7 is above 2
+		w.programsV6(1, 0); // v6 section: this fixture is pinned to PROTOCOL_VERSION
 		byte[] blob = w.done();
 
 		assertEquals("the save must degrade rather than refuse",
@@ -659,6 +701,76 @@ public class PersistedVersionMigrationTest {
 		}
 	}
 
+	/**
+	 * A HAND-WRITTEN v6 fixture carrying a full program record, decoded and checked field by
+	 * field. The ProgramStorageTest round trip is encoder-against-its-own-decoder, so a
+	 * symmetric mistake — both sides writing length before structuralOps, say — round-trips
+	 * clean there and only a fixture whose bytes were laid down independently can catch it.
+	 */
+	@Test
+	public void aHandWrittenV6ProgramRecordDecodesFieldForField() throws Exception {
+		byte[] blob = new byte[] { 0x11, 0x22, 0x33, 0x44, 0x55 };
+		StructureWriter w = new StructureWriter((short) 6, "gpu-addr", EPOCH, 7, 900L, 2, 2);
+		w.resources(0);
+		w.nodes(0);
+		w.out.writeInt(9);   // nextProgramId — FIRST field of the section, before the count
+		w.out.writeInt(1);   // one record
+		w.programRecordV6(4, opengpu.v2.ocsl.OcslWire.STAGE_PIXEL_POST, 37, blob);
+
+		SceneSnapshot decoded = SnapshotCodec.decodePersisted(w.done());
+		assertEquals(9, decoded.state.nextProgramId);
+		assertEquals(1, decoded.state.programs.size());
+		opengpu.v2.scene.ProgramInfo p = decoded.state.programs.get(Integer.valueOf(4));
+		assertEquals("id read from the record, not the map key alone", 4, p.id);
+		assertEquals("stage and charge must land in their own fields — a swapped pair is the"
+				+ " defect only an independent fixture can see",
+				opengpu.v2.ocsl.OcslWire.STAGE_PIXEL_POST, p.stage);
+		assertEquals(37, p.structuralOps);
+		assertTrue(java.util.Arrays.equals(blob, p.blobCopy()));
+	}
+
+	/**
+	 * The persisted decoder's per-record refusals, driven with records no OpenGPU encoder can
+	 * write. These bounds were added to match the batch decoder's, and the fix-round sweep proved
+	 * the valid-record test above cannot see them (removing the stage check survived it): only a
+	 * fixture carrying the ILLEGAL value exercises a refusal.
+	 */
+	@Test
+	public void corruptV6ProgramRecordsAreRefusedNotAbsorbed() throws Exception {
+		// [description, id, stage, structuralOps, blobLen] — blob bytes are filler of blobLen.
+		Object[][] bad = {
+				{ "unknown stage", 1, (byte) 99, 1, 4, "Unknown program stage" },
+				{ "id zero", 0, opengpu.v2.ocsl.OcslWire.STAGE_PIXEL_POST, 1, 4,
+						"Program id" },
+				{ "id MAX_VALUE", Integer.MAX_VALUE, opengpu.v2.ocsl.OcslWire.STAGE_PIXEL_POST,
+						1, 4, "Program id" },
+				{ "negative charge", 1, opengpu.v2.ocsl.OcslWire.STAGE_PIXEL_POST, -1, 4,
+						"structural charge" },
+				{ "charge over the acceptance cap", 1, opengpu.v2.ocsl.OcslWire.STAGE_PIXEL_POST,
+						opengpu.v2.ocsl.IrValidator.MAX_STRUCTURAL_OPS + 1, 4,
+						"structural charge" },
+				{ "zero-length blob", 1, opengpu.v2.ocsl.OcslWire.STAGE_PIXEL_POST, 1, 0,
+						"blob length" },
+		};
+		for (Object[] row : bad) {
+			StructureWriter w = new StructureWriter((short) 6, "gpu-addr", EPOCH, 7, 900L, 2, 2);
+			w.resources(0);
+			w.nodes(0);
+			w.out.writeInt(Integer.MAX_VALUE - 1); // a counter above any of the crafted ids
+			w.out.writeInt(1);
+			w.programRecordV6((Integer) row[1], (Byte) row[2], (Integer) row[3],
+					new byte[(Integer) row[4]]);
+			try {
+				SnapshotCodec.decodePersisted(w.done());
+				fail("a corrupt program record (" + row[0] + ") decoded anyway");
+			} catch (CodecException expected) {
+				assertTrue(row[0] + ": expected a refusal naming '" + row[5] + "', got: "
+						+ expected.getMessage(),
+						expected.getMessage().contains((String) row[5]));
+			}
+		}
+	}
+
 	/** Width of the real node record minus the deliberately-narrowed one. Must stay 4. */
 	private static int nodeRecordWidthDelta() throws IOException {
 		StructureWriter full = new StructureWriter(V3, "s", EPOCH, 1, 0L, 2, 2);
@@ -676,7 +788,64 @@ public class PersistedVersionMigrationTest {
 	 * every in-game load works. It only appears on a world written by the PREVIOUS build, which
 	 * nothing in CI has. This fails the moment PROTOCOL_VERSION moves, next to the instructions.
 	 */
-	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 5;
+	/**
+	 * A v5 structure: everything v4 wrote plus `parent`, and NO program section — which is
+	 * exactly what every world saved before the 5 -> 6 bump holds on disk. Pinned to a LITERAL
+	 * 5, never to PROTOCOL_VERSION, for the reason this file states throughout: a fixture that
+	 * tracks the current version stops describing the version it is named for.
+	 */
+	private static byte[] v5Structure() throws IOException {
+		final int canvasId = 1;
+		StructureWriter w = new StructureWriter((short) 5, "gpu-addr", EPOCH, 7, 900L, 2, 3);
+		// canvasWithContent writes its own three-command list; there is no separate commands()
+		// step and no canvas() overload. Read from the writer above rather than assumed.
+		w.resources(1)
+				.canvasWithContent(canvasId, 64, 32, 16);
+		w.nodes(2)
+				.nodeV5(1, V2Wire.NODE_CANVAS, canvasId, 0, 0, 0, 0xFFFFFFFF, 0)
+				.nodeV5(2, V2Wire.NODE_GROUP, 0, 1.5, -2.5, 3, 0x80FF00FF, 1);
+		return w.done();
+	}
+
+	/**
+	 * THE 5 -> 6 BUMP'S OBLIGATION, discharged: a v5 save must still load after the program
+	 * section was appended. Driven through BOTH paths the checklist names, because they fail
+	 * differently — the codec throws, while restoreOrFresh answers a throw by DELETING the
+	 * scene's stored bodies, so a decoder regression here costs worlds their textures rather
+	 * than raising an error anyone sees.
+	 */
+	@Test
+	public void aV5StructureStillDecodesAndRestoresAfterTheProgramSectionWasAppended()
+			throws Exception {
+		byte[] structure = v5Structure();
+
+		// (a) the codec path: read at its own width by the version >= 6 gate, landing flush on
+		// the trailing-data guard rather than consuming it.
+		SceneSnapshot decoded = SnapshotCodec.decodePersisted(structure);
+		assertEquals("a v5 scene restores its nodes", 2, decoded.state.nodes.size());
+		assertEquals("and its resources", 1, decoded.state.resources.size());
+		assertTrue("a v5 world has no programs, and must not acquire phantom ones",
+				decoded.state.programs.isEmpty());
+		// The wrong answer written in: a decoder that skipped the gate would either throw
+		// (truncation) or invent a program table from the trailing-guard bytes. Both are
+		// excluded by asserting the table is EMPTY rather than merely small. (The counter line
+		// below is honest about its weight: SceneState initialises nextProgramId to 1, so it
+		// passes via the field initialiser and only the isEmpty assertion above discriminates.)
+		assertEquals("the program counter starts fresh for a pre-program world",
+				1, decoded.state.nextProgramId);
+
+		// (b) the restore path, which is the one that deletes bodies on failure.
+		// The store this class already sets up in @Before, not a hand-rolled one: the restore
+		// path's failure mode is deleting stored bodies, so it must be exercised against the
+		// same kind of store the real path uses.
+		ScenePersistence.RestoreResult result = ScenePersistence.restore(structure, store);
+		assertEquals("restore agrees with the codec on node count",
+				2, result.scene.state().nodes.size());
+		assertTrue("restore must not fabricate programs either",
+				result.scene.state().programs.isEmpty());
+	}
+
+	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 6;
 
 	@Test
 	public void aProtocolBumpMustDecideWhatHappensToTheOutgoingFormat() {

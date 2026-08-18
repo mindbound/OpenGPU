@@ -935,4 +935,79 @@ public class OcslBuilderTest {
 			assertEquals("lane " + i, 0.5f, out[i], 0f);
 		}
 	}
+
+	/**
+	 * THE SIZING ARITHMETIC BEHIND 3.1's STORAGE DECISION, measured at the ACCEPTANCE CEILING.
+	 *
+	 * Programs are stored INLINE in the scene snapshot under a per-scene byte ledger. Two caps
+	 * are easy to confuse and the first draft of this test confused them:
+	 *
+	 *   OcslWire.MAX_OPS = 4096          the CODEC's structural wire bound
+	 *   IrValidator.MAX_STRUCTURAL_OPS = 256   what a program may actually CHARGE
+	 *
+	 * The validator's is the one that binds acceptance (its caps are policy, raiseable under
+	 * monotonicity; the codec's are format identity — IrCodec's class contrast), so sizing the
+	 * ledger off 4096 overstated this shape ~16x. NOTE what this test does NOT establish: the
+	 * op cap does not bound BYTES — the constant pool is uncharged, so the byte-maximal program
+	 * is pool-heavy, not op-heavy; ProgramLedgerBoundTest measures that axis. An earlier draft
+	 * here also misquoted IrValidator ("refuses anything the 4096 wire bound would") as being
+	 * about this pair — that sentence is OP_FOR's, about MAX_LOOP_TRIPS vs MAX_UNROLL_PRODUCT,
+	 * which merely share the numbers.
+	 *
+	 * This builds the largest program of THE CHEAPEST BYTES-PER-OP SHAPE and measures its blob.
+	 * If MAX_STRUCTURAL_OPS or MAX_FRAME_WIDTH is ever raised (ANIM-16), this number moves and
+	 * the ledger's arithmetic must be re-derived, not assumed.
+	 */
+	@Test
+	public void aProgramAtTheAcceptanceCeilingEncodesWithinTheLedgersArithmetic() throws Exception {
+		IrProgram program = largestVec4ChainProgram();
+		byte[] encoded = IrCodec.encode(program);
+		long charge = IrValidator.validate(program).structuralOps;
+		System.out.println("[program size] at acceptance ceiling = " + encoded.length + " bytes ("
+				+ program.ops().size() + " static ops, " + charge + " structural)");
+
+		// THE ASSERTION THIS TEST EXISTED WITHOUT. The charge was only PRINTED, so nothing pinned
+		// what this program actually costs, and three documents went on to call 1810 bytes "the
+		// acceptance ceiling".
+		//
+		// It is not the OP cap that binds this shape — it is the FRAME. Each vec4 ADD allocates a
+		// vec4 working register, so 4 floats per charged op against SurfaceTable.MAX_FRAME_WIDTH
+		// of 1024 runs out at 253, three short of MAX_STRUCTURAL_OPS. Pushing the loop to
+		// MAX_STRUCTURAL_OPS - 1 does not produce a bigger program, it produces a BuildException
+		// ("lays out a frame of 1028 floats"). So 253 is this shape's real maximum and the honest
+		// label; a scalar chain would reach further on ops and be smaller in bytes.
+		assertEquals("the vec4 chain's charge is frame-bound at 253, not op-bound at 256 — if this"
+				+ " moved, MAX_FRAME_WIDTH or the per-op register width changed and every size"
+				+ " derived from this program needs recomputing",
+				253L, charge);
+
+		// Two-sided, because a one-sided ceiling admits an encoder that dropped the op records.
+		// 256 charged ops at ~7 B/op is ~1.8 KiB; a floor of 5 B/op catches a truncating encoder
+		// while leaving room for the shape table to change.
+		assertTrue("a ceiling program encodes to only " + encoded.length + " bytes, which is below"
+				+ " what " + IrValidator.MAX_STRUCTURAL_OPS + " op records can occupy — the encoder"
+				+ " is dropping something", encoded.length > 5 * IrValidator.MAX_STRUCTURAL_OPS);
+		assertTrue("a ceiling program encodes to " + encoded.length
+				+ " bytes; the ledger's arithmetic assumed a few KiB", encoded.length < 8192);
+	}
+
+	/**
+	 * The largest vec4 ADD chain that validates: 252 adds + one OUT = 253 charged ops.
+	 *
+	 * Constants cost no op and each ADD charges one, so the OP cap would allow 255 adds — but each
+	 * allocates a vec4 working register, and 4 floats x 256 exceeds
+	 * {@link SurfaceTable#MAX_FRAME_WIDTH} (1024). The frame is what binds this shape. Named for
+	 * the shape rather than for "the ceiling", because it is not the largest program the validator
+	 * accepts in BYTES — see ProgramLedgerBoundTest, where a two-op program with a full constant
+	 * pool is an order of magnitude larger.
+	 */
+	static IrProgram largestVec4ChainProgram() {
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_PIXEL_POST);
+		Expr acc = b.constant(0f, 0f, 0f, 1f);
+		for (int i = 0; i < IrValidator.MAX_STRUCTURAL_OPS - 4; i++) {
+			acc = acc.add(b.f(1.0f));
+		}
+		b.out(OcslWire.PROP_COLOR, acc);
+		return b.build();
+	}
 }

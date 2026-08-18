@@ -33,17 +33,23 @@ public final class IrCodec {
 	/**
 	 * Where a blob came from, because the answer changes what is legal.
 	 *
-	 * THIS IS THE FORMAT-0 GATE. Stage B builds the language skeleton with no player-reachable
-	 * surface, so the decision of record is that no program blob reaches a world save yet — and a
-	 * decision that is only written down is one this repo has crossed silently three times. Any
-	 * path that reads a persisted program must say {@link #PERSISTED}, and a pre-release blob
-	 * arriving that way is refused. When the first surface ships, {@link OcslWire#FORMAT_VERSION}
-	 * moves to 1 in the same change that opens persistence, and this gate stops firing on its own.
+	 * THIS WAS THE FORMAT-0 GATE, and 3.1 fired it as designed: persistence opened,
+	 * {@link OcslWire#FORMAT_VERSION} moved 0 -> 1 in the same change, and a pre-release blob is
+	 * now refused from EVERY source by the ordinary version check.
+	 *
+	 * The distinction is kept for the reason that outlives the freeze: it is the hook every
+	 * FUTURE migration needs. Format v1 read from a v2-era save is a legitimate upgrade, while
+	 * the same bytes off the wire from a v2 peer are a version mismatch, and those two want
+	 * different answers. Deleting the parameter now would mean reintroducing it then, at the
+	 * point where the call sites are hardest to audit. (The format-0-in-a-save diagnosis below is
+	 * defence in depth, not a live case: no pre-freeze build had a caller of {@code encode} in
+	 * main code, so no world save can actually hold a format-0 blob — a first draft here claimed
+	 * one could, and review refuted it from the call graph.)
 	 */
 	public enum Source {
-		/** Built in memory or received on the wire. Pre-release blobs are fine here. */
+		/** Built in memory or received on the wire. */
 		TRANSIENT,
-		/** Read back from a world save. Pre-release blobs are refused. */
+		/** Read back from a world save. Pre-release (format 0) blobs get the explanatory refusal. */
 		PERSISTED
 	}
 
@@ -181,18 +187,24 @@ public final class IrCodec {
 						+ Integer.toHexString(magic) + ")");
 			}
 			short version = in.readShort();
+			// ORDER MATTERS, and it changed when FORMAT_VERSION froze at 1 (3.1). While the
+			// format was 0 this check sat SECOND and the generic one first, which was fine
+			// because a format-0 blob was the current format and reached here. Now that 0 is a
+			// past version, the generic check below would swallow every pre-release blob and
+			// answer with "declares v0; this build reads v1" — true, and useless to someone
+			// holding a world save from before the freeze. Specific diagnosis first.
+			if (source == Source.PERSISTED && version == 0) {
+				throw new CodecException("Refusing a pre-release (format 0) program blob read from"
+						+ " a world save. No OpenGPU build ever shipped a surface that could create"
+						+ " one, so this blob was not written by a released version; the format"
+						+ " froze at 1 when Phase 3.1 opened persistence. Delete the scene's stored"
+						+ " structure rather than trying to migrate it.");
+			}
 			if (version != OcslWire.FORMAT_VERSION) {
 				// Both directions are refused, and the message says which. Reading a blob from
 				// the FUTURE is the case that has to fail loudly rather than be guessed at.
 				throw new CodecException("Program declares IR format v" + version
 						+ "; this build reads v" + OcslWire.FORMAT_VERSION);
-			}
-			if (source == Source.PERSISTED && version == 0) {
-				throw new CodecException("Refusing a pre-release (format 0) program blob read from"
-						+ " a world save. Stage B ships no program surface, so nothing should have"
-						+ " persisted one; see docs/dev/DESIGN-RENDERER-V2.md, the animator dry"
-						+ " run's scope decision. The format version moves to 1 in the same change"
-						+ " that opens persistence.");
 			}
 
 			byte stage = in.readByte();

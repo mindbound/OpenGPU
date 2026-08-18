@@ -16,8 +16,15 @@ import java.util.TreeMap;
 public final class SceneState {
 	public final TreeMap<Integer, ResourceInfo> resources = new TreeMap<Integer, ResourceInfo>();
 	public final TreeMap<Integer, SceneNode> nodes = new TreeMap<Integer, SceneNode>();
+	/**
+	 * OCSL programs, in their OWN table rather than as a resource type — see ProgramInfo for the
+	 * three reasons. Its own id space, so a program id and a texture id of the same value are
+	 * different objects and neither can be passed where the other is meant.
+	 */
+	public final TreeMap<Integer, ProgramInfo> programs = new TreeMap<Integer, ProgramInfo>();
 	public int nextResourceId = 1;
 	public int nextNodeId = 1;
+	public int nextProgramId = 1;
 
 	/** Structure only: no texture bytes cloned. For snapshots, which strip them anyway. */
 	public SceneState copyStructure() {
@@ -31,8 +38,13 @@ public final class SceneState {
 		for (Map.Entry<Integer, SceneNode> e : nodes.entrySet()) {
 			s.nodes.put(e.getKey(), e.getValue().copy());
 		}
+		// Programs ride the STRUCTURE, like canvas command lists and unlike texture bytes: they
+		// are small, immutable and inline in the snapshot (DESIGN, "Program storage"), so a
+		// structure copy that dropped them would produce a snapshot a mirror cannot run.
+		s.programs.putAll(programs);
 		s.nextResourceId = nextResourceId;
 		s.nextNodeId = nextNodeId;
+		s.nextProgramId = nextProgramId;
 		return s;
 	}
 
@@ -78,8 +90,11 @@ public final class SceneState {
 		for (Map.Entry<Integer, SceneNode> e : nodes.entrySet()) {
 			s.nodes.put(e.getKey(), e.getValue().copy());
 		}
+		// ProgramInfo.copy() returns this: immutable, so sharing is the deep copy.
+		s.programs.putAll(programs);
 		s.nextResourceId = nextResourceId;
 		s.nextNodeId = nextNodeId;
+		s.nextProgramId = nextProgramId;
 		return s;
 	}
 
@@ -89,7 +104,8 @@ public final class SceneState {
 	 * after any batch sequence.
 	 */
 	public boolean contentEquals(SceneState other) {
-		if (resources.size() != other.resources.size() || nodes.size() != other.nodes.size())
+		if (resources.size() != other.resources.size() || nodes.size() != other.nodes.size()
+				|| programs.size() != other.programs.size())
 			return false;
 		for (Map.Entry<Integer, ResourceInfo> e : resources.entrySet()) {
 			ResourceInfo o = other.resources.get(e.getKey());
@@ -98,6 +114,13 @@ public final class SceneState {
 		}
 		for (Map.Entry<Integer, SceneNode> e : nodes.entrySet()) {
 			SceneNode o = other.nodes.get(e.getKey());
+			if (o == null || !e.getValue().contentEquals(o))
+				return false;
+		}
+		// Included because convergence is what this method certifies: a mirror missing a program
+		// the server holds renders a node with no animator and reports agreement.
+		for (Map.Entry<Integer, ProgramInfo> e : programs.entrySet()) {
+			ProgramInfo o = other.programs.get(e.getKey());
 			if (o == null || !e.getValue().contentEquals(o))
 				return false;
 		}

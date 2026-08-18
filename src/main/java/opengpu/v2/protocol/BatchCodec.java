@@ -152,6 +152,21 @@ public final class BatchCodec {
 			out.writeInt(t.h);
 			// No length prefix: w*h*4 is the single source of truth for the payload size.
 			out.write(t.pixels);
+		} else if (d instanceof Delta.ProgramCreate) {
+			Delta.ProgramCreate p = (Delta.ProgramCreate) d;
+			out.writeInt(p.programId);
+			out.writeByte(p.stage);
+			out.writeInt(p.structuralOps);
+			// Length-prefixed, unlike TextureWrite: a texture write's size is derivable from
+			// w*h*4, a program's is not derivable from anything in the header. blobCopy(), not
+			// the field: the blob is the delta's identity (equals reads it), so even the codec
+			// goes through the defensive accessor — one copy per encode, bounded by
+			// MAX_PROGRAM_BYTES_PER_BATCH.
+			byte[] blob = p.blobCopy();
+			out.writeInt(blob.length);
+			out.write(blob);
+		} else if (d instanceof Delta.ProgramFree) {
+			out.writeInt(((Delta.ProgramFree) d).programId);
 		} else if (d instanceof Delta.SceneProp) {
 			Delta.SceneProp s = (Delta.SceneProp) d;
 			out.writeInt(s.propId);
@@ -195,9 +210,10 @@ public final class BatchCodec {
 			if (count < 0 || count > V2Wire.MAX_DELTAS)
 				throw new CodecException("Delta count out of range: " + count);
 			ArrayList<Delta> deltas = new ArrayList<Delta>(Math.min(count, 4096));
-			int[] writeBytes = new int[1];
+				int[] writeBytes = new int[1];
+				int[] programBytes = new int[1];
 			for (int i = 0; i < count; i++) {
-				deltas.add(readDelta(in, writeBytes));
+					deltas.add(readDelta(in, writeBytes, programBytes));
 			}
 			if (in.read() != -1)
 				throw new CodecException("Trailing data after batch");
@@ -262,7 +278,8 @@ public final class BatchCodec {
 	 *                   in this batch; the per-tick aggregate cap is enforced against it so a
 	 *                   batch cannot smuggle unbounded pixel data past the per-call cap.
 	 */
-	private static Delta readDelta(DataInputStream in, int[] writeBytes) throws IOException, CodecException {
+	private static Delta readDelta(DataInputStream in, int[] writeBytes, int[] programBytes)
+			throws IOException, CodecException {
 		byte type = in.readByte();
 		switch (type) {
 			case V2Wire.DELTA_NODE_CREATE: {
@@ -342,6 +359,46 @@ public final class BatchCodec {
 				in.readFully(pixels);
 				return new Delta.TextureWrite(resId, version, x, y, w, h, pixels);
 			}
+			case V2Wire.DELTA_PROGRAM_CREATE: {
+				int programId = in.readInt();
+				byte stage = in.readByte();
+				int structuralOps = in.readInt();
+				int len = in.readInt();
+				// Everything validated BEFORE the allocation, the rule DELTA_TEX_WRITE states:
+				// a hostile header must not reserve memory it never intends to fill. The ceiling
+				// is the IR codec's own, so a length no legal program could reach dies here
+				// rather than inside the parse.
+				if (len < 1 || len > opengpu.v2.ocsl.OcslWire.MAX_BLOB_BYTES)
+					throw new CodecException("Program blob length out of range: " + len);
+				if (len > in.available())
+					throw new CodecException("Program blob exceeds remaining data");
+				// The charge is the SERVER's verdict and a mirror does not re-derive it, so the
+				// decoder is the only thing standing between a crafted number and whatever later
+				// reads it. Bound it by the acceptance cap that produced it.
+				if (structuralOps < 0 || structuralOps > opengpu.v2.ocsl.IrValidator.MAX_STRUCTURAL_OPS)
+					throw new CodecException("Program structural charge out of range: " + structuralOps);
+				if (!opengpu.v2.ocsl.OcslWire.isKnownStage(stage))
+					throw new CodecException("Unknown program stage " + (stage & 0xFF));
+				// The id is a raw int off the wire and DeltaApplier computes programId + 1 from
+				// it. At Integer.MAX_VALUE that wraps to MIN_VALUE, leaving nextProgramId below
+				// the table's own last key — the exact state SnapshotCodec.decode refuses a
+				// snapshot for, reached through a batch that nothing else would reject.
+				if (programId < 1 || programId == Integer.MAX_VALUE)
+					throw new CodecException("Program id out of range: " + programId);
+				// The per-batch aggregate, accumulated across the whole decode exactly as the
+				// texture-write bound is. The count cap and the per-blob cap are each enforced
+				// above, but their PRODUCT is what a receiver has to allocate, and 32768 deltas
+				// times a 64 KiB blob is three orders of magnitude past MAX_INFLATED_BYTES.
+				programBytes[0] += len;
+				if (programBytes[0] > V2Wire.MAX_PROGRAM_BYTES_PER_BATCH)
+					throw new CodecException("Batch program payload over the per-batch cap: "
+							+ programBytes[0]);
+				byte[] blob = new byte[len];
+				in.readFully(blob);
+				return new Delta.ProgramCreate(programId, stage, structuralOps, blob);
+			}
+			case V2Wire.DELTA_PROGRAM_FREE:
+				return new Delta.ProgramFree(in.readInt());
 			case V2Wire.DELTA_SCENE_PROP: {
 				int propId = in.readInt();
 				int len = in.readInt();

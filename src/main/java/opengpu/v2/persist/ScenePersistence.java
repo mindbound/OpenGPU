@@ -18,10 +18,11 @@ import opengpu.v2.scene.ServerScene;
  *
  * The persisted STRUCTURE format IS the snapshot wire format ({@link SnapshotCodec}): one
  * codec, two duties — epoch, seq, tick, id counters, resource manifests, canvas command
- * lists (restored through the canonical publish() path), and nodes; texture bytes
- * deliberately absent. Consequence: the persistence format is versioned by
- * PROTOCOL_VERSION; a protocol bump is also a save-migration point (acceptable pre-release;
- * revisit at format freeze).
+ * lists (restored through the canonical publish() path), nodes, and (v6) the OCSL program
+ * table, blobs inline; texture bytes deliberately absent. Consequence: the persistence
+ * format is versioned by PROTOCOL_VERSION; a protocol bump is also a save-migration point
+ * (the appended-section policy in SnapshotCodec is what keeps bumps cheap; note the OCSL
+ * blob format froze separately at 1 when v6 began persisting programs).
  *
  * Save flow (component layer, under the scene lock): call {@code SceneHost.saveBoundary()}
  * first — seal AND broadcast, never seal-and-discard (staged deltas are already applied to

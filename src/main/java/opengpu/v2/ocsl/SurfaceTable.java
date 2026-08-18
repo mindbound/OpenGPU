@@ -47,10 +47,15 @@ public final class SurfaceTable {
 	 * counterparts. The block had been sized before the amendment enumerated what had to go in it.
 	 *
 	 * So the built-in span is now 0..48 and the animator block 16..48. This moves `UNIFORM_BASE`
-	 * and `WORKING_BASE`, which renumbers every uniform and working register — a change that is
-	 * costless today and a format-version bump plus an NBT migration after the first surface ships,
-	 * because `FORMAT_VERSION` is 0 and {@link IrCodec} refuses format 0 from any persisted source.
-	 * There is no blob anywhere to invalidate. That window is the whole reason to do it now.
+	 * and `WORKING_BASE`, which renumbers every uniform and working register.
+	 *
+	 * THAT WINDOW IS NOW CLOSED — do not read the paragraph above as a standing licence. It was
+	 * costless because `FORMAT_VERSION` was 0 and no blob existed anywhere to invalidate; Phase 3.1
+	 * shipped {@code createProgram}, persisted program blobs in the snapshot's v6 section, and
+	 * froze the format at 1 on 2026-08-18. From here a renumbering of ANY block below is a format
+	 * break: it needs a `FORMAT_VERSION` bump and a migration for every stored blob, because a
+	 * saved program names its registers by these numbers. The reasoning is preserved because the
+	 * sizing argument it makes is still the right one; only its cost conclusion expired.
 	 *
 	 * The uniform block keeps its 64 slots. The working span drops 416 → 400 — and the first draft
 	 * of this note claimed that "cannot bind, since every op allocates at most one register", which

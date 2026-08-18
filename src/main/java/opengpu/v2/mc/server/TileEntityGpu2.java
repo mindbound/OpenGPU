@@ -93,8 +93,12 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 * failure mode is identical every time and the paragraph above describes it exactly, which is
 	 * evidence that a warning in a javadoc is not a control. The thing that actually caught it was
 	 * writing the in-game harness and needing a number to gate on.
+	 *
+	 * Level 6 (2026-08-18, Phase 3.1) adds createProgram / freeProgram / getProgramBudget /
+	 * programs, and the programBytes + programBlobBytes keys to getLimits. Bumped in the SAME edit
+	 * that added them, which is the only discipline that has ever worked here.
 	 */
-	public static final int API_LEVEL = 5;
+	public static final int API_LEVEL = 6;
 	/** Server-side VRAM budget in bytes (textures w*h*4 + canvas command capacity estimate). */
 	public static final long VRAM_BUDGET_BYTES = 16L * 1024 * 1024;
 	/** Budget estimate per canvas command slot (id + args worst case, serialized). */
@@ -2203,7 +2207,7 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 *
 	 * Static constants only, so no lock and no scene required.
 	 */
-	@Callback(direct = true, doc = "function():table -- Structural caps, in bytes unless noted: submitBytes (per canvasSubmit call), submitBytesPerTick (per scene per tick), commandCap (commands per canvas), textChars (per drawText), writeBytes (per writeRegion call), writeBytesPerTick, textureDim (pixels), standingCommandBytes (whole scene). Chunk by submitBytes, pace by submitBytesPerTick.")
+	@Callback(direct = true, doc = "function():table -- Structural caps, in bytes unless noted: submitBytes (per canvasSubmit call), submitBytesPerTick (per scene per tick), commandCap (commands per canvas), textChars (per drawText), writeBytes (per writeRegion call), writeBytesPerTick, textureDim (pixels), standingCommandBytes (whole scene), programBytes (all OCSL programs on this scene), programBlobBytes (one program). Chunk by submitBytes, pace by submitBytesPerTick.")
 	public Object[] getLimits(Context context, Arguments args) throws Exception {
 		java.util.Map<String, Object> out = new java.util.LinkedHashMap<String, Object>();
 		out.put("submitBytes", Integer.valueOf(V2Wire.MAX_SUBMIT_BYTES));
@@ -2214,7 +2218,86 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 		out.put("writeBytesPerTick", Integer.valueOf(V2Wire.MAX_WRITE_BYTES_PER_TICK));
 		out.put("textureDim", Integer.valueOf(V2Wire.MAX_TEXTURE_DIM));
 		out.put("standingCommandBytes", Integer.valueOf(V2Wire.MAX_STANDING_COMMAND_BYTES));
+		// Both dimensions a program author must pace by, for the reason submitBytes and
+		// submitBytesPerTick are separate: one bounds a single createProgram call, the other the
+		// whole scene's table, and a library that inferred either from the other would be wrong.
+		out.put("programBytes", Integer.valueOf(ServerScene.MAX_PROGRAM_BYTES));
+		out.put("programBlobBytes", Integer.valueOf(opengpu.v2.ocsl.OcslWire.MAX_BLOB_BYTES));
 		return new Object[] { out };
+	}
+
+	// ------------------------------------------------------------------
+	// OCSL programs (Phase 3.1). Storage only: creating a program does not make anything move
+	// until 3.2's attach lands. The blob is authored off-GPU and arrives as bytes — there is no
+	// textual front-end on this surface and DESIGN reserves that for exposure tier 2.
+
+	@Callback(direct = true, limit = 8, doc = "function(blob:string):number -- Validate an OCSL program blob and store it on this scene; returns its id. Raises with the validator's own message if the program is malformed or over a cap. Programs persist and survive reboots -- free them or track the ids.")
+	public Object[] createProgram(Context context, Arguments args) throws Exception {
+		byte[] blob = args.checkByteArray(0);
+		synchronized (sceneLock) {
+			requireScene();
+			try {
+				int id = scene.createProgram(blob);
+				chunkDirty = true;
+				return new Object[] { Integer.valueOf(id) };
+			} catch (IllegalArgumentException e) {
+				// The validator's and codec's messages are written FOR the author — they name the
+				// op index and the rule — so they are relayed rather than replaced with a generic
+				// refusal. Wrapping them in `Exception` is what makes them reach Lua as an error
+				// string; an OC callback that returned nil,message here would be caught by nobody,
+				// since component calls fail as values and most callers never check.
+				throw new Exception(e.getMessage());
+			} catch (IllegalStateException e) {
+				throw new Exception(e.getMessage());
+			}
+		}
+	}
+
+	@Callback(direct = true, limit = 32, doc = "function(id:number) -- Free a program and release its ledger bytes. Programs outlive the computer that made them, so a script that creates one at startup should free it at teardown.")
+	public Object[] freeProgram(Context context, Arguments args) throws Exception {
+		int id = args.checkInteger(0);
+		synchronized (sceneLock) {
+			requireScene();
+			try {
+				scene.freeProgram(id);
+			} catch (IllegalStateException e) {
+				throw new Exception(e.getMessage());
+			}
+			chunkDirty = true;
+		}
+		return null;
+	}
+
+	@Callback(direct = true, doc = "function():number, number -- Program bytes still admissible on this scene, and the ceiling they are measured against.")
+	public Object[] getProgramBudget(Context context, Arguments args) throws Exception {
+		synchronized (sceneLock) {
+			requireScene();
+			return new Object[] { Long.valueOf(scene.programBudgetRemaining()),
+					Integer.valueOf(ServerScene.MAX_PROGRAM_BYTES) };
+		}
+	}
+
+	/**
+	 * Live program ids, ascending — the enumeration whose ABSENCE on the resource side is what
+	 * made stranded canvases unrecoverable without a brute-force id sweep
+	 * ({@code ingame/vramreclaim.lua}). Programs outlive the Lua program that created them, so a
+	 * script that lost its ids across a reboot needs a way to find them; providing it here costs
+	 * one callback and removes the whole class of leak the resource side is still living with.
+	 */
+	@Callback(direct = true, limit = 8, doc = "function():table -- Live program ids on this scene, ascending, 1-based. Use it to reclaim programs whose ids were lost across a reboot.")
+	public Object[] programs(Context context, Arguments args) throws Exception {
+		synchronized (sceneLock) {
+			requireScene();
+			// Named and shaped like `nodes`, which answers the same question about the same kind
+			// of inherited state: LinkedHashMap keyed 1..n over a TreeMap, so ascending order is
+			// free and deterministic.
+			java.util.Map<Integer, Integer> out = new java.util.LinkedHashMap<Integer, Integer>();
+			int i = 1;
+			for (Integer id : scene.state().programs.keySet()) {
+				out.put(Integer.valueOf(i++), id);
+			}
+			return new Object[] { out };
+		}
 	}
 
 	@Callback(direct = true, doc = "function():number -- This scene's incarnation epoch. Pass it to canvasSubmit to reject a handle from a previous scene.")
