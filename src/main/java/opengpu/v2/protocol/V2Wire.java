@@ -34,7 +34,7 @@ public final class V2Wire {
 	 * version number, disagree about the op table, and an old client decodes the new op's
 	 * argument as some other op's payload. See ProtocolVersionTest.
 	 */
-	public static final short PROTOCOL_VERSION = 6;
+	public static final short PROTOCOL_VERSION = 7;
 
 	// Delta type ids
 	public static final byte DELTA_NODE_CREATE = 1;
@@ -77,6 +77,18 @@ public final class V2Wire {
 	 */
 	public static final byte DELTA_PROGRAM_CREATE = 12;
 	public static final byte DELTA_PROGRAM_FREE = 13;
+	/**
+	 * Attach an OCSL program to a node, or detach with programId 0 (v7).
+	 *
+	 * ONE delta for both directions, and no separate detach id, because ANIM-17 makes a second
+	 * attach an atomic REPLACE that succeeds — so every case is "this node's animator is now X",
+	 * with 0 as a legal X. A detach delta would be a second spelling of that write and would need
+	 * its own ordering rules against the replace.
+	 *
+	 * The referenced program need not exist: ANIM-17 rules free-while-attached legal and dangling
+	 * (the resource case), so the applier does not resolve the id.
+	 */
+	public static final byte DELTA_NODE_ATTACH = 14;
 
 	// Node types
 	public static final byte NODE_CANVAS = 1;

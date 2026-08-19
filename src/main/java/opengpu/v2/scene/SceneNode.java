@@ -38,6 +38,31 @@ public final class SceneNode {
 	 */
 	public final int parent;
 
+	/**
+	 * The OCSL program animating this node, or 0 for none.
+	 *
+	 * A FIELD HERE RATHER THAN A SIDE MAP, decided 2026-08-19, and the reason is lifecycle rather
+	 * than taste. Five paths remove a node — {@code ServerScene.freeNode}, {@code clearNodes}
+	 * (which bypasses the callback body by calling {@code freeNode} directly),
+	 * {@link SceneMirror}'s {@code applySnapshot} and {@code hardReset}, and MirrorClient's
+	 * evict/clear — and only two of them run a {@code NodeFree} delta. A side map would need
+	 * dropping on all five, which is the leak {@link opengpu.v2.mc.client.render.NodeInterpolator}
+	 * documents in its own words ("a long-lived scene leaks one entry per freed node forever").
+	 * A field dies with the node on every path, so the drop site count is zero.
+	 *
+	 * MUTABLE, unlike {@link #ref} and {@link #parent}: ANIM-17 makes a second {@code setAnimator}
+	 * an atomic REPLACE that succeeds, and detach is the same write with 0. There is no ordering
+	 * invariant to protect here — unlike {@code parent}, whose immutability is what makes the
+	 * graph acyclic by construction.
+	 *
+	 * A DANGLING VALUE IS LEGAL. Freeing a program that a node still names leaves this pointing at
+	 * an id no longer in {@code SceneState.programs}; ANIM-17 rules that legal-and-dangling on
+	 * this codebase's own criterion (the resource case, not the node case — both sides dangle
+	 * identically and the persisted form agrees), and the node simply renders at its server value.
+	 * So nothing here may assume the id resolves.
+	 */
+	public int animator = 0;
+
 	public SceneNode(int id, byte type, int ref) {
 		this(id, type, ref, 0);
 	}
@@ -59,12 +84,18 @@ public final class SceneNode {
 		n.z = z;
 		n.visible = visible;
 		n.tint = tint;
+		n.animator = animator;
 		return n;
 	}
 
 	public boolean contentEquals(SceneNode o) {
+		// `animator` is included, and it has to be: this method is what certifies server/mirror
+		// convergence, so leaving it out would let a mirror miss an attach and report agreement
+		// while rendering the node unanimated — the same argument NodeCreate.equals makes for
+		// `parent`, on a field that changes far more often.
 		return id == o.id && type == o.type && ref == o.ref && parent == o.parent
 				&& x == o.x && y == o.y && rot == o.rot && sx == o.sx && sy == o.sy
-				&& z == o.z && visible == o.visible && tint == o.tint;
+				&& z == o.z && visible == o.visible && tint == o.tint
+				&& animator == o.animator;
 	}
 }

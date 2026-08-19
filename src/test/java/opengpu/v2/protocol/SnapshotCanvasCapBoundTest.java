@@ -78,6 +78,7 @@ public class SnapshotCanvasCapBoundTest {
 		// every field that version defines. Empty, since the cap under test is the canvas's.
 		out.writeInt(1);    // nextProgramId
 		out.writeInt(0);    // no programs
+		out.writeLong(0L);  // v7 creationWorldTime, appended after the program section
 		out.flush();
 		return bytes.toByteArray();
 	}

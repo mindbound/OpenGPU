@@ -199,15 +199,34 @@ public final class DeltaApplier {
 					new ProgramInfo(d.programId, d.stage, d.blobCopy(), d.structuralOps));
 		} else if (delta instanceof Delta.ProgramFree) {
 			Delta.ProgramFree d = (Delta.ProgramFree) delta;
-			// No child-reference scan, unlike NodeFree: nothing in SceneState points AT a program
-			// yet. When 3.2 adds the attachment record, the choice made there decides whether this
-			// grows a refusal (the NodeFree shape) or lets the reference dangle (the ResourceFree
-			// shape) — and dangling is the shape that fits, since an attachment is a node's
-			// property rather than a structural edge, and a node whose animator vanished simply
-			// renders at its server value. Whichever is chosen, it belongs HERE, at the one path
-			// both sides run.
+			// No child-reference scan, unlike NodeFree, and that is SETTLED rather than pending:
+			// DESIGN's ANIM-15/17 audit ("Free while attached is a Lua error is the wrong half of
+			// our own precedent") rules free-while-attached LEGAL AND DANGLING, on this
+			// codebase's own stated criterion — freeing a resource nodes reference dangles
+			// because both sides dangle identically, while freeing a parent node is refused
+			// because the persisted form would disagree with live state. A freed program leaves
+			// an attachment that renders as no-animation, identically everywhere and in the save
+			// too: the resource case. So when 3.2 adds the attachment record this arm does not
+			// change. What 3.2 still chooses is the record's HOME, which decides where the
+			// ATTACHMENT is dropped — five paths, enumerated in that same DESIGN section.
 			if (state.programs.remove(Integer.valueOf(d.programId)) == null)
 				throw new IllegalStateException("Freeing unknown program " + d.programId);
+		} else if (delta instanceof Delta.NodeAttach) {
+			Delta.NodeAttach d = (Delta.NodeAttach) delta;
+			SceneNode node = state.nodes.get(Integer.valueOf(d.nodeId));
+			// The NODE must exist — it is the thing being written, and a write to a missing node
+			// is the same class of error as props for a missing node, which throws two arms up.
+			if (node == null)
+				throw new IllegalStateException("Attach for unknown node " + d.nodeId);
+			// The PROGRAM deliberately is not checked. ANIM-17 rules a dangling attachment legal
+			// (the resource case: both sides dangle identically and the persisted form agrees),
+			// and requiring resolution here would additionally make delta ORDER significant in a
+			// way nothing guarantees — a batch that frees a program and re-attaches later in the
+			// same tick is legal traffic. An unresolvable id renders as no animation.
+			//
+			// Replace and detach are the same write, per ANIM-17's atomic-replace ruling: there is
+			// no "already attached" refusal, and 0 is simply the value that means none.
+			node.animator = d.programId;
 		} else if (delta instanceof Delta.SceneProp) {
 			// Reserved (Stage D); carrying it is legal, applying it is a no-op for now.
 		} else {

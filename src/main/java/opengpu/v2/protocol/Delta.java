@@ -411,6 +411,43 @@ public abstract class Delta {
 		}
 	}
 
+	/**
+	 * Point a node at an OCSL program, or at nothing with {@code programId == 0} (v7).
+	 *
+	 * There is no separate detach delta: ANIM-17 makes a second attach an atomic REPLACE that
+	 * succeeds, so every case is one write of "this node's animator is now X", and 0 is a legal X.
+	 */
+	public static final class NodeAttach extends Delta {
+		public final int nodeId;
+		/** The program, or 0 to detach. Need not resolve — a dangling attachment is legal. */
+		public final int programId;
+
+		public NodeAttach(int nodeId, int programId) {
+			if (programId < 0)
+				throw new IllegalArgumentException("Program id must be non-negative (0 detaches)");
+			this.nodeId = nodeId;
+			this.programId = programId;
+		}
+
+		@Override
+		public byte typeId() {
+			return V2Wire.DELTA_NODE_ATTACH;
+		}
+
+		@Override
+		public boolean equals(Object o) {
+			if (!(o instanceof NodeAttach))
+				return false;
+			NodeAttach d = (NodeAttach) o;
+			return nodeId == d.nodeId && programId == d.programId;
+		}
+
+		@Override
+		public int hashCode() {
+			return nodeId * 31 + programId;
+		}
+	}
+
 	/** Reserved scene-level state slot (post-chain order, scene uniforms — Stage D). */
 	public static final class SceneProp extends Delta {
 		public final int propId;

@@ -167,6 +167,10 @@ public final class BatchCodec {
 			out.write(blob);
 		} else if (d instanceof Delta.ProgramFree) {
 			out.writeInt(((Delta.ProgramFree) d).programId);
+		} else if (d instanceof Delta.NodeAttach) {
+			Delta.NodeAttach a = (Delta.NodeAttach) d;
+			out.writeInt(a.nodeId);
+			out.writeInt(a.programId);
 		} else if (d instanceof Delta.SceneProp) {
 			Delta.SceneProp s = (Delta.SceneProp) d;
 			out.writeInt(s.propId);
@@ -399,6 +403,17 @@ public final class BatchCodec {
 			}
 			case V2Wire.DELTA_PROGRAM_FREE:
 				return new Delta.ProgramFree(in.readInt());
+			case V2Wire.DELTA_NODE_ATTACH: {
+				int nodeId = in.readInt();
+				int programId = in.readInt();
+				// Negative is the only shape the constructor refuses, and refusing it HERE keeps
+				// the unchecked IllegalArgumentException out of a `throws CodecException` API.
+				// The id is otherwise unconstrained on purpose: a dangling attachment is legal
+				// (ANIM-17), so "does this program exist" is not a decode-time question.
+				if (programId < 0)
+					throw new CodecException("Attach program id out of range: " + programId);
+				return new Delta.NodeAttach(nodeId, programId);
+			}
 			case V2Wire.DELTA_SCENE_PROP: {
 				int propId = in.readInt();
 				int len = in.readInt();

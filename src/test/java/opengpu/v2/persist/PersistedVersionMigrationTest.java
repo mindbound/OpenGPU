@@ -206,6 +206,24 @@ public class PersistedVersionMigrationTest {
 		}
 
 		/**
+		 * The v7 node record: everything v5 wrote, then `animator`. 66 bytes. A NEW writer rather
+		 * than a parameter on nodeV5, for the reason stated on {@link #node}: nodeV5 is the only
+		 * executable record of what a v5 world holds, and widening it would erase that.
+		 */
+		StructureWriter nodeV7(int id, byte type, int ref, double x, double y, int z, int tint,
+				int parent, int animator) throws IOException {
+			nodeV5(id, type, ref, x, y, z, tint, parent);
+			out.writeInt(animator);
+			return this;
+		}
+
+		/** The v7 scene tail: the animator epoch, written AFTER the v6 program section. */
+		StructureWriter creationWorldTimeV7(long worldTime) throws IOException {
+			out.writeLong(worldTime);
+			return this;
+		}
+
+		/**
 		 * The same node record with its LAST field absent — a stand-in for any bump that
 		 * changed the record's width. Used only to show what a mislabelled version does.
 		 */
@@ -275,7 +293,10 @@ public class PersistedVersionMigrationTest {
 		// so it is chosen by version rather than baked in. Everything else — header, resource
 		// record, canvas commands — is identical from v3 up, which is exactly why v3 and v4 are
 		// both readable and why only ONE of them needed a gate.
-		if (version >= 5) {
+		if (version >= 7) {
+			w.nodeV7(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF, 0, 0)
+					.nodeV7(2, V2Wire.NODE_SPRITE, TEX_ID, 3.5, -1.25, 2, 0x80FF00FF, 0, 0);
+		} else if (version >= 5) {
 			w.nodeV5(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF, 0)
 					.nodeV5(2, V2Wire.NODE_SPRITE, TEX_ID, 3.5, -1.25, 2, 0x80FF00FF, 0);
 		} else {
@@ -288,6 +309,9 @@ public class PersistedVersionMigrationTest {
 		// would then be proving the guard against a fixture that is already malformed.
 		if (version >= 6) {
 			w.programsV6(1, 0);
+		}
+		if (version >= 7) {
+			w.creationWorldTimeV7(0L);
 		}
 		return w.done();
 	}
@@ -412,14 +436,15 @@ public class PersistedVersionMigrationTest {
 		// fully masked. Writing 9 first makes node 4's parent PRESENT and unparented, so only the
 		// "must be a lower id" rule can refuse it — the one shape that tells the two apart.
 		w.nodes(7)
-				.nodeV5(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0)   // a legal parent
-				.nodeV5(2, V2Wire.NODE_GROUP, 0, 1, 1, 0, 0xFFFFFFFF, 1)   // a legal child of it
-				.nodeV5(3, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 3)   // parents itself
-				.nodeV5(9, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0)   // present, unparented
-				.nodeV5(4, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 9)   // ...but 9 is above 4
-				.nodeV5(5, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 2)   // 2 is already a child
-				.nodeV5(10, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7); // 7 was never written
+				.nodeV7(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0)   // a legal parent
+				.nodeV7(2, V2Wire.NODE_GROUP, 0, 1, 1, 0, 0xFFFFFFFF, 1, 0)   // a legal child of it
+				.nodeV7(3, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 3, 0)   // parents itself
+				.nodeV7(9, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0)   // present, unparented
+				.nodeV7(4, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 9, 0)   // ...but 9 is above 4
+				.nodeV7(5, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 2, 0)   // 2 is already a child
+				.nodeV7(10, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7, 0); // 7 was never written
 		w.programsV6(1, 0); // v6 section: this fixture is pinned to PROTOCOL_VERSION
+		w.creationWorldTimeV7(0L); // ...and therefore the v7 tail too
 
 		SceneSnapshot snap = SnapshotCodec.decodePersisted(w.done());
 
@@ -451,9 +476,10 @@ public class PersistedVersionMigrationTest {
 				new StructureWriter(V2Wire.PROTOCOL_VERSION, "gpu-addr", EPOCH, 7, 900L, 1, 3);
 		w.resources(0);
 		w.nodes(2)
-				.nodeV5(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0)
-				.nodeV5(2, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7); // 7 is above 2
+				.nodeV7(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0)
+				.nodeV7(2, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7, 0); // 7 is above 2
 		w.programsV6(1, 0); // v6 section: this fixture is pinned to PROTOCOL_VERSION
+		w.creationWorldTimeV7(0L); // ...and therefore the v7 tail too
 		byte[] blob = w.done();
 
 		assertEquals("the save must degrade rather than refuse",
@@ -808,6 +834,67 @@ public class PersistedVersionMigrationTest {
 	}
 
 	/**
+	 * A v6 structure: v5's node record plus the program section, and NO v7 additions — what every
+	 * world saved between the 5 → 6 and 6 → 7 bumps holds on disk. Carries a REAL program, because
+	 * the 6 → 7 bump appended a field to the NODE record: a v6 fixture whose program section were
+	 * empty would still exercise the node gate, but not the interaction between a widened node
+	 * record and a section that follows it, which is where an off-by-one lands.
+	 */
+	private static byte[] v6Structure() throws IOException {
+		final int canvasId = 1;
+		StructureWriter w = new StructureWriter((short) 6, "gpu-addr", EPOCH, 7, 900L, 2, 3);
+		w.resources(1)
+				.canvasWithContent(canvasId, 64, 32, 16);
+		w.nodes(2)
+				.nodeV5(1, V2Wire.NODE_CANVAS, canvasId, 0, 0, 0, 0xFFFFFFFF, 0)
+				.nodeV5(2, V2Wire.NODE_GROUP, 0, 1.5, -2.5, 3, 0x80FF00FF, 1);
+		w.programsV6(5, 1); // nextProgramId 5, one record (id 1)
+		return w.done();
+	}
+
+	/**
+	 * THE 6 → 7 BUMP'S OBLIGATION, discharged: a v6 save must still load after `animator` was
+	 * appended to the node record AND the scene epoch was appended after the program section.
+	 *
+	 * Two gates in one bump is the case worth a test of its own. The node gate reads at the wrong
+	 * width if it says >= 6 instead of >= 7, which would take each node's animator out of the next
+	 * node's id; the tail gate consumes the trailing-data guard's bytes if it is ungated at all.
+	 * Both failures land on the SAME path — restoreOrFresh answering a CodecException by deleting
+	 * the scene's stored bodies — so this drives the restore policy as well as the codec.
+	 */
+	@Test
+	public void aV6StructureStillDecodesAfterTheNodeRecordAndSceneEpochGrew() throws Exception {
+		byte[] structure = v6Structure();
+
+		SceneSnapshot decoded = SnapshotCodec.decodePersisted(structure);
+		assertEquals("a v6 scene restores its nodes", 2, decoded.state.nodes.size());
+		assertEquals("and its resources", 1, decoded.state.resources.size());
+		assertEquals("and its programs", 1, decoded.state.programs.size());
+		assertEquals("the program counter is the v6 one, read at its own offset",
+				5, decoded.state.nextProgramId);
+		// The node record must have been read at 62 bytes, not 66. If the gate said >= 6, node 1
+		// would have consumed node 2's id as its animator and the loop would have desynced — so
+		// the parent relation surviving is the discriminating assertion, not the count.
+		assertEquals("node 2's parent came through, so the record width was right",
+				1, decoded.state.nodes.get(Integer.valueOf(2)).parent);
+		assertEquals("a v6 world has no attachments, and must not acquire phantom ones",
+				0, decoded.state.nodes.get(Integer.valueOf(1)).animator);
+		assertEquals(0, decoded.state.nodes.get(Integer.valueOf(2)).animator);
+		assertEquals("a v6 world has no epoch on disk and must restore as unstamped",
+				0L, decoded.state.creationWorldTime);
+
+		// And the restore path, which is the one that deletes bodies on failure — driven the way
+		// the v5 obligation test drives it, against the store this class sets up in @Before.
+		ScenePersistence.RestoreResult result = ScenePersistence.restore(structure, store);
+		assertEquals("restore agrees with the codec on node count",
+				2, result.scene.state().nodes.size());
+		assertEquals("and carries the v6 program through",
+				1, result.scene.state().programs.size());
+		assertEquals("with no attachment invented on the way",
+				0, result.scene.state().nodes.get(Integer.valueOf(2)).animator);
+	}
+
+	/**
 	 * THE 5 -> 6 BUMP'S OBLIGATION, discharged: a v5 save must still load after the program
 	 * section was appended. Driven through BOTH paths the checklist names, because they fail
 	 * differently — the codec throws, while restoreOrFresh answers a throw by DELETING the
@@ -845,7 +932,7 @@ public class PersistedVersionMigrationTest {
 				result.scene.state().programs.isEmpty());
 	}
 
-	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 6;
+	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 7;
 
 	@Test
 	public void aProtocolBumpMustDecideWhatHappensToTheOutgoingFormat() {

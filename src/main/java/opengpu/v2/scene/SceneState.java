@@ -26,6 +26,25 @@ public final class SceneState {
 	public int nextNodeId = 1;
 	public int nextProgramId = 1;
 
+	/**
+	 * The animator clock's epoch, in WORLD TIME ({@code World.getTotalWorldTime()}) — ANIM-13.
+	 *
+	 * World time, not the server's tick counter, and that choice is forced rather than stylistic.
+	 * {@code V2ServerRuntime.tickCounter} resets to 0 at server stop, so a raw session tick stored
+	 * here is meaningless one restart later. But the counter is ALSO what feeds
+	 * {@code SceneBatch.serverTick} and hence the client's {@code ServerTimeline.renderNanos}, so
+	 * this value cannot simply be sent as-is either: world time is far larger than a fresh
+	 * counter, and {@code OcslTime.time} would see a negative elapsed and pin {@code t = 0.0}
+	 * permanently. The wire carries the DERIVED age instead —
+	 * {@code currentSessionTick - (currentWorldTime - creationWorldTime)} — which is in the
+	 * session domain where {@code renderNanos} lives, while this field stays the persisted truth
+	 * and is never rewritten. See PLAN-STAGE-B 3.2.
+	 *
+	 * 0 means "not yet stamped": a scene restored from a pre-v7 save has no epoch on disk, and a
+	 * fresh scene is stamped when its owner first ticks it.
+	 */
+	public long creationWorldTime = 0L;
+
 	/** Structure only: no texture bytes cloned. For snapshots, which strip them anyway. */
 	public SceneState copyStructure() {
 		SceneState s = new SceneState();
@@ -45,6 +64,7 @@ public final class SceneState {
 		s.nextResourceId = nextResourceId;
 		s.nextNodeId = nextNodeId;
 		s.nextProgramId = nextProgramId;
+		s.creationWorldTime = creationWorldTime;
 		return s;
 	}
 
@@ -95,6 +115,7 @@ public final class SceneState {
 		s.nextResourceId = nextResourceId;
 		s.nextNodeId = nextNodeId;
 		s.nextProgramId = nextProgramId;
+		s.creationWorldTime = creationWorldTime;
 		return s;
 	}
 

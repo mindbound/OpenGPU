@@ -78,6 +78,11 @@ public final class SnapshotCodec {
 				// APPENDED in v5. The record went 58 -> 62 bytes; nothing before it moved, which
 				// is what lets a v4 record be read at its own width by the gate in decode().
 				out.writeInt(node.parent);
+				// APPENDED in v7, same shape again: 62 -> 66 bytes, nothing before it moved. A
+				// FIXED-WIDTH int is what makes this legal under this codec's policy — the
+				// attachment is one program id, so it needs no variable-length tail and no forked
+				// decoder. 0 means unattached, which is what every pre-v7 node record restores as.
+				out.writeInt(node.animator);
 			}
 			// APPENDED in v6, the same shape the v5 `parent` append used: strictly after every
 			// earlier field, so a v5 payload is consumed at its own width by the gate in decode()
@@ -97,6 +102,12 @@ public final class SnapshotCodec {
 				out.writeInt(prog.blobLength());
 				out.write(prog.blobCopy());
 			}
+			// APPENDED in v7, and it must sit AFTER the whole v6 section, not before it. A first
+			// draft put this long ahead of `nextProgramId`, which reads like a detail and is the
+			// forbidden case: it MOVES v6's fields, so a v6 payload and a v7 payload would need
+			// two different field orders and this codec would owe a forked decoder. Appending
+			// keeps the v6 gate below reading a v6 payload at its own width.
+			out.writeLong(state.creationWorldTime);
 			byte[] encoded = bytes.toByteArray();
 			// "Legal to create" must imply "deliverable": a snapshot the chunker cannot carry
 			// would make the scene permanently unresyncable. Budget caps (open numbers in the
@@ -132,6 +143,15 @@ public final class SnapshotCodec {
 	 *       that section only when version >= 6, so a v5 payload ends where it always did and
 	 *       lands flush on the trailing-data guard; a v5 world simply restores with an empty
 	 *       program table, which is what it had. The op table did not change in this bump.
+	 *   6 — READ AT ITS OWN WIDTH BY TWO GATES. The 6 → 7 bump did both permitted things at once:
+	 *       APPENDED a fixed-width {@code animator} int to the node record (62 → 66 bytes, nothing
+	 *       before it moved), and APPENDED the scene's {@code creationWorldTime} long AFTER the
+	 *       whole v6 program section. decode() reads each only at version >= 7, so a v6 payload is
+	 *       consumed at its own widths and still lands flush on the trailing-data guard; a v6
+	 *       world restores with every node unattached and epoch 0, which is what it had. The op
+	 *       table did not change in this bump. Note the ordering constraint the second field
+	 *       nearly broke: appending it BEFORE the v6 section would have moved v6's fields, which
+	 *       is the forked-decoder case below, not this one.
 	 *
 	 * IF A FUTURE BUMP MOVES, RESIZES OR REORDERS AN EXISTING FIELD, IT DOES NOT BELONG HERE, and
 	 * no gate rescues it. Write a decoder for the old layout instead, as
@@ -154,7 +174,7 @@ public final class SnapshotCodec {
 	 * TE saves before its scene is initialised. A world can therefore carry a v3 structure
 	 * through any number of v4 sessions.
 	 */
-	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4, 5 };
+	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4, 5, 6 };
 
 	/**
 	 * Legality of a decoded parent, answered identically on both paths — and answered DIFFERENTLY
@@ -331,6 +351,15 @@ public final class SnapshotCodec {
 				// nothing but every pre-upgrade world. aV4StructureDecodesThroughThePersistencePath
 				// is the test that catches it.
 				int parent = version >= 5 ? in.readInt() : 0;
+				// THE v7 FIELD, and >= 7 for the identical reason >= 5 is not >= 4: reading it a
+				// version early would take each v6 node's animator out of the NEXT node's id.
+				// NOT sanitised against the program table the way `parent` is against the node
+				// table — a dangling attachment is legal by ANIM-17, and the program section has
+				// not been read yet at this point in the stream anyway, so there is nothing here
+				// to resolve against even in principle.
+				int animator = version >= 7 ? in.readInt() : 0;
+				if (animator < 0)
+					throw new CodecException("Node " + id + " has a negative animator id " + animator);
 				if (state.nodes.containsKey(id))
 					throw new CodecException("Duplicate node id " + id);
 				SceneNode node = new SceneNode(id, type, ref,
@@ -343,6 +372,7 @@ public final class SnapshotCodec {
 				node.z = z;
 				node.visible = visible;
 				node.tint = tint;
+				node.animator = animator;
 				state.nodes.put(id, node);
 			}
 			// THE v6 GATE, same rule as the v5 one above: >= 6, not >= 5. A v5 payload ends
@@ -388,6 +418,14 @@ public final class SnapshotCodec {
 					state.programs.put(Integer.valueOf(id),
 							new ProgramInfo(id, stage, blob, structuralOps));
 				}
+			}
+			// THE v7 GATE, sitting after the v6 section because that is where encode() writes it.
+			// A v6 payload ends with the program section and lands flush on the trailing-data
+			// guard below; left ungated, this read would consume that guard's bytes and every
+			// v6 world would restore as "Truncated snapshot" — which restoreOrFresh answers by
+			// deleting the scene's stored bodies.
+			if (version >= 7) {
+				state.creationWorldTime = in.readLong();
 			}
 			if (in.read() != -1)
 				throw new CodecException("Trailing data after snapshot");
