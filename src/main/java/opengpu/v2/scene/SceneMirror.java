@@ -33,6 +33,9 @@ public final class SceneMirror {
 	private int knownEpoch;
 	private int lastSeq;
 	private long lastServerTick;
+	/** serverTick - worldTime, captured at snapshot time; see applySnapshot. */
+	private long sessionTickOffset;
+	private boolean sessionTickOffsetKnown;
 	private boolean needsResync;
 	private boolean dirty;
 	/** Nodes that must SNAP this frame rather than interpolate; cleared with dirty. */
@@ -267,7 +270,52 @@ public final class SceneMirror {
 		state = fresh;
 		lastSeq = snapshot.seq;
 		lastServerTick = snapshot.serverTick;
+		// THE ANIMATOR CLOCK'S DOMAIN OFFSET, captured HERE and nowhere else, because a snapshot
+		// is the only payload carrying both halves of the pair at one instant: its header's
+		// serverTick and its state's worldTimeAnchor were stamped from the same server tick.
+		//
+		// It must not be recomputed later from live fields. `lastServerTick` advances with every
+		// batch while `worldTimeAnchor` does not — no delta carries one — so
+		// `lastServerTick - state.worldTimeAnchor` drifts by one per tick after the snapshot and
+		// would slide every animator clock steadily out of true. Capturing once is what makes the
+		// subtraction correct.
+		//
+		// One value for the whole session: world time and the server's tick counter both advance
+		// at 20/s, so their difference is constant until the server restarts — and a restart
+		// changes the epoch, which forces a hardReset and a fresh snapshot, which re-captures it.
+		//
+		// Anchor 0 means "the server never stamped this scene" — a pre-v8 save, or a scene whose
+		// owner has not ticked yet. There is no offset to know then, and saying so is better than
+		// publishing a number that is wrong by the whole magnitude of world time.
+		sessionTickOffsetKnown = snapshot.state.worldTimeAnchor != 0L;
+		sessionTickOffset = sessionTickOffsetKnown
+				? snapshot.serverTick - snapshot.state.worldTimeAnchor
+				: 0L;
 		needsResync = false;
 		dirty = true;
+	}
+
+	/**
+	 * Whether {@link #sessionTickOf} can answer. False until a snapshot carrying a stamped anchor
+	 * has been applied — a caller must not silently substitute 0, which would place every scene's
+	 * epoch at the start of the session and start every animator from the wrong phase.
+	 */
+	public boolean animatorClockKnown() {
+		return sessionTickOffsetKnown;
+	}
+
+	/**
+	 * Convert a persisted WORLD-time stamp into the server-tick domain the render clock counts.
+	 *
+	 * This is the second half of the split {@code SceneState.worldTimeAnchor} describes: stamps
+	 * are stored and replicated as world time so that every copy of them is the same quantity,
+	 * and the receiver converts once, here, rather than the server pre-deriving values that would
+	 * mean different things on the two sides.
+	 *
+	 * The result is a TICK count, which is what {@code OcslTime.time} expects alongside
+	 * {@code ServerTimeline.renderNanos} — that method does the scaling to nanoseconds itself.
+	 */
+	public long sessionTickOf(long worldTimeStamp) {
+		return worldTimeStamp + sessionTickOffset;
 	}
 }

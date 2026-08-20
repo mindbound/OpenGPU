@@ -124,6 +124,30 @@ final class NodeInterpolator {
 	 * which is the cost interpolation buys its smoothness with — and why it must go false for
 	 * a settled scene rather than pinning every scene at full frame rate forever.
 	 */
+	/**
+	 * The instant this frame is rendering, or {@link Long#MIN_VALUE} while the timeline is unprimed.
+	 *
+	 * EXISTS SO THE ANIMATOR READS THIS TIMELINE RATHER THAN ITS OWN — ANIM-4's "one {@code time}
+	 * sample per frame per scene" is exactly a rule against a second estimator. Two timelines
+	 * would each smooth their own EMA from the same batches, agree to within a fraction of a
+	 * millisecond, and drift apart across a rebase — so an animated node would sit at an instant
+	 * the interpolated transforms it composes over do not share. The whole point of ANIM-4 is that
+	 * a program's {@code time} and the base it lands on describe the same moment.
+	 *
+	 * PACKAGE-PRIVATE, and no wider. PLAN 3.5 asks to "widen ServerTimeline.renderNanos access",
+	 * which overstates what is needed: {@code ServerTimeline}, {@code Canvas2dRenderer} and
+	 * {@code NodeFold} all live in this package, and 3.3's evaluator must live here too because
+	 * that is where its injection points are. Publishing a render clock on a public API would
+	 * invite a second caller outside the frame loop, which is the failure this accessor exists to
+	 * prevent.
+	 *
+	 * The unprimed sentinel is MIN_VALUE rather than 0: 0 is a legitimate instant, and a caller
+	 * that forgot to check would place the animator clock at the epoch instead of visibly failing.
+	 */
+	long renderInstant(long nowNanos) {
+		return timeline.primed() ? timeline.renderNanos(nowNanos) : Long.MIN_VALUE;
+	}
+
 	boolean active(long nowNanos) {
 		if (!timeline.primed()) {
 			return false;
