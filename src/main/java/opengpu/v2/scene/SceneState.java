@@ -130,6 +130,31 @@ public final class SceneState {
 		return null;
 	}
 
+	/**
+	 * Whether any node here has an animator attached — ANIM-19's re-render term.
+	 *
+	 * SCANNED, NOT CACHED, and that is a deliberate trade rather than the lazy option. A cached
+	 * flag would be a second source of truth for something the node table already states, and it
+	 * would need invalidating on every path that changes a node — the same five-path obligation
+	 * that putting {@code animator} ON the node was chosen to avoid. One stale flag freezes an
+	 * animated scene or re-renders a static one forever, and nothing would detect either.
+	 *
+	 * The cost is bounded and lands where it does not matter. It returns on the FIRST attached
+	 * node, so an animated scene is O(1); the full walk happens only for a scene with no animator
+	 * at all, which is the case the caller has already established is otherwise settled, and a
+	 * typical scene holds a handful of nodes against a {@code MAX_NODES} of 4096. If a scene ever
+	 * carries thousands of nodes AND no animator AND renders nothing, this walk is what to measure
+	 * first — but measure it before caching it, because the cache is the expensive kind of fix.
+	 */
+	public boolean hasAttachedAnimator() {
+		for (SceneNode node : nodes.values()) {
+			if (node.animator != 0) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public SceneState copy() {
 		SceneState s = new SceneState();
 		for (Map.Entry<Integer, ResourceInfo> e : resources.entrySet()) {

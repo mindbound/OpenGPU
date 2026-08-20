@@ -381,28 +381,35 @@ public final class SceneRenderer {
 		// is the whole point, since batches land at 20 Hz and we draw at 60+. A settled scene
 		// still short-circuits here, so a static display costs nothing per frame.
 		//
-		// ANIM-19 OWES THIS GUARD ONE MORE TERM, and the obligation is written here rather than in a
-		// roadmap because this is the line that has to change. An attached animator is WORK: it
-		// recomputes node transforms every frame from `time`, while producing no batch, no upload
-		// and no interpolation. So on a settled scene all four conjuncts below are satisfied, this
-		// returns early, and **an animated node freezes the moment the scene stops changing** —
-		// while a scene with any other activity keeps it moving, which is what makes the bug look
-		// intermittent rather than total. That is also the in-game observation that distinguishes
-		// "the overlay is wrong" from "the trigger is missing", so it is worth reaching for before
-		// arguing from source: frozen-when-settled means this line, not the evaluator.
+		// ANIM-19's TERM, added 2026-08-20 (Phase 3.4) where its obligation had been written. An
+		// attached animator is WORK: it recomputes node transforms every frame from `time` while
+		// producing no batch, no upload and no interpolation. Without this term all four other
+		// conjuncts are satisfied on a settled scene, the method returns early, and an animated
+		// node FREEZES the moment the scene stops changing — while a scene with any other activity
+		// keeps it moving, which is what would make the bug look intermittent rather than total.
 		//
-		// The term to add is "any node in this scene has an attached animator". Count carefully when
-		// writing it: this condition has FOUR conjuncts today (a fresh batch, a pending texture
-		// upload, the never-drawn bootstrap, and interpolation), so the animator makes a FIFTH — the
-		// plan and DESIGN both called it "the third term", inherited from a paragraph written when
-		// `uploadDirty` and `everRendered` did not exist.
+		// FIFTH conjunct, not the third. The plan and DESIGN both say "the third term", inherited
+		// from a paragraph written before `uploadDirty` and `everRendered` existed; the four here
+		// today are a fresh batch, a pending texture upload, the never-drawn bootstrap, and
+		// interpolation.
 		//
-		// Blocked on nothing here: it needs the attachment record (Phase 3.2), which is why this is
-		// a comment and not code. It must NOT be satisfied by making the mirror permanently dirty —
-		// that would re-render every frame for every scene, animated or not, and the short-circuit
-		// above is what keeps a static display free.
+		// LAST in the condition, and that placement is load-bearing rather than stylistic: `&&`
+		// short-circuits, so the node walk runs ONLY when the other four have already agreed the
+		// scene is settled. An active scene never pays for it at all.
+		//
+		// NOT done by making the mirror permanently dirty, which the obligation named as the wrong
+		// fix: that re-renders every scene every frame, animated or not, and the short-circuit
+		// above is exactly what keeps a static display free.
+		//
+		// THE IN-GAME DISCRIMINATOR, worth stating because it survives this code being wrong:
+		// frozen-when-settled indicts THIS LINE; moving-but-wrong indicts the evaluator. That is
+		// why 3.4 lands before 3.3 — afterwards, a frozen frame has only one candidate cause.
 		boolean interpolating = gl.interp.active(now);
-		if (!mirror.isDirty() && !gl.uploadDirty && gl.everRendered && !interpolating) {
+		// INLINE, not hoisted to a local: a local would be evaluated eagerly every frame and the
+		// short-circuit described above would be decorative. (`interpolating` is a local because
+		// it is read again below; this one is not.)
+		if (!mirror.isDirty() && !gl.uploadDirty && gl.everRendered && !interpolating
+				&& !mirror.state().hasAttachedAnimator()) {
 			return;
 		}
 		Map<Integer, Integer> glMap = new HashMap<Integer, Integer>();
