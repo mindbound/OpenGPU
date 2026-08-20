@@ -421,12 +421,28 @@ public abstract class Delta {
 		public final int nodeId;
 		/** The program, or 0 to detach. Need not resolve — a dangling attachment is legal. */
 		public final int programId;
+		/**
+		 * WORLD TIME at which this attachment becomes active; 0 for a detach.
+		 *
+		 * Carried rather than stamped locally on arrival, because the two sides must store the
+		 * SAME value: a mirror stamping from its own clock would diverge from the server's copy
+		 * immediately, and a client that joined later via snapshot would disagree with both.
+		 * ANIM-6 says "every client derives the same value from the same replicated stamp", and
+		 * this field is that stamp.
+		 */
+		public final long attachedWorldTime;
 
-		public NodeAttach(int nodeId, int programId) {
+		public NodeAttach(int nodeId, int programId, long attachedWorldTime) {
 			if (programId < 0)
 				throw new IllegalArgumentException("Program id must be non-negative (0 detaches)");
+			if (attachedWorldTime < 0L)
+				throw new IllegalArgumentException("Attach stamp must be non-negative");
+			if (programId == 0 && attachedWorldTime != 0L)
+				throw new IllegalArgumentException(
+						"A detach carries no stamp; pass 0 so both sides clear the field alike");
 			this.nodeId = nodeId;
 			this.programId = programId;
+			this.attachedWorldTime = attachedWorldTime;
 		}
 
 		@Override
@@ -439,12 +455,13 @@ public abstract class Delta {
 			if (!(o instanceof NodeAttach))
 				return false;
 			NodeAttach d = (NodeAttach) o;
-			return nodeId == d.nodeId && programId == d.programId;
+			return nodeId == d.nodeId && programId == d.programId
+					&& attachedWorldTime == d.attachedWorldTime;
 		}
 
 		@Override
 		public int hashCode() {
-			return nodeId * 31 + programId;
+			return (nodeId * 31 + programId) * 31 + (int) (attachedWorldTime ^ (attachedWorldTime >>> 32));
 		}
 	}
 

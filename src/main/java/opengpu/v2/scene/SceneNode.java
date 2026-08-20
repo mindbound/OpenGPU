@@ -63,6 +63,34 @@ public final class SceneNode {
 	 */
 	public int animator = 0;
 
+	/**
+	 * WORLD TIME at which this node's current attachment became active, or 0 when unattached —
+	 * ANIM-6's "replicated tick at which this attachment became active on this node".
+	 *
+	 * The register {@code anim.sinceAttach} is ANIM-6's
+	 * {@code min(renderClock - the attach instant, CAP)} — stated there against "the replicated
+	 * tick", and note that this field is NOT that tick: it is world time, so the host fill converts
+	 * it first (below) rather than subtracting it from a render clock directly. Saturation is the
+	 * load-bearing
+	 * word: it is the one monotone-and-settling quantity a wrapped clock structurally cannot
+	 * provide, which is what makes ease / one-shot / decay expressible at all. Without it every
+	 * animator is exactly P-periodic and there is no such thing as "play once".
+	 *
+	 * WORLD TIME, not a session tick, and identical on both sides — the same reasoning as
+	 * {@link SceneState#creationWorldTime}, plus one more that is specific to living on a node:
+	 * if the server sent a session-domain value instead, a mirror's copy of this field would hold
+	 * a different KIND of number than the server's, and {@link #contentEquals} — which is what
+	 * certifies convergence — would be comparing unlike quantities while reporting agreement. The
+	 * client converts with the snapshot's world-time anchor when it fills the register
+	 * (Phase 3.3); the CAP is applied there too, and is deliberately not a wire concern.
+	 *
+	 * REWRITTEN ON EVERY ATTACH, including a replace: ANIM-17 makes a second setAnimator an
+	 * atomic replace, and the new attachment is a NEW attachment — an easing program must restart
+	 * when it is re-attached, not inherit the previous one's age. Detach clears it to 0 so a
+	 * later re-attach cannot read a stale stamp.
+	 */
+	public long attachedWorldTime = 0L;
+
 	public SceneNode(int id, byte type, int ref) {
 		this(id, type, ref, 0);
 	}
@@ -85,6 +113,7 @@ public final class SceneNode {
 		n.visible = visible;
 		n.tint = tint;
 		n.animator = animator;
+		n.attachedWorldTime = attachedWorldTime;
 		return n;
 	}
 
@@ -96,6 +125,6 @@ public final class SceneNode {
 		return id == o.id && type == o.type && ref == o.ref && parent == o.parent
 				&& x == o.x && y == o.y && rot == o.rot && sx == o.sx && sy == o.sy
 				&& z == o.z && visible == o.visible && tint == o.tint
-				&& animator == o.animator;
+				&& animator == o.animator && attachedWorldTime == o.attachedWorldTime;
 	}
 }

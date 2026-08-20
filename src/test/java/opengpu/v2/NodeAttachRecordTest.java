@@ -52,9 +52,9 @@ public class NodeAttachRecordTest {
 	@Test
 	public void asecondAttachReplacesRatherThanRefusing() {
 		SceneState state = stateWithNode(1);
-		DeltaApplier.apply(state, new Delta.NodeAttach(1, 7));
+		DeltaApplier.apply(state, new Delta.NodeAttach(1, 7, 100L));
 		assertEquals(7, state.nodes.get(Integer.valueOf(1)).animator);
-		DeltaApplier.apply(state, new Delta.NodeAttach(1, 9));
+		DeltaApplier.apply(state, new Delta.NodeAttach(1, 9, 200L));
 		assertEquals("the second attach must replace, not refuse",
 				9, state.nodes.get(Integer.valueOf(1)).animator);
 	}
@@ -63,9 +63,14 @@ public class NodeAttachRecordTest {
 	@Test
 	public void detachIsAttachWithZero() {
 		SceneState state = stateWithNode(1);
-		DeltaApplier.apply(state, new Delta.NodeAttach(1, 7));
-		DeltaApplier.apply(state, new Delta.NodeAttach(1, 0));
+		DeltaApplier.apply(state, new Delta.NodeAttach(1, 7, 100L));
+		assertEquals("the stamp must land on the attach", 100L,
+				state.nodes.get(Integer.valueOf(1)).attachedWorldTime);
+		DeltaApplier.apply(state, new Delta.NodeAttach(1, 0, 0L));
 		assertEquals(0, state.nodes.get(Integer.valueOf(1)).animator);
+		assertEquals("and be cleared by the detach — without this, deleting the applier's stamp"
+				+ " write leaves every applier-semantics test in this file green",
+				0L, state.nodes.get(Integer.valueOf(1)).attachedWorldTime);
 	}
 
 	/**
@@ -81,7 +86,7 @@ public class NodeAttachRecordTest {
 	public void attachingAProgramThatDoesNotExistIsLegal() {
 		SceneState state = stateWithNode(1);
 		assertTrue("precondition: no programs at all", state.programs.isEmpty());
-		DeltaApplier.apply(state, new Delta.NodeAttach(1, 4242));
+		DeltaApplier.apply(state, new Delta.NodeAttach(1, 4242, 50L));
 		assertEquals("a dangling attachment must be stored, not refused",
 				4242, state.nodes.get(Integer.valueOf(1)).animator);
 	}
@@ -91,7 +96,7 @@ public class NodeAttachRecordTest {
 	public void attachingToAnUnknownNodeThrows() {
 		SceneState state = stateWithNode(1);
 		try {
-			DeltaApplier.apply(state, new Delta.NodeAttach(99, 1));
+			DeltaApplier.apply(state, new Delta.NodeAttach(99, 1, 10L));
 			fail("attach to a nonexistent node applied");
 		} catch (IllegalStateException expected) {
 			assertTrue(expected.getMessage(), expected.getMessage().contains("unknown node"));
@@ -102,7 +107,7 @@ public class NodeAttachRecordTest {
 	@Test
 	public void aNegativeProgramIdIsRefusedAtConstruction() {
 		try {
-			new Delta.NodeAttach(1, -1);
+			new Delta.NodeAttach(1, -1, 0L);
 			fail("a negative program id was accepted");
 		} catch (IllegalArgumentException expected) {
 			assertTrue(expected.getMessage(), expected.getMessage().contains("non-negative"));
@@ -114,8 +119,8 @@ public class NodeAttachRecordTest {
 	@Test
 	public void attachAndDetachRoundTripThroughTheEncoder() throws Exception {
 		ArrayList<Delta> deltas = new ArrayList<Delta>();
-		deltas.add(new Delta.NodeAttach(3, 11));
-		deltas.add(new Delta.NodeAttach(3, 0));
+		deltas.add(new Delta.NodeAttach(3, 11, 4242L));
+		deltas.add(new Delta.NodeAttach(3, 0, 0L));
 		SceneBatch back = BatchCodec.decode(
 				BatchCodec.encode(new SceneBatch("s", 1, 1, 1L, deltas)));
 		assertEquals(2, back.deltas.size());
@@ -137,6 +142,7 @@ public class NodeAttachRecordTest {
 		out.writeByte(V2Wire.DELTA_NODE_ATTACH);
 		out.writeInt(3);
 		out.writeInt(-5);
+		out.writeLong(0L);
 		out.flush();
 		try {
 			BatchCodec.decode(bytes.toByteArray());
@@ -165,7 +171,7 @@ public class NodeAttachRecordTest {
 
 		// No ServerScene surface in this piece, so the delta is staged through the applier the
 		// same way the server would: apply to server state, then ship the identical delta.
-		Delta attach = new Delta.NodeAttach(node, 12);
+		Delta attach = new Delta.NodeAttach(node, 12, 900L);
 		DeltaApplier.apply(server.state(), attach);
 		ArrayList<Delta> deltas = new ArrayList<Delta>();
 		deltas.add(attach);
@@ -177,13 +183,194 @@ public class NodeAttachRecordTest {
 		assertTrue("server and mirror disagree", server.state().contentEquals(mirror.state()));
 	}
 
+	/**
+	 * contentEquals must see a divergent STAMP too, not just a divergent program id.
+	 *
+	 * Two nodes agreeing on which program animates them while disagreeing on WHEN it started are
+	 * not converged: `sinceAttach` is a program input, so the same program would compute different
+	 * output on the two sides forever, with the convergence check reporting agreement.
+	 */
+	@Test
+	public void contentEqualsDetectsADivergentAttachStamp() {
+		SceneState a = stateWithNode(1);
+		SceneState b = stateWithNode(1);
+		DeltaApplier.apply(a, new Delta.NodeAttach(1, 5, 100L));
+		DeltaApplier.apply(b, new Delta.NodeAttach(1, 5, 999L));
+		assertTrue("same program, different start: these states are NOT equal",
+				!a.contentEquals(b));
+	}
+
+	/**
+	 * A detach carrying a stamp is refused on the wire.
+	 *
+	 * Both sides must clear the field alike, and a delta that says "unattached, but started at
+	 * T" describes a state no producer can reach. Refused at the decoder rather than absorbed,
+	 * because absorbing it would let the two sides store different things from the same bytes.
+	 */
+	@Test
+	public void aDetachCarryingAStampIsRefusedOnTheWire() throws Exception {
+		try {
+			BatchCodec.decode(rawAttachBatch(3, 0, 500L));
+			fail("a detach carrying a stamp decoded anyway");
+		} catch (CodecException expected) {
+			assertTrue("expected the detach-stamp refusal, got: " + expected.getMessage(),
+					expected.getMessage().contains("detach must carry a zero stamp"));
+		}
+	}
+
+	/** And the legal detach still decodes — the other side of the refusal above. */
+	@Test
+	public void aCleanDetachStillDecodes() throws Exception {
+		SceneBatch back = BatchCodec.decode(rawAttachBatch(3, 0, 0L));
+		assertEquals(1, back.deltas.size());
+		assertEquals(new Delta.NodeAttach(3, 0, 0L), back.deltas.get(0));
+	}
+
+	/**
+	 * A persisted node that is unattached but carries a stamp is corruption, not a state to
+	 * absorb — the persisted-path twin of the wire check above, on bytes nothing else validated.
+	 */
+	@Test
+	public void anUnattachedNodeCarryingAStampIsRefusedOnRestore() throws Exception {
+		ServerScene server = new ServerScene(SCENE);
+		int canvas = server.createCanvas(64, 32, 256);
+		int node = server.createNode(V2Wire.NODE_CANVAS, canvas);
+		final int sentinel = 0x7EEEEEEE;
+		DeltaApplier.apply(server.state(), new Delta.NodeAttach(node, sentinel, 4242L));
+		server.sealBatch();
+		byte[] good = SnapshotCodec.encode(server.snapshot());
+		assertNotNull("precondition: the well-formed pair decodes",
+				SnapshotCodec.decodePersisted(good));
+
+		// Zero the ANIMATOR while leaving the stamp, located by the sentinel rather than by a
+		// counted offset — the node record is not last in the payload.
+		int at = -1;
+		for (int i = 0; i + 3 < good.length; i++) {
+			if ((good[i] & 0xFF) == 0x7E && (good[i + 1] & 0xFF) == 0xEE
+					&& (good[i + 2] & 0xFF) == 0xEE && (good[i + 3] & 0xFF) == 0xEE) {
+				assertEquals("the sentinel appears twice; pick a rarer one", -1, at);
+				at = i;
+			}
+		}
+		assertTrue("the sentinel is not in the payload, so this test patches nothing", at >= 0);
+		byte[] bad = good.clone();
+		bad[at] = 0;
+		bad[at + 1] = 0;
+		bad[at + 2] = 0;
+		bad[at + 3] = 0;
+		try {
+			SnapshotCodec.decodePersisted(bad);
+			fail("an unattached node carrying a stamp decoded anyway");
+		} catch (CodecException expected) {
+			assertTrue("expected the pairing refusal, got: " + expected.getMessage(),
+					expected.getMessage().contains("unattached but carries a stamp"));
+		}
+	}
+
+	/**
+	 * The wire stamp survives a HAND-WRITTEN batch, with 32-bit halves that differ.
+	 *
+	 * The encoder round trip above is encoder-symmetric — a paired layout bug passes it — and
+	 * every other raw fixture here uses 0 or a value whose halves are indistinguishable. This is
+	 * the one that catches a decoder reading the long as two ints in the wrong order.
+	 */
+	@Test
+	public void theWireStampSurvivesAnIndependentlyWrittenBatch() throws Exception {
+		final long stamp = 0x0000000100000002L;
+		SceneBatch back = BatchCodec.decode(rawAttachBatch(3, 11, stamp));
+		assertEquals(new Delta.NodeAttach(3, 11, stamp), back.deltas.get(0));
+	}
+
+	/** A negative stamp is refused on the wire, before the constructor could throw unchecked. */
+	@Test
+	public void aNegativeStampIsRefusedOnTheWire() throws Exception {
+		try {
+			BatchCodec.decode(rawAttachBatch(3, 11, -1L));
+			fail("a negative attach stamp decoded anyway");
+		} catch (CodecException expected) {
+			assertTrue("expected the stamp refusal, got: " + expected.getMessage(),
+					expected.getMessage().contains("Attach stamp out of range"));
+		}
+	}
+
+	/** And the constructor refuses it too, for a delta built in memory rather than decoded. */
+	@Test
+	public void aNegativeStampIsRefusedAtConstruction() {
+		try {
+			new Delta.NodeAttach(1, 11, -1L);
+			fail("a negative stamp was accepted");
+		} catch (IllegalArgumentException expected) {
+			assertTrue(expected.getMessage(),
+					expected.getMessage().contains("Attach stamp must be non-negative"));
+		}
+	}
+
+	/**
+	 * A persisted NEGATIVE stamp is refused, and this needs its own fixture because the animator
+	 * check fires first: the negative-ANIMATOR test never reaches the stamp check at all, so
+	 * deleting that check was invisible to the suite until this test existed.
+	 */
+	@Test
+	public void aNegativeStampInAPersistedRecordIsRefused() throws Exception {
+		ServerScene server = new ServerScene(SCENE);
+		int canvas = server.createCanvas(64, 32, 256);
+		int node = server.createNode(V2Wire.NODE_CANVAS, canvas);
+		// A distinctive POSITIVE stamp to locate, with a valid animator so the animator check
+		// passes and control actually reaches the stamp check.
+		final long sentinel = 0x7EEEEEEE0BADF00DL;
+		DeltaApplier.apply(server.state(), new Delta.NodeAttach(node, 5, sentinel));
+		server.sealBatch();
+		byte[] good = SnapshotCodec.encode(server.snapshot());
+		assertNotNull(SnapshotCodec.decodePersisted(good));
+
+		int at = -1;
+		for (int i = 0; i + 7 < good.length; i++) {
+			if ((good[i] & 0xFF) == 0x7E && (good[i + 1] & 0xFF) == 0xEE
+					&& (good[i + 2] & 0xFF) == 0xEE && (good[i + 3] & 0xFF) == 0xEE
+					&& (good[i + 4] & 0xFF) == 0x0B && (good[i + 5] & 0xFF) == 0xAD) {
+				assertEquals("the sentinel appears twice", -1, at);
+				at = i;
+			}
+		}
+		assertTrue("the sentinel stamp is not in the payload", at >= 0);
+		byte[] bad = good.clone();
+		for (int i = 0; i < 8; i++) {
+			bad[at + i] = (byte) 0xFF; // -1L
+		}
+		try {
+			SnapshotCodec.decodePersisted(bad);
+			fail("a negative attach stamp decoded anyway");
+		} catch (CodecException expected) {
+			assertTrue("expected the stamp refusal, got: " + expected.getMessage(),
+					expected.getMessage().contains("negative attach stamp"));
+		}
+	}
+
+	/** Hand-built one-delta batch, so the decoder sees shapes no encoder would produce. */
+	private static byte[] rawAttachBatch(int nodeId, int programId, long stamp) throws Exception {
+		java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+		java.io.DataOutputStream out = new java.io.DataOutputStream(bytes);
+		out.writeShort(V2Wire.PROTOCOL_VERSION);
+		out.writeUTF("s");
+		out.writeInt(1);
+		out.writeInt(1);
+		out.writeLong(1L);
+		out.writeInt(1);
+		out.writeByte(V2Wire.DELTA_NODE_ATTACH);
+		out.writeInt(nodeId);
+		out.writeInt(programId);
+		out.writeLong(stamp);
+		out.flush();
+		return bytes.toByteArray();
+	}
+
 	/** contentEquals must SEE a divergent attachment — otherwise the test above proves nothing. */
 	@Test
 	public void contentEqualsDetectsADivergentAttachment() {
 		SceneState a = stateWithNode(1);
 		SceneState b = stateWithNode(1);
 		assertTrue("identical states must compare equal", a.contentEquals(b));
-		DeltaApplier.apply(a, new Delta.NodeAttach(1, 5));
+		DeltaApplier.apply(a, new Delta.NodeAttach(1, 5, 77L));
 		assertTrue("a state whose node is attached must NOT equal one whose node is not",
 				!a.contentEquals(b));
 	}
@@ -212,7 +399,7 @@ public class NodeAttachRecordTest {
 		int canvas = server.createCanvas(64, 32, 256);
 		int attached = server.createNode(V2Wire.NODE_CANVAS, canvas);
 		int bare = server.createNode(V2Wire.NODE_GROUP, 0);
-		DeltaApplier.apply(server.state(), new Delta.NodeAttach(attached, 31));
+		DeltaApplier.apply(server.state(), new Delta.NodeAttach(attached, 31, 555L));
 		server.state().creationWorldTime = 123456789L;
 		server.sealBatch();
 
@@ -230,6 +417,38 @@ public class NodeAttachRecordTest {
 	}
 
 	/**
+	 * THE ENCODER writes the anchor and the epoch to their OWN slots.
+	 *
+	 * Added after a mutation survived: swapping {@code out.writeLong(state.worldTimeAnchor)} for
+	 * {@code creationWorldTime} in SnapshotCodec.encode was invisible to the whole suite. The v8
+	 * layout test decodes a HAND-WRITTEN fixture, so it never exercises the encoder at all, and
+	 * every round-trip test left the anchor at 0 — two values that are equal cannot detect being
+	 * swapped. This one stamps a distinct anchor through the real API and asserts both survive
+	 * apart, which is the only shape that catches it.
+	 */
+	@Test
+	public void theEncoderKeepsTheAnchorAndTheEpochInSeparateSlots() throws Exception {
+		ServerScene server = new ServerScene(SCENE);
+		int canvas = server.createCanvas(64, 32, 256);
+		server.createNode(V2Wire.NODE_CANVAS, canvas);
+		// stampWorldTime sets BOTH from one reading on a fresh scene, so stamp twice: the epoch
+		// keeps the first value and the anchor takes the second. That is what makes them differ.
+		server.stampWorldTime(1000L);
+		server.stampWorldTime(2000L);
+		assertEquals("precondition: the two must differ, or this test cannot see a swap",
+				1000L, server.state().creationWorldTime);
+		assertEquals(2000L, server.state().worldTimeAnchor);
+		server.sealBatch();
+
+		SceneSnapshot restored = SnapshotCodec.decodePersisted(
+				SnapshotCodec.encode(server.snapshot()));
+		assertEquals("the epoch came back as the anchor, so the encoder wrote one slot twice",
+				1000L, restored.state.creationWorldTime);
+		assertEquals("the anchor came back as the epoch, so the encoder wrote one slot twice",
+				2000L, restored.state.worldTimeAnchor);
+	}
+
+	/**
 	 * A dangling attachment persists as-is. This is the case ANIM-17's "legal and dangling" ruling
 	 * turns on: the persisted form must agree with live state, or a running scene and its own
 	 * reload would disagree permanently — the very reason a freed PARENT node is refused instead.
@@ -239,7 +458,7 @@ public class NodeAttachRecordTest {
 		ServerScene server = new ServerScene(SCENE);
 		int canvas = server.createCanvas(64, 32, 256);
 		int node = server.createNode(V2Wire.NODE_CANVAS, canvas);
-		DeltaApplier.apply(server.state(), new Delta.NodeAttach(node, 777)); // no such program
+		DeltaApplier.apply(server.state(), new Delta.NodeAttach(node, 777, 888L)); // no such program
 		server.sealBatch();
 
 		SceneSnapshot restored = SnapshotCodec.decodePersisted(
@@ -263,7 +482,7 @@ public class NodeAttachRecordTest {
 		// node record is not last, the program section and the epoch follow it. An offset derived
 		// from the layout has to be re-derived at every bump; a distinctive value does not.
 		final int sentinel = 0x7EEEEEEE;
-		DeltaApplier.apply(server.state(), new Delta.NodeAttach(node, sentinel));
+		DeltaApplier.apply(server.state(), new Delta.NodeAttach(node, sentinel, 1234L));
 		server.sealBatch();
 		byte[] good = SnapshotCodec.encode(server.snapshot());
 		assertNotNull(SnapshotCodec.decodePersisted(good));

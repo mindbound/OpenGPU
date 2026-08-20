@@ -33,17 +33,44 @@ public final class SceneState {
 	 * {@code V2ServerRuntime.tickCounter} resets to 0 at server stop, so a raw session tick stored
 	 * here is meaningless one restart later. But the counter is ALSO what feeds
 	 * {@code SceneBatch.serverTick} and hence the client's {@code ServerTimeline.renderNanos}, so
-	 * this value cannot simply be sent as-is either: world time is far larger than a fresh
-	 * counter, and {@code OcslTime.time} would see a negative elapsed and pin {@code t = 0.0}
-	 * permanently. The wire carries the DERIVED age instead —
-	 * {@code currentSessionTick - (currentWorldTime - creationWorldTime)} — which is in the
-	 * session domain where {@code renderNanos} lives, while this field stays the persisted truth
-	 * and is never rewritten. See PLAN-STAGE-B 3.2.
+	 * this value cannot be differenced against {@code renderNanos} as-is either: world time is far
+	 * larger than a fresh counter, and {@code OcslTime.time} would see a negative elapsed and pin
+	 * {@code t = 0.0} permanently.
+	 *
+	 * SENT AS WORLD TIME ANYWAY, and converted by the receiver using {@link #worldTimeAnchor}.
+	 * An earlier draft had the server pre-derive the session-domain age and send that; it was
+	 * replaced when the same question arose for the per-node attach stamp, where a derived value
+	 * would make a mirror's stored field a different KIND of number from the server's and leave
+	 * {@link #contentEquals} comparing unlike quantities. One anchor converts every stamp, so all
+	 * of them can stay the same quantity everywhere. See PLAN-STAGE-B 3.2.
 	 *
 	 * 0 means "not yet stamped": a scene restored from a pre-v7 save has no epoch on disk, and a
 	 * fresh scene is stamped when its owner first ticks it.
 	 */
 	public long creationWorldTime = 0L;
+
+	/**
+	 * The server's world time at the instant this state was last stamped — the ANCHOR that makes
+	 * every world-time value here convertible into the client's session-tick domain.
+	 *
+	 * A snapshot carries it as its LAST field — not in the header, though it is read together with
+	 * the header's {@code serverTick}, and the two are stamped from the same tick. A receiver
+	 * converts any world-time stamp with
+	 * {@code sessionTick = serverTick + (stamp - worldTimeAnchor)}, then scales by TICK_NANOS to
+	 * meet a nanosecond clock. That is what lets
+	 * {@link #creationWorldTime} and every node's {@code attachedWorldTime} be stored as world
+	 * time — identical on the server, on every mirror and on disk, so
+	 * {@link #contentEquals} compares like with like — while
+	 * {@code ServerTimeline.renderNanos}, which they are ultimately differenced against, is
+	 * NANOSECONDS on the server's clock — derived from a smoothed offset, not a tick count — and
+	 * is anchored to the session tick counter that resets at server stop. Hence both steps: convert
+	 * the domain with the anchor, then scale ticks to nanos.
+	 *
+	 * NOT persisted as meaningful state: it is a property of the moment a payload was produced,
+	 * not of the scene, so a restore reads whatever the save happened to hold and the next tick
+	 * overwrites it. It rides the snapshot because that is where a receiver needs it.
+	 */
+	public long worldTimeAnchor = 0L;
 
 	/** Structure only: no texture bytes cloned. For snapshots, which strip them anyway. */
 	public SceneState copyStructure() {
@@ -65,6 +92,7 @@ public final class SceneState {
 		s.nextNodeId = nextNodeId;
 		s.nextProgramId = nextProgramId;
 		s.creationWorldTime = creationWorldTime;
+		s.worldTimeAnchor = worldTimeAnchor;
 		return s;
 	}
 
@@ -116,6 +144,7 @@ public final class SceneState {
 		s.nextNodeId = nextNodeId;
 		s.nextProgramId = nextProgramId;
 		s.creationWorldTime = creationWorldTime;
+		s.worldTimeAnchor = worldTimeAnchor;
 		return s;
 	}
 

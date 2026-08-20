@@ -30,6 +30,7 @@ import opengpu.v2.persist.ScenePersistence;
 import opengpu.v2.protocol.V2Wire;
 import opengpu.v2.scene.CanvasCommand;
 import opengpu.v2.scene.DisplayNode;
+import opengpu.v2.scene.ProgramInfo;
 import opengpu.v2.scene.ResourceInfo;
 import opengpu.v2.scene.SceneCanvas;
 import opengpu.v2.scene.ServerScene;
@@ -97,8 +98,10 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 * Level 6 (2026-08-18, Phase 3.1) adds createProgram / freeProgram / getProgramBudget /
 	 * programs, and the programBytes + programBlobBytes keys to getLimits. Bumped in the SAME edit
 	 * that added them, which is the only discipline that has ever worked here.
+	 *
+	 * Level 7 (2026-08-19, Phase 3.2) adds setAnimator. Same edit, same reason.
 	 */
-	public static final int API_LEVEL = 6;
+	public static final int API_LEVEL = 7;
 	/** Server-side VRAM budget in bytes (textures w*h*4 + canvas command capacity estimate). */
 	public static final long VRAM_BUDGET_BYTES = 16L * 1024 * 1024;
 	/** Budget estimate per canvas command slot (id + args worst case, serialized). */
@@ -440,6 +443,14 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 		synchronized (sceneLock) {
 			if (scene != null) {
 				scene.beginTick(tick, writeBudget);
+				// The scene's world-time reading for this tick: the animator epoch (once) and the
+				// anchor every snapshot converts its stamps against. Here rather than at scene
+				// creation because this is where worldObj is reliably available, which leaves one
+				// window — a client subscribing before the owning TE's first tick would get a
+				// snapshot carrying epoch 0. Nothing reads either field until 3.3's host fill, so
+				// closing that window is 3.3's to do if it turns out to matter; it is recorded
+				// here rather than left to be rediscovered.
+				scene.stampWorldTime(worldObj != null ? worldObj.getTotalWorldTime() : 0L);
 			}
 			// THE delivery point for stranded-gesture releases, and it must be START phase.
 			// A signal emitted here is normally consumed by the machines' timeslice later
@@ -2260,6 +2271,97 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 			requireScene();
 			try {
 				scene.freeProgram(id);
+			} catch (IllegalStateException e) {
+				throw new Exception(e.getMessage());
+			}
+			chunkDirty = true;
+		}
+		return null;
+	}
+
+	/**
+	 * ANIM-15(a): an animator may not own the DISPLAY node's transform.
+	 *
+	 * Keyed on {@link #implicitCanvasNode}, the field {@code setNodeTransform}'s guard uses.
+	 * {@code SceneState.displayCanvas()} is the wrong question — it returns a ResourceInfo, not a
+	 * node. {@code DisplayNode.displayNodeId(state)} DOES return a node id, and an earlier draft of
+	 * this comment claimed no such function existed; it does, and the reason not to use it here is
+	 * sharper than that. It computes the CLIENT's idea of the display — the lowest-id canvas node,
+	 * rescanned from state — while {@code implicitCanvasNode} is the id the SERVER persists and
+	 * remembers. DisplayNode's own javadoc says the two "agree by construction and nothing enforces
+	 * it", with {@code stillValid} keeping the server's half honest. A server-side refusal must key
+	 on the server's authoritative field, and on the same one the sibling guard uses, or the two
+	 * guards could disagree about which node they are protecting.
+	 *
+	 * The message is REWORDED rather than copied from the transform guard, which the audit is
+	 * explicit about. Its REASON CLAUSE transfers verbatim; the lead clause is necessarily
+	 * different ("cannot animate ... transform" vs "cannot transform ..."), so the audit's "its
+	 * first sentence transfers" means the reason, not the sentence. But
+	 * "put the content on a canvas node and transform that instead" is the wrong remedy here (at
+	 * attach the remedy is to own tint only, or to attach to a child), and the transform guard's
+	 * "setting it back to identity is allowed" exception CANNOT EXIST at attach: that exception is
+	 * decidable there because the values are call arguments, while an attach carries no values at
+	 * all, only an OUT set. Whether an animator is momentarily the identity is a per-frame fact.
+	 *
+	 * The OUT set is derived from the blob here rather than stored on ProgramInfo — see
+	 * {@link opengpu.v2.ocsl.IrProgram#outProperties}. Only an attach to the display node pays for
+	 * it, which is one node per scene on a setup-time call.
+	 */
+	private void refuseTransformOwnershipOnDisplayNode(int nodeId, int programId) throws Exception {
+		if (nodeId != implicitCanvasNode || programId == 0) {
+			return;
+		}
+		ProgramInfo info = scene.state().programs.get(Integer.valueOf(programId));
+		if (info == null) {
+			// A dangling attach is legal (ANIM-17). Both this branch and the decode-failure branch
+			// below lack the ownership set, and they resolve OPPOSITE ways on purpose — the
+			// difference is not caution but what the missing information could hide. A program id
+			// that resolves to nothing has no OUT set to own anything WITH: the node renders
+			// unanimated, exactly as one freed a tick after a legal attach would. A blob that
+			// exists but will not decode could own anything at all, and that is what must not be
+			// waved through.
+			return;
+		}
+		int[] owned;
+		try {
+			owned = opengpu.v2.ocsl.IrCodec.decode(info.blobCopy(),
+					opengpu.v2.ocsl.IrCodec.Source.TRANSIENT).outProperties();
+		} catch (opengpu.v2.protocol.CodecException e) {
+			// The blob validated at createProgram, so this is memory or disk corruption rather
+			// than user input. Refuse the attach rather than silently skipping the guard: a
+			// program we can no longer read is not one we can certify owns nothing.
+			throw new Exception("program " + programId + " can no longer be decoded, so its"
+					+ " ownership cannot be checked: " + e.getMessage());
+		}
+		for (int property : owned) {
+			if (opengpu.v2.ocsl.SurfaceTable.isAnimatorTransformProperty(property)) {
+				throw new Exception("cannot animate the display node's transform: input reports"
+						+ " scene coordinates and is not transformed with it, so the picture and"
+						+ " its clicks would disagree. Own tint only, or attach to a child node.");
+			}
+		}
+	}
+
+	@Callback(direct = true, limit = 32, doc = "function(nodeId:number, programId:number) -- Attach an OCSL animator program to a node; pass 0 to detach. Attaching over an existing animator replaces it and restamps its attach time (nothing reads that yet; sinceAttach arrives with the evaluation loop). Refuses a program that owns the display node's transform (tint is allowed there).")
+	public Object[] setAnimator(Context context, Arguments args) throws Exception {
+		int nodeId = args.checkInteger(0);
+		int programId = args.checkInteger(1);
+		if (programId < 0) {
+			throw new Exception("program id must be non-negative (0 detaches)");
+		}
+		synchronized (sceneLock) {
+			requireScene();
+			if (!scene.state().nodes.containsKey(Integer.valueOf(nodeId))) {
+				throw new Exception("unknown node " + nodeId);
+			}
+			refuseTransformOwnershipOnDisplayNode(nodeId, programId);
+			// World time, matching what the record stores — see SceneNode.attachedWorldTime for
+			// why the stamp is world time on both sides rather than a session tick.
+			long now = worldObj != null ? worldObj.getTotalWorldTime() : 0L;
+			try {
+				scene.setAnimator(nodeId, programId, now);
+			} catch (IllegalArgumentException e) {
+				throw new Exception(e.getMessage());
 			} catch (IllegalStateException e) {
 				throw new Exception(e.getMessage());
 			}

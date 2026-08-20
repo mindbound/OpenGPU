@@ -171,6 +171,7 @@ public final class BatchCodec {
 			Delta.NodeAttach a = (Delta.NodeAttach) d;
 			out.writeInt(a.nodeId);
 			out.writeInt(a.programId);
+			out.writeLong(a.attachedWorldTime);
 		} else if (d instanceof Delta.SceneProp) {
 			Delta.SceneProp s = (Delta.SceneProp) d;
 			out.writeInt(s.propId);
@@ -406,13 +407,19 @@ public final class BatchCodec {
 			case V2Wire.DELTA_NODE_ATTACH: {
 				int nodeId = in.readInt();
 				int programId = in.readInt();
-				// Negative is the only shape the constructor refuses, and refusing it HERE keeps
-				// the unchecked IllegalArgumentException out of a `throws CodecException` API.
-				// The id is otherwise unconstrained on purpose: a dangling attachment is legal
-				// (ANIM-17), so "does this program exist" is not a decode-time question.
+				long stamp = in.readLong();
+				// Every shape the constructor refuses is refused HERE first, so the unchecked
+				// IllegalArgumentException cannot escape a `throws CodecException` API — the
+				// inbound drain catches CodecException only. The program id is otherwise
+				// unconstrained on purpose: a dangling attachment is legal (ANIM-17), so "does
+				// this program exist" is not a decode-time question.
 				if (programId < 0)
 					throw new CodecException("Attach program id out of range: " + programId);
-				return new Delta.NodeAttach(nodeId, programId);
+				if (stamp < 0L)
+					throw new CodecException("Attach stamp out of range: " + stamp);
+				if (programId == 0 && stamp != 0L)
+					throw new CodecException("A detach must carry a zero stamp, got " + stamp);
+				return new Delta.NodeAttach(nodeId, programId, stamp);
 			}
 			case V2Wire.DELTA_SCENE_PROP: {
 				int propId = in.readInt();

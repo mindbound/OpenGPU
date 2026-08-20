@@ -407,6 +407,66 @@ public final class ServerScene {
 	}
 
 	/**
+	 * Record the server's world time on the scene, once per tick.
+	 *
+	 * TWO FIELDS, ONE CALL, because they are stamped from the same reading and forgetting either
+	 * is silent: both were declared, encoded, decoded and copied for a whole increment while
+	 * NOTHING assigned them, so every snapshot shipped zeros and the conversion
+	 * {@code sessionTick = serverTick + (stamp - worldTimeAnchor)} silently degenerated to
+	 * {@code serverTick + stamp}. Found by review noticing the tests could only ever assert 0.
+	 *
+	 * {@link SceneState#worldTimeAnchor} is refreshed every tick — it describes the instant a
+	 * payload was produced, so a stale one mis-converts every stamp in it.
+	 * {@link SceneState#creationWorldTime} is stamped ONCE and never rewritten: it is the
+	 * animator clock's epoch, and re-stamping it would restart every animator on the scene. Zero
+	 * is the "not yet stamped" sentinel, which is also what a pre-v7 save restores as — so such a
+	 * scene adopts the current world time on its first tick and its animators start from now,
+	 * which is the only answer available when the save records no epoch at all.
+	 *
+	 * NOT a delta, deliberately: neither field describes a scene MUTATION, and making the anchor
+	 * one would put a delta on every tick of every scene forever. Both ride the snapshot, which
+	 * is where a receiver needs them.
+	 */
+	public void stampWorldTime(long worldTime) {
+		state.worldTimeAnchor = worldTime;
+		if (state.creationWorldTime == 0L) {
+			state.creationWorldTime = worldTime;
+		}
+	}
+
+	/**
+	 * Point a node at a program, or detach with {@code programId == 0}.
+	 *
+	 * ANIM-17's atomic replace: attaching to an already-attached node SUCCEEDS and overwrites,
+	 * rather than refusing. The stamp is rewritten every time for the same reason — a replace
+	 * begins a NEW attachment, so an easing program restarts instead of inheriting the previous
+	 * one's age — and a detach clears it so a later re-attach cannot read a stale one.
+	 *
+	 * THE PROGRAM IS NOT REQUIRED TO EXIST, and that is ANIM-17's ruling rather than laxity:
+	 * free-while-attached is legal and dangling, on the criterion this codebase already uses for
+	 * resources. Refusing an unknown id here would ALSO make a legal ordering illegal — freeing
+	 * and re-attaching within one tick — for no gain, since the id can dangle a moment later
+	 * anyway.
+	 *
+	 * ANIM-15(a)'s display-node refusal is NOT here. It keys on the TileEntity's
+	 * {@code implicitCanvasNode} — the id the SERVER persists — which this class cannot see. The
+	 * scene model can DERIVE a display node ({@code DisplayNode.displayNodeId}), but that is the
+	 * client's rescan-from-state answer rather than the server's remembered one, and a refusal
+	 * belongs on the same field the sibling transform guard already uses.
+	 *
+	 * @param attachedWorldTime world time at which the attachment becomes active. IGNORED when
+	 *        {@code programId == 0}: a detach always stores 0, so callers need not zero it and
+	 *        cannot leave a stale stamp behind by forgetting to
+	 */
+	public void setAnimator(int nodeId, int programId, long attachedWorldTime) {
+		requireNode(nodeId);
+		if (programId < 0)
+			throw new IllegalArgumentException("Program id must be non-negative (0 detaches)");
+		applyAndStage(new Delta.NodeAttach(nodeId, programId,
+				programId == 0 ? 0L : attachedWorldTime));
+	}
+
+	/**
 	 * Drop a program and release its ledger bytes.
 	 *
 	 * Programs OUTLIVE the Lua program that created them, exactly as canvases do — server-side

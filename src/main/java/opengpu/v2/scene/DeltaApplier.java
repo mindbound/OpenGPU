@@ -227,6 +227,11 @@ public final class DeltaApplier {
 			// Replace and detach are the same write, per ANIM-17's atomic-replace ruling: there is
 			// no "already attached" refusal, and 0 is simply the value that means none.
 			node.animator = d.programId;
+			// Both fields move together, always. A replace restarts the clock — the new
+			// attachment is a NEW attachment, and an easing program must not inherit the previous
+			// one's age — and a detach clears the stamp so a later re-attach cannot read a stale
+			// one. Writing the id without the stamp is the defect this pairing exists to prevent.
+			node.attachedWorldTime = d.attachedWorldTime;
 		} else if (delta instanceof Delta.SceneProp) {
 			// Reserved (Stage D); carrying it is legal, applying it is a no-op for now.
 		} else {

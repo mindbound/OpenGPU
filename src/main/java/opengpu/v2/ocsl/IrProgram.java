@@ -73,6 +73,42 @@ public final class IrProgram {
 		return OcslType.ofWidth(constants[i].length);
 	}
 
+	/**
+	 * The property ids this program writes — its OWNERSHIP DECLARATION, ascending and distinct.
+	 *
+	 * Derived from the ops every time rather than stored anywhere, and that is the decision
+	 * (3.2, 2026-08-19) rather than an oversight. DESIGN struck {@code ownedProps} because "the
+	 * IR's {@code OUT} set is the sole ownership declaration, because a second list is two sources
+	 * of truth"; a cached mask on {@code ProgramInfo} would be exactly such a second copy, and one
+	 * no decoder could check without decoding the blob anyway. The only caller that does not
+	 * already hold a decoded program is the attach path, which needs this once per attach to the
+	 * display node — a setup-time call, not a per-frame one. Every client that RUNS a program
+	 * decodes it for {@link OcslVm} regardless, so nothing on the render path pays for this.
+	 *
+	 * Both output forms count: {@code OUT} and {@code OUT_ABS} declare the same ownership and
+	 * differ only in how the value composes, which is why this asks {@link OcslWire#isOut} rather
+	 * than naming one opcode — the mistake that method's own javadoc exists to prevent.
+	 */
+	public int[] outProperties() {
+		// A set, though a VALIDATED program can never contain a duplicate: both OcslBuilder and
+		// IrValidator refuse a second OUT to one property ("already written"). This is
+		// defence-in-depth for a hand-built program, not a rule any caller leans on.
+		java.util.TreeSet<Integer> found = new java.util.TreeSet<Integer>();
+		for (IrOp op : ops) {
+			if (OcslWire.isOut(op.opcode)) {
+				// The property is operand 0 for both forms — the same read IrValidator makes when
+				// it type-checks the write.
+				found.add(Integer.valueOf(op.operand(0)));
+			}
+		}
+		int[] out = new int[found.size()];
+		int i = 0;
+		for (Integer p : found) {
+			out[i++] = p.intValue();
+		}
+		return out;
+	}
+
 	public List<IrOp> ops() {
 		return ops;
 	}

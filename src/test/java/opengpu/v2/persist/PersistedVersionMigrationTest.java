@@ -217,6 +217,23 @@ public class PersistedVersionMigrationTest {
 			return this;
 		}
 
+		/**
+		 * The v8 node record: everything v7 wrote, then ANIM-6's attach stamp. 74 bytes. A new
+		 * writer again rather than a parameter, for the reason stated on {@link #node}.
+		 */
+		StructureWriter nodeV8(int id, byte type, int ref, double x, double y, int z, int tint,
+				int parent, int animator, long attachedWorldTime) throws IOException {
+			nodeV7(id, type, ref, x, y, z, tint, parent, animator);
+			out.writeLong(attachedWorldTime);
+			return this;
+		}
+
+		/** The v8 scene tail: the world-time anchor, written after the v7 epoch. */
+		StructureWriter worldTimeAnchorV8(long anchor) throws IOException {
+			out.writeLong(anchor);
+			return this;
+		}
+
 		/** The v7 scene tail: the animator epoch, written AFTER the v6 program section. */
 		StructureWriter creationWorldTimeV7(long worldTime) throws IOException {
 			out.writeLong(worldTime);
@@ -293,7 +310,10 @@ public class PersistedVersionMigrationTest {
 		// so it is chosen by version rather than baked in. Everything else — header, resource
 		// record, canvas commands — is identical from v3 up, which is exactly why v3 and v4 are
 		// both readable and why only ONE of them needed a gate.
-		if (version >= 7) {
+		if (version >= 8) {
+			w.nodeV8(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L)
+					.nodeV8(2, V2Wire.NODE_SPRITE, TEX_ID, 3.5, -1.25, 2, 0x80FF00FF, 0, 0, 0L);
+		} else if (version >= 7) {
 			w.nodeV7(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF, 0, 0)
 					.nodeV7(2, V2Wire.NODE_SPRITE, TEX_ID, 3.5, -1.25, 2, 0x80FF00FF, 0, 0);
 		} else if (version >= 5) {
@@ -312,6 +332,9 @@ public class PersistedVersionMigrationTest {
 		}
 		if (version >= 7) {
 			w.creationWorldTimeV7(0L);
+		}
+		if (version >= 8) {
+			w.worldTimeAnchorV8(0L);
 		}
 		return w.done();
 	}
@@ -436,15 +459,16 @@ public class PersistedVersionMigrationTest {
 		// fully masked. Writing 9 first makes node 4's parent PRESENT and unparented, so only the
 		// "must be a lower id" rule can refuse it — the one shape that tells the two apart.
 		w.nodes(7)
-				.nodeV7(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0)   // a legal parent
-				.nodeV7(2, V2Wire.NODE_GROUP, 0, 1, 1, 0, 0xFFFFFFFF, 1, 0)   // a legal child of it
-				.nodeV7(3, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 3, 0)   // parents itself
-				.nodeV7(9, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0)   // present, unparented
-				.nodeV7(4, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 9, 0)   // ...but 9 is above 4
-				.nodeV7(5, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 2, 0)   // 2 is already a child
-				.nodeV7(10, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7, 0); // 7 was never written
+				.nodeV8(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L)   // a legal parent
+				.nodeV8(2, V2Wire.NODE_GROUP, 0, 1, 1, 0, 0xFFFFFFFF, 1, 0, 0L)   // a legal child of it
+				.nodeV8(3, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 3, 0, 0L)   // parents itself
+				.nodeV8(9, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L)   // present, unparented
+				.nodeV8(4, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 9, 0, 0L)   // ...but 9 is above 4
+				.nodeV8(5, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 2, 0, 0L)   // 2 is already a child
+				.nodeV8(10, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7, 0, 0L); // 7 was never written
 		w.programsV6(1, 0); // v6 section: this fixture is pinned to PROTOCOL_VERSION
 		w.creationWorldTimeV7(0L); // ...and therefore the v7 tail too
+		w.worldTimeAnchorV8(0L); // ...and the v8 anchor
 
 		SceneSnapshot snap = SnapshotCodec.decodePersisted(w.done());
 
@@ -476,10 +500,11 @@ public class PersistedVersionMigrationTest {
 				new StructureWriter(V2Wire.PROTOCOL_VERSION, "gpu-addr", EPOCH, 7, 900L, 1, 3);
 		w.resources(0);
 		w.nodes(2)
-				.nodeV7(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0)
-				.nodeV7(2, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7, 0); // 7 is above 2
+				.nodeV8(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L)
+				.nodeV8(2, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7, 0, 0L); // 7 is above 2
 		w.programsV6(1, 0); // v6 section: this fixture is pinned to PROTOCOL_VERSION
 		w.creationWorldTimeV7(0L); // ...and therefore the v7 tail too
+		w.worldTimeAnchorV8(0L); // ...and the v8 anchor
 		byte[] blob = w.done();
 
 		assertEquals("the save must degrade rather than refuse",
@@ -853,6 +878,96 @@ public class PersistedVersionMigrationTest {
 	}
 
 	/**
+	 * THE v8 NODE RECORD AND SCENE TAIL, pinned with values no field swap survives.
+	 *
+	 * Every other v8 fixture in this file writes {@code animator=0, attachedWorldTime=0L} and
+	 * {@code worldTimeAnchor=0L}, which are INVARIANT under swapping the two node fields or
+	 * word-swapping the long — so the whole v8 layout rested on an encoder-symmetric round trip
+	 * (encode with the codec, decode with the same codec) that a paired bug passes cleanly. The
+	 * v7 test below already learned this lesson for {@code animator}; the v8 bump did not repeat
+	 * it, and a review caught that.
+	 *
+	 * The values are chosen so each 32-bit HALF differs from the other: a decoder reading the long
+	 * as two ints in the wrong order, or reading the int and long in the wrong order, produces a
+	 * different number rather than the same one.
+	 */
+	@Test
+	public void theV8NodeRecordAndTailSurviveWithValuesNoSwapCouldFake() throws Exception {
+		final long stamp = 0x0000000100000002L;   // halves differ: 1 and 2
+		final long epoch = 0x0000000300000004L;
+		final long anchor = 0x0000000500000006L;
+		StructureWriter w = new StructureWriter(V2Wire.PROTOCOL_VERSION, "gpu-addr", EPOCH, 7, 900L, 2, 3);
+		w.resources(1).canvasWithContent(1, 64, 32, 16);
+		w.nodes(1).nodeV8(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF, 0, 31, stamp);
+		w.programsV6(1, 0);
+		w.creationWorldTimeV7(epoch);
+		w.worldTimeAnchorV8(anchor);
+
+		SceneSnapshot decoded = SnapshotCodec.decodePersisted(w.done());
+		SceneNode node = decoded.state.nodes.get(Integer.valueOf(1));
+		assertEquals("the animator id must not be read out of the stamp's bytes", 31, node.animator);
+		assertEquals("the stamp must survive whole, in the right word order",
+				stamp, node.attachedWorldTime);
+		assertEquals("the epoch is its own field", epoch, decoded.state.creationWorldTime);
+		assertEquals("and the anchor is its own field, distinct from the epoch",
+				anchor, decoded.state.worldTimeAnchor);
+	}
+
+	/**
+	 * A v7 structure: v7's node record (through {@code animator}) and the scene epoch, with NO v8
+	 * additions — what a world saved between the 6 → 7 and 7 → 8 bumps holds on disk.
+	 *
+	 * Node 2 carries a NON-ZERO animator on purpose. A zero would be indistinguishable from the
+	 * value a decoder that never read the field produces, which is the assertion-passes-on-the-
+	 * default trap; a real id also means a v8 gate reading one version early would consume the
+	 * NEXT node's id as this one's stamp and desync the loop visibly.
+	 */
+	private static byte[] v7Structure() throws IOException {
+		final int canvasId = 1;
+		StructureWriter w = new StructureWriter((short) 7, "gpu-addr", EPOCH, 7, 900L, 2, 3);
+		w.resources(1)
+				.canvasWithContent(canvasId, 64, 32, 16);
+		w.nodes(2)
+				.nodeV7(1, V2Wire.NODE_CANVAS, canvasId, 0, 0, 0, 0xFFFFFFFF, 0, 0)
+				.nodeV7(2, V2Wire.NODE_GROUP, 0, 1.5, -2.5, 3, 0x80FF00FF, 1, 31);
+		w.programsV6(5, 1);
+		w.creationWorldTimeV7(4242L);
+		return w.done();
+	}
+
+	/**
+	 * THE 7 → 8 BUMP'S OBLIGATION, discharged: a v7 save must still load after ANIM-6's attach
+	 * stamp was appended to the node record and the world-time anchor after the scene epoch.
+	 *
+	 * Same two-gates-in-one-bump shape as the v6 test below, and the same two failure modes: a
+	 * node gate saying >= 7 misreads every record, and an ungated tail read eats the
+	 * trailing-data guard's bytes. Both land on restoreOrFresh deleting the scene's bodies.
+	 */
+	@Test
+	public void aV7StructureStillDecodesAfterTheAttachStampAndAnchorGrew() throws Exception {
+		byte[] structure = v7Structure();
+
+		SceneSnapshot decoded = SnapshotCodec.decodePersisted(structure);
+		assertEquals("a v7 scene restores its nodes", 2, decoded.state.nodes.size());
+		assertEquals("and its programs", 1, decoded.state.programs.size());
+		assertEquals("the v7 epoch is read at its own offset", 4242L, decoded.state.creationWorldTime);
+		// The node record must have been read at 66 bytes, not 74. Node 2's parent AND its
+		// animator surviving together is what proves the width — either alone could survive a
+		// desync by coincidence.
+		SceneNode two = decoded.state.nodes.get(Integer.valueOf(2));
+		assertEquals("node 2's parent came through", 1, two.parent);
+		assertEquals("node 2's animator came through, so the record width was right", 31, two.animator);
+		assertEquals("a v7 world has no attach stamp and must not acquire one",
+				0L, two.attachedWorldTime);
+		assertEquals("nor an anchor", 0L, decoded.state.worldTimeAnchor);
+
+		ScenePersistence.RestoreResult result = ScenePersistence.restore(structure, store);
+		assertEquals("restore agrees with the codec", 2, result.scene.state().nodes.size());
+		assertEquals("and keeps the attachment", 31,
+				result.scene.state().nodes.get(Integer.valueOf(2)).animator);
+	}
+
+	/**
 	 * THE 6 → 7 BUMP'S OBLIGATION, discharged: a v6 save must still load after `animator` was
 	 * appended to the node record AND the scene epoch was appended after the program section.
 	 *
@@ -932,7 +1047,7 @@ public class PersistedVersionMigrationTest {
 				result.scene.state().programs.isEmpty());
 	}
 
-	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 7;
+	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 8;
 
 	@Test
 	public void aProtocolBumpMustDecideWhatHappensToTheOutgoingFormat() {

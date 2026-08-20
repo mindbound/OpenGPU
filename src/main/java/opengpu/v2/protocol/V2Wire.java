@@ -34,7 +34,7 @@ public final class V2Wire {
 	 * version number, disagree about the op table, and an old client decodes the new op's
 	 * argument as some other op's payload. See ProtocolVersionTest.
 	 */
-	public static final short PROTOCOL_VERSION = 7;
+	public static final short PROTOCOL_VERSION = 8;
 
 	// Delta type ids
 	public static final byte DELTA_NODE_CREATE = 1;

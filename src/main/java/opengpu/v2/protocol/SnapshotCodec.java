@@ -83,6 +83,10 @@ public final class SnapshotCodec {
 				// attachment is one program id, so it needs no variable-length tail and no forked
 				// decoder. 0 means unattached, which is what every pre-v7 node record restores as.
 				out.writeInt(node.animator);
+				// APPENDED in v8, same shape a third time: 66 -> 74 bytes, nothing before it
+				// moved. ANIM-6's per-attachment stamp, in world time so that this record means
+				// the same thing on the server, on every mirror, and on disk.
+				out.writeLong(node.attachedWorldTime);
 			}
 			// APPENDED in v6, the same shape the v5 `parent` append used: strictly after every
 			// earlier field, so a v5 payload is consumed at its own width by the gate in decode()
@@ -108,6 +112,18 @@ public final class SnapshotCodec {
 			// two different field orders and this codec would owe a forked decoder. Appending
 			// keeps the v6 gate below reading a v6 payload at its own width.
 			out.writeLong(state.creationWorldTime);
+			// APPENDED in v8: THE ANCHOR. Every stamp in this payload — the scene epoch above and
+			// each node's attach stamp — is WORLD time, while the client's render clock
+			// (ServerTimeline.renderNanos) lives in the SESSION-tick domain the header's
+			// serverTick counts. One pair of (serverTick, worldTime) taken at the same instant is
+			// all a receiver needs to convert any of them:
+			//     sessionTick = serverTick + (stamp - worldTimeAnchor)
+			// The alternative — having the server pre-derive each stamp — was rejected because it
+			// makes a mirror's stored field a DIFFERENT KIND of number from the server's, so
+			// SceneState.contentEquals would compare unlike quantities while reporting agreement.
+			// One field here keeps every stored stamp identical everywhere and leaves 3.3's host
+			// fill needing no further protocol change.
+			out.writeLong(state.worldTimeAnchor);
 			byte[] encoded = bytes.toByteArray();
 			// "Legal to create" must imply "deliverable": a snapshot the chunker cannot carry
 			// would make the scene permanently unresyncable. Budget caps (open numbers in the
@@ -153,6 +169,14 @@ public final class SnapshotCodec {
 	 *       nearly broke: appending it BEFORE the v6 section would have moved v6's fields, which
 	 *       is the forked-decoder case below, not this one.
 	 *
+	 *   7 — READ AT ITS OWN WIDTH BY TWO GATES, the same shape once more. The 7 → 8 bump APPENDED
+	 *       ANIM-6's fixed-width {@code attachedWorldTime} long to the node record (66 → 74 bytes,
+	 *       nothing before it moved) and APPENDED the world-time anchor after the v7 epoch, which
+	 *       is itself after the v6 program section. decode() reads each only at version >= 8, so a
+	 *       v7 payload is consumed at its own widths and lands flush on the trailing-data guard; a
+	 *       v7 world restores with every attachment unstamped and no anchor, which is what it had.
+	 *       The op table did not change in this bump.
+	 *
 	 * IF A FUTURE BUMP MOVES, RESIZES OR REORDERS AN EXISTING FIELD, IT DOES NOT BELONG HERE, and
 	 * no gate rescues it. Write a decoder for the old layout instead, as
 	 * {@link LegacyStructureCodec} does for v2, and dispatch on the peeked version. The same goes
@@ -174,7 +198,7 @@ public final class SnapshotCodec {
 	 * TE saves before its scene is initialised. A world can therefore carry a v3 structure
 	 * through any number of v4 sessions.
 	 */
-	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4, 5, 6 };
+	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4, 5, 6, 7 };
 
 	/**
 	 * Legality of a decoded parent, answered identically on both paths — and answered DIFFERENTLY
@@ -358,8 +382,20 @@ public final class SnapshotCodec {
 				// not been read yet at this point in the stream anyway, so there is nothing here
 				// to resolve against even in principle.
 				int animator = version >= 7 ? in.readInt() : 0;
+				// v8's stamp, gated on its own version for the same reason each earlier field is.
+				long attachedWorldTime = version >= 8 ? in.readLong() : 0L;
 				if (animator < 0)
 					throw new CodecException("Node " + id + " has a negative animator id " + animator);
+				if (attachedWorldTime < 0L)
+					throw new CodecException("Node " + id + " has a negative attach stamp "
+							+ attachedWorldTime);
+				// The two fields are meaningless apart, so a record carrying one without the other
+				// is corruption rather than a state to absorb. Checked HERE and not in
+				// DeltaApplier because the delta constructor already enforces the same pairing —
+				// this is the persisted path's equivalent guard, on bytes nothing else validated.
+				if (animator == 0 && attachedWorldTime != 0L)
+					throw new CodecException("Node " + id + " is unattached but carries a stamp of "
+							+ attachedWorldTime);
 				if (state.nodes.containsKey(id))
 					throw new CodecException("Duplicate node id " + id);
 				SceneNode node = new SceneNode(id, type, ref,
@@ -373,6 +409,7 @@ public final class SnapshotCodec {
 				node.visible = visible;
 				node.tint = tint;
 				node.animator = animator;
+				node.attachedWorldTime = attachedWorldTime;
 				state.nodes.put(id, node);
 			}
 			// THE v6 GATE, same rule as the v5 one above: >= 6, not >= 5. A v5 payload ends
@@ -426,6 +463,9 @@ public final class SnapshotCodec {
 			// deleting the scene's stored bodies.
 			if (version >= 7) {
 				state.creationWorldTime = in.readLong();
+			}
+			if (version >= 8) {
+				state.worldTimeAnchor = in.readLong();
 			}
 			if (in.read() != -1)
 				throw new CodecException("Trailing data after snapshot");

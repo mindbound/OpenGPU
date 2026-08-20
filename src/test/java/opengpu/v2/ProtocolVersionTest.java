@@ -40,15 +40,15 @@ public class ProtocolVersionTest {
 	 */
 	private static final int HIGHEST_OP_AT_THIS_VERSION = V2Wire.OP_SET_FONT;
 	/**
-	 * 7, while the highest op is still the one v4 defined. That gap is intentional and is the
-	 * answer to this test's own instruction, now three times over: the 4 -> 5 bump appended
-	 * `parent` to the node record, the 5 -> 6 bump appended the whole PROGRAM SECTION after the
-	 * node loop, and the 6 -> 7 bump appended `animator` to the node record plus the scene's
-	 * creation epoch after the program section. None touched the op table, so only this constant
-	 * moves. The gap is also what lets SnapshotCodec list v4, v5 and v6 as readable — a bump that
-	 * HAD changed an arity could not.
+	 * 8, while the highest op is still the one v4 defined. That gap is intentional and is the
+	 * answer to this test's own instruction, now four times over: 4 -> 5 appended `parent` to the
+	 * node record, 5 -> 6 appended the whole PROGRAM SECTION after the node loop, 6 -> 7 appended
+	 * `animator` to the node record plus the scene's creation epoch after that section, and
+	 * 7 -> 8 appended ANIM-6's attach stamp to the node record plus the world-time anchor after
+	 * the epoch. None touched the op table, so only this constant moves. The gap is also what lets
+	 * SnapshotCodec list v4 through v7 as readable — a bump that HAD changed an arity could not.
 	 */
-	private static final short VERSION_THAT_DEFINES_IT = 7;
+	private static final short VERSION_THAT_DEFINES_IT = 8;
 
 	@Test
 	public void versionAndOpTableMoveTogether() {

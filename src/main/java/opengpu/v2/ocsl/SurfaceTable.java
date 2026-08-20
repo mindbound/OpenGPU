@@ -623,6 +623,25 @@ public final class SurfaceTable {
 	}
 
 	/**
+	 * Whether an animator property is part of the node's TRANSFORM, as opposed to its appearance.
+	 *
+	 * DERIVED from {@link #propertyType}, not written out as a second list, so Stage C's arrival
+	 * cannot leave the two disagreeing: an ownable animator property is transform-related unless
+	 * it is {@code tint}. {@code z} and {@code visible} answer false because they are not ownable
+	 * at all — {@code propertyType} returns null and {@code IrValidator} refuses them at
+	 * createProgram — so they can never reach a question about attachment.
+	 *
+	 * The one caller is ANIM-15(a)'s refusal: an animator may not own the DISPLAY node's
+	 * transform, because input reports scene coordinates that are not transformed with it. Tint is
+	 * deliberately still allowed there, which is why this predicate exists rather than a blanket
+	 * "owns anything" test.
+	 */
+	public static boolean isAnimatorTransformProperty(int propertyId) {
+		return propertyId != OcslWire.PROP_ANIM_TINT
+				&& propertyType(OcslWire.STAGE_ANIMATOR, propertyId) != null;
+	}
+
+	/**
 	 * Every property this stage requires an OUT for. The pixel family requires exactly COLOR.
 	 *
 	 * An empty result means only what it says — this surface mandates no particular output — and is

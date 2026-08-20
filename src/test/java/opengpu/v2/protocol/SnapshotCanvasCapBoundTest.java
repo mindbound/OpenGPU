@@ -79,6 +79,7 @@ public class SnapshotCanvasCapBoundTest {
 		out.writeInt(1);    // nextProgramId
 		out.writeInt(0);    // no programs
 		out.writeLong(0L);  // v7 creationWorldTime, appended after the program section
+		out.writeLong(0L);  // v8 world-time anchor
 		out.flush();
 		return bytes.toByteArray();
 	}
