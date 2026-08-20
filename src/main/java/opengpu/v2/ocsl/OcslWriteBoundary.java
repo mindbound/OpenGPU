@@ -46,11 +46,23 @@ package opengpu.v2.ocsl;
  * happens to call it today. The reject arm is redundancy that became total, which is a fine state
  * for a guard. What would be wrong is citing VM totality as grounds to weaken it.
  *
- * <b>The CLAMP arm is a different case and must not be described as live: {@link #clampForWrite} has
- * NO caller in {@code src/main}.</b> {@code compose} does not clamp, so the rule below is defined,
- * frozen in the table, and unwired — it binds at the Phase 3.3 consumer that hands composed values
- * to the renderer, and that is exactly where the ordering obligation this class warns about will
- * come due.
+ * <b>The CLAMP arm HAS A CALLER as of Phase 3.3a (2026-08-20).</b> This paragraph used to say
+ * {@link #clampForWrite} had no caller in {@code src/main}, and that was true for as long as
+ * nothing consumed composed values. Its consumer now exists:
+ * {@code AnimatorOverlay.applyProperty} composes and then clamps, per property, before the value
+ * is stored — which is where the ordering obligation this class warns about came due, exactly as
+ * predicted.
+ *
+ * NOT THE SAME AS "on the render path", and the distinction is the one this paragraph got wrong
+ * once already. A first version of this correction said the arm was "now LIVE"; that is a claim
+ * about reachability, and it overshot — {@code AnimatorOverlay} is itself called only from tests
+ * until 3.3b substitutes it at {@code Canvas2dRenderer}. Having a caller and being reached from a
+ * production entry point are two claims, and swapping the weaker note for a stronger one is how a
+ * ledger item gets marked done early.
+ *
+ * {@code compose} still does not clamp, and must not: composition can leave the finite range even
+ * when both operands were inside it, so the clamp belongs at the consumer that knows the value is
+ * final, not inside the operation that produced it.
  *
  * The program could not defend itself either, when this mattered: the only NaN test the op set can
  * express is {@code select(EQ(x,x), x, fallback)}, and {@code EQ} is separately documented as

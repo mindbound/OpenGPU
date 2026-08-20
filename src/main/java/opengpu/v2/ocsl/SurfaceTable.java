@@ -127,12 +127,21 @@ public final class SurfaceTable {
 	 * A note describing a gate that lives elsewhere goes stale silently; one describing the gate it
 	 * sits on cannot.
 	 *
-	 * Per ANIM-7 the readable value is the RAW server-set property, never the animator-composed one
-	 * (self-referential for an owned property) and never the interpolated display transform (that
-	 * is the composition base, renderer behaviour, carrying no purity claim). The consequence is
-	 * documented rather than hidden: a program reading {@code x} reads a value up to one
-	 * interpolation window out of step with the base its output lands on, so <b>{@code x} is not
-	 * "where I am drawn"</b>.
+	 * Per ANIM-7 the readable value for the node's OWN properties [16, 25) is the RAW server-set
+	 * one — never the animator-composed value, which is self-referential for a property the
+	 * program itself writes, and never the interpolated display transform (that is the composition
+	 * base, renderer behaviour, carrying no purity claim). The consequence is documented rather
+	 * than hidden: a program reading {@code x} reads a value up to one interpolation window out of
+	 * step with the base its output lands on, so <b>{@code x} is not "where I am drawn"</b>.
+	 *
+	 * <b>THE PARENT BLOCK [27, 36) IS THE OPPOSITE, decided 2026-08-20 (Phase 3.3a):</b> it carries
+	 * the parent's COMPOSED value. ANIM-7's reason does not reach it — a child reading its parent
+	 * is not self-referential — and composed is the only answer that makes the canonical use work,
+	 * since a label counter-rotating against a spinning parent needs the parent's effective
+	 * rotation and raw fails exactly when the parent is animated. This paragraph said "never the
+	 * animator-composed one" as an unqualified absolute until {@code AnimatorOverlay} made it
+	 * false for nine of the registers below; it sat on the gate it described and went stale anyway,
+	 * which is worth remembering the next time a note claims that placement protects it.
 	 */
 	public static final int REG_ANIMATOR_BASE = 16;
 
