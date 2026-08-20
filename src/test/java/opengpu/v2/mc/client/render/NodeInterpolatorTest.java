@@ -65,6 +65,53 @@ public class NodeInterpolatorTest {
 	}
 
 	// ------------------------------------------------------------------
+	// The animator's instant (Phase 3.5)
+
+	/**
+	 * ADDED AFTER A MISATTRIBUTION. A mutation stripping renderInstant's unprimed guard survived
+	 * the whole suite, and I recorded that in 3.5's commit message as "Forge-bound, unreachable
+	 * from JVM tests". That was wrong: this class imports only java.util and opengpu.v2.scene,
+	 * and this very file has been testing it all along. The mutation survived because nothing
+	 * covered the method — an ordinary coverage gap dressed up as a structural limit.
+	 *
+	 * The sentinel is Long.MIN_VALUE rather than 0 because 0 is a legitimate instant, so a caller
+	 * that forgot to check would silently place the animator clock at the epoch.
+	 */
+	@Test
+	public void renderInstantIsUnprimedBeforeTheFirstCapture() {
+		assertEquals("an unprimed timeline must say so, not answer 0",
+				Long.MIN_VALUE, new NodeInterpolator().renderInstant(N0));
+	}
+
+	/**
+	 * ANIM-4's "one time sample per frame per scene", made checkable: the instant the animator
+	 * reads must be the instant interpolation is replaying against, not merely a similar one.
+	 *
+	 * Asserted through {@code localShowing}, the helper every interpolation test in this file is
+	 * written against — so this passes only while both features read the same clock. A second
+	 * ServerTimeline would agree here to within its own EMA and then drift apart across a rebase,
+	 * which is exactly what the shared accessor exists to prevent.
+	 */
+	@Test
+	public void renderInstantIsTheClockInterpolationReplaysAgainst() {
+		NodeInterpolator interp = new NodeInterpolator();
+		interp.capture(stateWith(node(1, 0, 0)), T0, N0, NONE);
+		assertEquals("at the local time the clock shows tick T0+2, the animator's instant must BE"
+				+ " tick T0+2 — the same moment, not an approximation of it",
+				ServerTimeline.tickNanos(T0 + 2), interp.renderInstant(localShowing(T0 + 2)));
+	}
+
+	/** And it advances with local time one-for-one, which is what makes it a clock. */
+	@Test
+	public void renderInstantAdvancesWithLocalTime() {
+		NodeInterpolator interp = new NodeInterpolator();
+		interp.capture(stateWith(node(1, 0, 0)), T0, N0, NONE);
+		long at = interp.renderInstant(arrival(3));
+		assertEquals("100 ms of local time is 100 ms of render time",
+				at + 100 * MS, interp.renderInstant(arrival(3) + 100 * MS));
+	}
+
+	// ------------------------------------------------------------------
 	// The clock
 
 	@Test

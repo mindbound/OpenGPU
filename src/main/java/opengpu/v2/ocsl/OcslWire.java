@@ -66,7 +66,21 @@ public final class OcslWire {
 	 * this sentence did not, and only a review found it.
 	 */
 	public static final byte STAGE_ANIMATOR = 6;
-	/** Reserved for the post-Stage-D Data Card. No decoder support; refused as unknown. */
+	/**
+	 * Reserved for the post-Stage-D Data Card.
+	 *
+	 * CLOSED, NOT UNKNOWN — this comment used to say "no decoder support; refused as unknown",
+	 * and both halves were false: {@link #isKnownStage} deliberately includes this id, so a
+	 * stage-7 blob DECODES, and the refusal is {@code IrValidator}'s {@code !SurfaceTable.isOpen}
+	 * arm, exactly as for the vertex stage. The distinction is load-bearing twice over. It is
+	 * what keeps a reserved stage's refusal message able to say "reserved" rather than lying
+	 * about unknownness (the guarantee {@code aReservedRefusalIsDistinctFromAnUnknownStage}
+	 * pins), and it is what makes opening the stage later a VALIDATOR change under the
+	 * monotonicity rule rather than a format change — the same one-line act that opened the
+	 * animator on 2026-08-13. Because createProgram validates before storing, no blob can
+	 * persist under this stage while it is closed, which is what protects the future compute
+	 * surface's acceptance rules from being frozen by accident.
+	 */
 	public static final byte STAGE_COMPUTE = 7;
 
 	// ---------------------------------------------------------------- property ids
