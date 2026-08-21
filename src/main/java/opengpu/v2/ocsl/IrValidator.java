@@ -85,8 +85,15 @@ public final class IrValidator {
 		switch (stage) {
 			case OcslWire.STAGE_ANIMATOR:
 				// 512, decided 2026-08-21 — the one stage with a measured cost model on both
-				// sides: 0.46 us/op microbenchmarked, ~6-9 us/node at 5-14 ops in the field
-				// (FIELD-TEST-3.3). An at-cap node is ~236 us ≈ 1.4% of a 60 Hz frame; 36x the
+				// sides: 0.46 us/op, ~6-9 us/node at 5-14 ops in the field
+				// (FIELD-TEST-3.3). THE 0.46 IS NOT A MICROBENCHMARK, though this comment called
+				// it one until 2026-08-21 and four documents repeated it: it traces to the note
+				// in the empty-loop guard below, on a PIXEL-stage program, with no op mix,
+				// warm-up or repetition count stated, and OcslWeightBench disowns absolute
+				// nanoseconds outright. Two cost models fit the field data and differ 16x at
+				// this cap — see FIELD-TEST-ANIM16.md, which is the measurement that separates
+				// them. The cap below is not in question; what follows from it is.
+				// An at-cap node is ~236 us ≈ 1.4% of a 60 Hz frame; 36x the
 				// largest real program. Conservative on purpose: monotonicity makes every raise
 				// a one-way door, and ANIM-16's client-global budget — the aggregate bound the
 				// design calls "the real bound" — still has no number.

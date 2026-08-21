@@ -61,11 +61,17 @@ public class CapIntuitionTest {
 
 		b.out(OcslWire.PROP_COLOR, colour);
 		long charge = b.structuralCount();
+		// THE STAGE'S CAP, not the ceiling. MAX_STRUCTURAL_OPS became a CEILING (1024) when the
+		// caps went per-stage on 2026-08-21, while this pixel-stage example is bounded by 256 —
+		// so printing and asserting against the ceiling reported a denominator four times the
+		// real one, and the assertion stopped being able to fail for any program under 1024. The
+		// number PLAN quotes from this line ("153/256") is the per-stage one.
+		int cap = IrValidator.maxStructuralOps(OcslWire.STAGE_PIXEL_MATERIAL);
 		System.out.println("[cap] example 1 'aurora' (6 octaves + warp + ramp) = " + charge
-				+ " structural ops of " + IrValidator.MAX_STRUCTURAL_OPS);
+				+ " structural ops of " + cap);
 		IrProgram p2 = b.build();
 		assertTrue("example 1 must fit, or it is not an example of fitting",
-				IrValidator.validate(p2).structuralOps <= IrValidator.MAX_STRUCTURAL_OPS);
+				IrValidator.validate(p2).structuralOps <= cap);
 	}
 
 	/**

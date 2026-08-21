@@ -1218,4 +1218,750 @@ public class AnimatorOverlayTest {
 		assertEquals("the SAME overlay on the 4-arg path composes over raw 10 — 105 means the"
 				+ " previous frame's interpolator stuck", 110.0, overlay.of(1).x, 1e-4);
 	}
+
+	// ---------------------------------------------------------------- the hold seam (ANIM-16)
+
+	/** Holds every node it is asked about — the budget's answer, without the budget. */
+	private static final AnimatorOverlay.HoldPolicy HOLD_ALL = new AnimatorOverlay.HoldPolicy() {
+		public boolean hold(int nodeId) {
+			return true;
+		}
+	};
+
+	/** `x += time`: a RELATIVE write whose raw output differs on every frame. */
+	private static byte[] relativeClockProgram() throws Exception {
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		b.out(OcslWire.PROP_ANIM_X, b.builtin(SurfaceTable.REG_TIME));
+		return IrCodec.encode(b.build());
+	}
+
+	/**
+	 * THE TEST THE WHOLE INCREMENT EXISTS FOR: a held node freezes its ANIMATOR and not its BASE.
+	 *
+	 * Four outcomes are separated by one number, which is why the program is {@code x += time}
+	 * rather than a constant — against a constant, holding and evaluating give the same answer and
+	 * the test would pass with the mechanism entirely absent:
+	 *
+	 * <ul>
+	 *   <li><b>105</b> — correct: the base moved to 100, the animator's own 5.0 is frozen.</li>
+	 *   <li><b>106</b> — the node was evaluated; the policy was ignored.</li>
+	 *   <li><b>12</b> — the COMPOSED value was reused. This is the defect the increment removes,
+	 *       and in-game it looks exactly like a broken evaluator: the node stops dead.</li>
+	 *   <li><b>100</b> — the entry was dropped and the animator vanished.</li>
+	 * </ul>
+	 */
+	@Test
+	public void aHeldNodeFreezesItsAnimatorAndNotItsBase() throws Exception {
+		SceneState s = sceneWith(info(1, relativeClockProgram()));
+		SceneNode n = node(s, 1, 0);
+		n.x = 7.0;
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertEquals("frame one: base 7 + time 5", 12.0, overlay.of(1).x, 1e-6);
+
+		// The server moves the node, and the frame that follows declines to run its program.
+		n.x = 100.0;
+		overlay.holdPolicy(HOLD_ALL);
+		overlay.evaluate(s, instant(220), OFFSET, true);
+
+		assertEquals("a held node must recompose its FROZEN output (5.0) over the CURRENT base"
+				+ " (100): 106 means it evaluated anyway, 12 means the composed value was reused"
+				+ " and server motion was discarded, 100 means the animator was dropped",
+				105.0, overlay.of(1).x, 1e-6);
+	}
+
+	/**
+	 * A held node keeps tracking a base that is still MOVING, frame after frame.
+	 *
+	 * The single-step test above cannot see a recomposition that runs once and then latches, which
+	 * is a plausible implementation of "recompose on the frame the hold begins".
+	 */
+	@Test
+	public void aHeldNodeKeepsTrackingItsBaseAcrossManyHeldFrames() throws Exception {
+		SceneState s = sceneWith(info(1, relativeClockProgram()));
+		SceneNode n = node(s, 1, 0);
+		n.x = 0.0;
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);   // raw = 5.0, base 0 -> 5
+		overlay.holdPolicy(HOLD_ALL);
+		for (int frame = 1; frame <= 4; frame++) {
+			n.x = frame * 10.0;
+			overlay.evaluate(s, instant(200 + 20L * frame), OFFSET, true);
+			assertEquals("held frame " + frame + ": base moved to " + (frame * 10.0)
+					+ ", the frozen 5.0 rides on top of it",
+					frame * 10.0 + 5.0, overlay.of(1).x, 1e-6);
+		}
+	}
+
+	/**
+	 * ABSOLUTE writes hold too, and their held value must NOT drift with the base.
+	 *
+	 * The mirror of the test above, and it exists because the relative case is the one that makes
+	 * recomposition look necessary: an implementation that "fixed" holding by always adding the
+	 * frozen output to the current base would pass every relative test here and silently convert
+	 * absolute writes into relative ones — the double-apply bug OP_OUT_ABS exists to prevent,
+	 * arriving through the back door of the degradation path.
+	 */
+	@Test
+	public void aHeldAbsoluteWriteStaysAbsolute() throws Exception {
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		b.outAbsolute(OcslWire.PROP_ANIM_X, b.builtin(SurfaceTable.REG_TIME));
+		SceneState s = sceneWith(info(1, IrCodec.encode(b.build())));
+		SceneNode n = node(s, 1, 0);
+		n.x = 7.0;
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertEquals("absolute: the base is replaced", 5.0, overlay.of(1).x, 1e-6);
+
+		n.x = 100.0;
+		overlay.holdPolicy(HOLD_ALL);
+		overlay.evaluate(s, instant(220), OFFSET, true);
+		assertEquals("still 5.0 — 105 would mean the held value was composed relatively, which is"
+				+ " the double-apply bug reintroduced by the hold path", 5.0,
+				overlay.of(1).x, 1e-6);
+	}
+
+	/**
+	 * Holding is reusing work, so it cannot happen before any work exists.
+	 *
+	 * Without this rule a node attached while the budget is already saturated would be skipped on
+	 * its first frame, hold nothing, and show its server value — a node that never starts moving
+	 * at all, which reads in-game as the attach having failed.
+	 */
+	@Test
+	public void aNodeWithNothingToHoldEvaluatesAnyway() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.x = 7.0;
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.holdPolicy(HOLD_ALL);            // holding from the very first frame
+		overlay.evaluate(s, instant(200), OFFSET, true);
+
+		assertNotNull("the first frame has no previous output to reuse", overlay.of(1));
+		assertEquals(12.0, overlay.of(1).x, 1e-6);
+	}
+
+	/**
+	 * The guard's predicate and the evaluator's must be the SAME question, so this asserts they
+	 * are the same method's answer against the same map — and that it flips only once there is
+	 * something to hold.
+	 */
+	@Test
+	public void wouldEvaluateFollowsTheHoldPolicyOnlyOnceThereIsAnOutputToHold() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.holdPolicy(HOLD_ALL);
+		assertTrue("nothing evaluated yet: the guard must not let the scene short-circuit",
+				overlay.wouldEvaluate(s));
+
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertFalse("now there is an output to hold, so the scene owes no animator work",
+				overlay.wouldEvaluate(s));
+
+		overlay.holdPolicy(AnimatorOverlay.EVALUATE_ALWAYS);
+		assertTrue("and the default policy always owes work", overlay.wouldEvaluate(s));
+	}
+
+	/**
+	 * {@code wouldEvaluate} must look the node's entry up by NODE id, not by program id.
+	 *
+	 * Every other test that reaches it uses node 1 attached to program 1, where the two keys are
+	 * indistinguishable — so keying by {@code node.animator} passed the whole suite while making
+	 * the guard and the loop answer different questions, which is the single failure the shared
+	 * predicate exists to prevent. Node id and program id are deliberately far apart here.
+	 */
+	@Test
+	public void wouldEvaluateKeysTheMapByNodeIdNotProgramId() throws Exception {
+		SceneState s = sceneWith(info(7, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		SceneNode n = node(s, 3, 0);
+		n.animator = 7;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.holdPolicy(HOLD_ALL);
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertNotNull("node 3 has an entry", overlay.of(3));
+
+		assertFalse("node 3 is held, so the scene owes no animator work — true here means the"
+				+ " lookup used the program id (7), found nothing, and disagreed with the loop",
+				overlay.wouldEvaluate(s));
+	}
+
+	/**
+	 * THE NO-BEHAVIOUR-CHANGE CLAIM, asserted rather than argued.
+	 *
+	 * The guard swapped {@code hasAttachedAnimator()} for {@code wouldEvaluate()}. Under the
+	 * shipped policy those must agree on every scene shape, INCLUDING the ones neither predicate
+	 * looks past — a dangling attachment and a node whose blob will not decode both still count as
+	 * work today, and quietly making them stop counting would be a behaviour change smuggled in
+	 * under a refactor.
+	 */
+	@Test
+	public void underTheShippedPolicyWouldEvaluateMatchesHasAttachedAnimator() throws Exception {
+		SceneState empty = sceneWith();
+		SceneState nodesOnly = sceneWith();
+		node(nodesOnly, 1, 0);
+		node(nodesOnly, 2, 0);
+
+		SceneState attached = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		node(attached, 1, 0);
+		SceneNode last = node(attached, 2, 0);
+		last.animator = 1;
+		last.attachedWorldTime = 100L;
+
+		SceneState dangling = sceneWith();          // attachment whose program was freed
+		SceneNode orphan = node(dangling, 1, 0);
+		orphan.animator = 42;
+		orphan.attachedWorldTime = 100L;
+
+		SceneState broken = sceneWith(new ProgramInfo(1, OcslWire.STAGE_ANIMATOR,
+				new byte[] { 9, 9, 9, 9 }, 1));
+		SceneNode bad = node(broken, 1, 0);
+		bad.animator = 1;
+		bad.attachedWorldTime = 100L;
+
+		SceneState[] shapes = { empty, nodesOnly, attached, dangling, broken };
+		String[] names = { "empty", "nodes but no animator", "attached", "dangling", "bad blob" };
+		for (int i = 0; i < shapes.length; i++) {
+			// ONE OVERLAY PER SHAPE. These fixtures reuse program id 1 for different code, which
+			// is precisely the case the VM cache is documented not to survive (ids are unique
+			// within a scene incarnation, not across them) — sharing an overlay would compile the
+			// first shape's program and quietly run it for the others, so the "bad blob" row
+			// would never reach the decode it exists to cover.
+			AnimatorOverlay overlay = new AnimatorOverlay();
+			// Evaluated first so each shape's entries exist. NOTE what this does and does not
+			// show: under EVALUATE_ALWAYS `runsThisFrame` short-circuits before it reads the
+			// entry, so the map is not what makes these rows agree. The rows that carry weight
+			// are `dangling` and `bad blob` — a wouldEvaluate that consulted state.programs or
+			// tried to decode would disagree there. That the policy is consulted at all is
+			// pinned by wouldEvaluateFollowsTheHoldPolicy..., and the key it uses by
+			// wouldEvaluateKeysTheMapByNodeIdNotProgramId.
+			overlay.evaluate(shapes[i], instant(200), OFFSET, true);
+			assertEquals(names[i], shapes[i].hasAttachedAnimator(),
+					overlay.wouldEvaluate(shapes[i]));
+		}
+	}
+
+	/**
+	 * Detach still snaps. This used to be free — {@code evaluate} cleared the map every frame —
+	 * and the map is persistent now, so the property has to be re-established by the sweep.
+	 *
+	 * HOLD_ALL is installed deliberately: it is the configuration in which a surviving entry would
+	 * go on being recomposed forever, so a missing sweep shows up here as a node that keeps its
+	 * animation after detach rather than merely one stale frame.
+	 */
+	@Test
+	public void detachDropsAHeldEntry() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.x = 7.0;
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.holdPolicy(HOLD_ALL);
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertNotNull(overlay.of(1));
+
+		n.animator = 0;
+		overlay.evaluate(s, instant(220), OFFSET, true);
+		assertNull("a detached node must lose its entry on the very next pass", overlay.of(1));
+		assertTrue(overlay.isEmpty());
+	}
+
+	/** Same property for a node that is REMOVED outright rather than detached. */
+	@Test
+	public void removingANodeDropsAHeldEntry() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.holdPolicy(HOLD_ALL);
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertNotNull(overlay.of(1));
+
+		s.nodes.remove(Integer.valueOf(1));
+		overlay.evaluate(s, instant(220), OFFSET, true);
+		assertTrue("a removed node's entry must not outlive it", overlay.isEmpty());
+	}
+
+	/**
+	 * Losing the clock must still fail CLOSED, which the blanket clear used to guarantee.
+	 *
+	 * The failure this closes is worse than a stale frame: a persistent map plus recomposition
+	 * means a clockless scene would go on animating smoothly over a moving base, which looks
+	 * entirely healthy and is running on an epoch nobody can place.
+	 */
+	@Test
+	public void losingTheClockDropsHeldEntries() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.holdPolicy(HOLD_ALL);
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertNotNull(overlay.of(1));
+
+		overlay.evaluate(s, instant(220), OFFSET, false);
+		assertTrue("no clock, no animation — including no held animation", overlay.isEmpty());
+	}
+
+	/**
+	 * A held PARENT still feeds its child a moving value.
+	 *
+	 * The parent registers read {@code byNode}, so a held parent that stopped tracking its base
+	 * would drag every child with it — the one place a single held node's error multiplies.
+	 */
+	@Test
+	public void aChildReadsAHeldParentsRecomposedValue() throws Exception {
+		OcslBuilder child = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		child.outAbsolute(OcslWire.PROP_ANIM_X, child.builtin(SurfaceTable.REG_ANIM_PARENT_X));
+		SceneState s = sceneWith(info(1, relativeClockProgram()),
+				info(2, IrCodec.encode(child.build())));
+
+		SceneNode parent = node(s, 1, 0);
+		parent.x = 0.0;
+		parent.animator = 1;
+		parent.attachedWorldTime = 100L;
+		SceneNode kid = node(s, 2, 1);
+		kid.animator = 2;
+		kid.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertEquals("parent: base 0 + time 5", 5.0, overlay.of(1).x, 1e-6);
+		assertEquals("child mirrors the parent", 5.0, overlay.of(2).x, 1e-6);
+
+		// The parent holds; the child keeps evaluating and must see the parent MOVE.
+		parent.x = 30.0;
+		overlay.holdPolicy(new AnimatorOverlay.HoldPolicy() {
+			public boolean hold(int nodeId) {
+				return nodeId == 1;
+			}
+		});
+		overlay.evaluate(s, instant(220), OFFSET, true);
+		assertEquals("held parent: frozen 5.0 over the new base 30", 35.0, overlay.of(1).x, 1e-6);
+		assertEquals("the child must read 35, not the 5 the parent had when it last ran",
+				35.0, overlay.of(2).x, 1e-6);
+	}
+
+	/**
+	 * The two node counters partition the attached nodes: every node is charged to exactly one of
+	 * them, and a held node never touches the evaluated count that the per-node instrument divides
+	 * by. Getting that wrong makes the measured per-node cost read LOW by exactly the hold rate,
+	 * which is the number the budget is calibrated against.
+	 */
+	@Test
+	public void heldNodesAreCountedSeparatelyFromEvaluatedOnes() throws Exception {
+		// A MIXED POPULATION, matching what the evaluated-counter's own test builds. With three
+		// identical evaluable nodes, "charged nowhere else" was untested: charging the dangling
+		// and unattached paths to animatorNodesHeld would have read exactly the same. The sibling
+		// counter learned this lesson already; this is the mirror it was missing.
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		for (int id = 1; id <= 3; id++) {
+			SceneNode n = node(s, id, 0);
+			n.animator = 1;
+			n.attachedWorldTime = 100L;
+		}
+		node(s, 4, 0);                                   // unattached: costs nothing, counts nothing
+		SceneNode dangling = node(s, 5, 0);
+		dangling.animator = 99;                          // program never existed
+		dangling.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		try {
+			opengpu.v2.stats.RenderStats.reset();
+			overlay.evaluate(s, instant(200), OFFSET, true);
+			assertEquals("first pass: nothing to hold, and only the three evaluable nodes count",
+					3L, opengpu.v2.stats.RenderStats.animatorNodesEvaluated);
+			assertEquals(0L, opengpu.v2.stats.RenderStats.animatorNodesHeld);
+
+			overlay.holdPolicy(new AnimatorOverlay.HoldPolicy() {
+				public boolean hold(int nodeId) {
+					return nodeId != 2;
+				}
+			});
+			overlay.evaluate(s, instant(220), OFFSET, true);
+			assertEquals("only node 2 ran a VM on the second pass", 4L,
+					opengpu.v2.stats.RenderStats.animatorNodesEvaluated);
+			assertEquals("nodes 1 and 3 were held. The unattached node 4 and the dangling node 5"
+					+ " are charged to NEITHER counter — they cost nothing, and inflating the"
+					+ " denominator with them is how the per-node mean reads low",
+					2L, opengpu.v2.stats.RenderStats.animatorNodesHeld);
+		} finally {
+			// These are process-wide statics; a failure above must not hand dirty counters to
+			// whatever runs next.
+			opengpu.v2.stats.RenderStats.reset();
+		}
+	}
+
+	/**
+	 * EVERY tracking property, against a base that MOVES — not just x.
+	 *
+	 * This replaces a differential test that compared a held overlay against a fresh one over
+	 * constant programs and unchanged bases. That comparison could not fail: the two paths share
+	 * {@code composeStored}, so a broken composition rule moved both sides together, and with the
+	 * base standing still the held answer equalled the fresh one whatever recomposition did — an
+	 * empty {@code recompose} body passed it.
+	 *
+	 * The gap it left was bigger than itself. Every other hold test moves only x, so narrowing
+	 * {@code recompose}'s loop to x alone left y, sx, sy and rot2d silently frozen — four of the
+	 * five transform routes, each one the "node stops dead" failure this class is written to
+	 * avoid. Absolute values, one per property, over four moved bases.
+	 */
+	@Test
+	public void everyTrackingPropertyFollowsAMovingBaseUnderHold() throws Exception {
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		Expr t = b.builtin(SurfaceTable.REG_TIME);
+		b.out(OcslWire.PROP_ANIM_Y, t);
+		b.out(OcslWire.PROP_ANIM_SX, t);
+		b.out(OcslWire.PROP_ANIM_SY, t);
+		b.out(OcslWire.PROP_ANIM_ROT2D, t);
+		SceneState s = sceneWith(info(1, IrCodec.encode(b.build())));
+		SceneNode n = node(s, 1, 0);
+		n.y = 1.0;
+		n.sx = 2.0;
+		n.sy = 3.0;
+		n.rot = 0.5;
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);   // time = 5.0
+		AnimatorOverlay.Composed first = overlay.of(1);
+		assertEquals("y adds", 6.0, first.y, 1e-6);
+		assertEquals("sx multiplies", 10.0, first.sx, 1e-6);
+		assertEquals("sy multiplies", 15.0, first.sy, 1e-6);
+		assertEquals("rot adds", 5.5, first.rot, 1e-6);
+
+		n.y = 100.0;
+		n.sx = 4.0;
+		n.sy = 5.0;
+		n.rot = 2.0;
+		overlay.holdPolicy(HOLD_ALL);
+		overlay.evaluate(s, instant(220), OFFSET, true);   // time would be 6.0; frozen at 5.0
+
+		AnimatorOverlay.Composed held = overlay.of(1);
+		assertEquals("held y: new base 100 + frozen 5", 105.0, held.y, 1e-6);
+		assertEquals("held sx: new base 4 * frozen 5", 20.0, held.sx, 1e-6);
+		assertEquals("held sy: new base 5 * frozen 5", 25.0, held.sy, 1e-6);
+		assertEquals("held rot: new base 2 + frozen 5", 7.0, held.rot, 1e-6);
+	}
+
+	/**
+	 * A held node recomposes over the INTERPOLATED base, not the raw server field.
+	 *
+	 * The fresh path has had this pinned since 3.3b ({@code aRelativeWriteComposesOverTheInterpolatedBase}),
+	 * and the hold path had nothing: every other hold test calls the 4-arg overload, so
+	 * {@code interp} is null in all of them and {@code displayedBase}'s interpolating branch never
+	 * runs on a held frame. Replacing {@code displayedBase} inside {@code recompose} with a raw
+	 * field read passed the entire suite while reintroducing, for held nodes only, the 20 Hz
+	 * stepping the interpolator exists to remove.
+	 *
+	 * A constant program is correct HERE — the question is which base the recomposition reads, and
+	 * the three candidate answers are distinct: 107.5 interpolated, 110.0 raw, 102.5 latched at the
+	 * first frame's base.
+	 */
+	@Test
+	public void aHeldNodeRecomposesOverTheInterpolatedBase() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 100.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+		NodeInterpolator interp = midFlightX(s, n);
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		long quarter = localShowing(T0 + 0.25);
+		overlay.evaluate(s, interp.renderInstant(quarter), OFFSET, true, interp, quarter);
+		assertEquals("a quarter through the glide the displayed base is 2.5",
+				102.5, overlay.of(1).x, 1e-4);
+
+		overlay.holdPolicy(HOLD_ALL);
+		long threeQuarters = localShowing(T0 + 0.75);
+		overlay.evaluate(s, interp.renderInstant(threeQuarters), OFFSET, true, interp,
+				threeQuarters);
+		assertEquals("held, but the glide continues: base 7.5 + 100. 110 means recomposition read"
+				+ " the raw field, 102.5 means it never re-read the base at all",
+				107.5, overlay.of(1).x, 1e-4);
+	}
+
+	/**
+	 * THE MID-LOOP REGRESSION. A child must never compose against a parent entry the SAME pass has
+	 * already abandoned.
+	 *
+	 * The parent registers read {@code byNode} during the loop, while the sweep runs after it. When
+	 * the map became persistent, a parent that hit a {@code continue} — detached here — left its
+	 * fully populated entry sitting in the map for its child to find, so the child was drawn from
+	 * an animator output the same pass had just discarded, while the renderer drew the parent at
+	 * its server base. One frame of internal inconsistency of the size of the parent's whole
+	 * animated offset, at the exact moment of detach, on the canonical parent/child use.
+	 *
+	 * Needs NO hold policy: this is live under the shipped one. The pre-existing detach tests all
+	 * assert {@code of(parent) == null} AFTER the pass returns, which is the half that never broke.
+	 */
+	@Test
+	public void detachingAParentDoesNotLeaveItsChildComposingAgainstTheOldOutput()
+			throws Exception {
+		OcslBuilder child = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		child.outAbsolute(OcslWire.PROP_ANIM_X, child.builtin(SurfaceTable.REG_ANIM_PARENT_X));
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)),
+				info(2, IrCodec.encode(child.build())));
+
+		SceneNode parent = node(s, 1, 0);
+		parent.x = 10.0;
+		parent.animator = 1;
+		parent.attachedWorldTime = 100L;
+		SceneNode kid = node(s, 2, 1);
+		kid.animator = 2;
+		kid.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertEquals("parent composes 10 + 5", 15.0, overlay.of(1).x, 1e-6);
+		assertEquals("child mirrors the parent's composed value", 15.0, overlay.of(2).x, 1e-6);
+
+		parent.animator = 0;                       // detach, mid-session
+		overlay.evaluate(s, instant(220), OFFSET, true);
+
+		assertNull("the parent's entry is gone by the end of the pass", overlay.of(1));
+		assertEquals("and the child, evaluated LATER IN THAT SAME PASS, must already see the"
+				+ " parent's base: 15 means it read the entry the pass had abandoned",
+				10.0, overlay.of(2).x, 1e-6);
+	}
+
+	/** The same mid-loop rule for a parent whose PROGRAM was freed rather than detached. */
+	@Test
+	public void freeingAParentsProgramDoesNotLeaveItsChildComposingAgainstTheOldOutput()
+			throws Exception {
+		OcslBuilder child = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		child.outAbsolute(OcslWire.PROP_ANIM_X, child.builtin(SurfaceTable.REG_ANIM_PARENT_X));
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)),
+				info(2, IrCodec.encode(child.build())));
+
+		SceneNode parent = node(s, 1, 0);
+		parent.x = 10.0;
+		parent.animator = 1;
+		parent.attachedWorldTime = 100L;
+		SceneNode kid = node(s, 2, 1);
+		kid.animator = 2;
+		kid.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertEquals(15.0, overlay.of(2).x, 1e-6);
+
+		// ANIM-17 rules this legal: the attachment stays, the program does not.
+		s.programs.remove(Integer.valueOf(1));
+		overlay.evaluate(s, instant(220), OFFSET, true);
+
+		assertNull(overlay.of(1));
+		assertEquals("a dangling parent reads as its base to its child, immediately",
+				10.0, overlay.of(2).x, 1e-6);
+	}
+
+	/**
+	 * THE THIRD MIRROR. Same mid-loop rule for a parent whose program is UNDECODABLE.
+	 *
+	 * The loop abandons a node on three conditions — detached, dangling, undecodable — and the
+	 * removal was added to all three while only two got a test. A mutation deleting the third
+	 * survived the suite, which is the reliable signature of a one-sided fix: the rule was applied
+	 * symmetrically and asserted asymmetrically.
+	 *
+	 * REACHING IT TAKES A SWAP, and working that out is what makes the case real rather than
+	 * hypothetical. `vmFor` caches compiled programs by id, so a node that has already evaluated
+	 * cannot reach the undecodable branch by having ITS program go bad — the cache answers first.
+	 * It reaches it by being re-attached to a DIFFERENT program whose blob does not decode, which
+	 * leaves a populated entry from the old program sitting in the map at the moment the loop
+	 * gives up on the node.
+	 */
+	@Test
+	public void aParentSwappedOntoAnUndecodableProgramDoesNotLeaveItsChildComposingAgainstIt()
+			throws Exception {
+		OcslBuilder child = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		child.outAbsolute(OcslWire.PROP_ANIM_X, child.builtin(SurfaceTable.REG_ANIM_PARENT_X));
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)),
+				info(2, IrCodec.encode(child.build())));
+		// Damaged in transit or on disk — the server validated it before storing, so this is the
+		// state the evaluator must survive rather than one it can refuse.
+		s.programs.put(Integer.valueOf(3), new ProgramInfo(3, OcslWire.STAGE_ANIMATOR,
+				new byte[] { 9, 9, 9, 9 }, 1));
+
+		SceneNode parent = node(s, 1, 0);
+		parent.x = 10.0;
+		parent.animator = 1;
+		parent.attachedWorldTime = 100L;
+		SceneNode kid = node(s, 2, 1);
+		kid.animator = 2;
+		kid.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertEquals(15.0, overlay.of(2).x, 1e-6);
+
+		parent.animator = 3;                     // swapped onto the damaged blob
+		overlay.evaluate(s, instant(220), OFFSET, true);
+
+		assertNull("an undecodable program leaves no entry behind", overlay.of(1));
+		assertEquals("and the child must see the parent's base in that same pass",
+				10.0, overlay.of(2).x, 1e-6);
+	}
+
+	/**
+	 * A HELD node whose program was freed loses its output — the third case the class javadoc
+	 * names, and the one the detach and node-removal tests do not reach.
+	 */
+	@Test
+	public void freeingAHeldNodesProgramDropsItsEntry() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.holdPolicy(HOLD_ALL);
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertNotNull(overlay.of(1));
+
+		s.programs.remove(Integer.valueOf(1));
+		overlay.evaluate(s, instant(220), OFFSET, true);
+		assertTrue("a freed program must not go on being replayed from a held entry",
+				overlay.isEmpty());
+	}
+
+	/**
+	 * SWAPPING a held node's animator must run the NEW program, not replay the old one.
+	 *
+	 * {@code ServerScene.setAnimator} replaces an attachment directly — one delta, never passing
+	 * through 0 — so nothing detaches, nothing dangles, and the entry is neither removed in the
+	 * loop nor swept. Without the program id on the entry, the old program's frozen output is
+	 * replayed for as long as the hold lasts, which in-game reads as the attach having failed.
+	 */
+	@Test
+	public void swappingAHeldNodesProgramRunsTheNewOne() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)),
+				info(2, program(OcslWire.PROP_ANIM_Y, 9.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertTrue(overlay.of(1).wrote(OcslWire.PROP_ANIM_X));
+
+		n.animator = 2;                  // a direct swap, exactly as setAnimator performs it
+		overlay.holdPolicy(HOLD_ALL);
+		overlay.evaluate(s, instant(220), OFFSET, true);
+
+		assertTrue("the new program must run even under a hold — there is nothing valid to hold",
+				overlay.of(1).wrote(OcslWire.PROP_ANIM_Y));
+		assertFalse("and the old program's claim must not survive the swap",
+				overlay.of(1).wrote(OcslWire.PROP_ANIM_X));
+		assertEquals(9.0, overlay.of(1).y, 1e-6);
+	}
+
+	/**
+	 * PINS A KNOWN LIMITATION rather than a guarantee: a program that reads its OWN registers goes
+	 * stale under a hold, because those inputs are frozen while the base they describe moves.
+	 *
+	 * Recorded as a test so it is a fact about the system rather than a paragraph. It is the
+	 * mechanism's honest boundary — the same shape as a base-compensating program
+	 * ({@code rot2d = -parent.rot2d}), which no output-reuse scheme can hold correctly, and which
+	 * is therefore a required input to ANIM-16's policy rather than a defect here.
+	 *
+	 * If a future change makes held base-readers track correctly, this test SHOULD fail; it is
+	 * describing today's behaviour, not defending it.
+	 */
+	@Test
+	public void aHeldProgramThatReadsItsOwnRegistersGoesStale() throws Exception {
+		// WRITES y, READS x. It cannot write and read the same property: ANIM-7's double-apply
+		// rule makes `out x = anim.x` a build error ("the base would be applied twice"), which is
+		// the builder refusing the very shape a first draft of this test reached for. Reads of a
+		// property the program does not write stay legal, and are the real base-dependence case.
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		b.out(OcslWire.PROP_ANIM_Y, b.builtin(SurfaceTable.REG_ANIM_X));
+		SceneState s = sceneWith(info(1, IrCodec.encode(b.build())));
+		SceneNode n = node(s, 1, 0);
+		n.x = 10.0;
+		n.y = 1.0;
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertEquals("y base 1 + the x it read, 10", 11.0, overlay.of(1).y, 1e-6);
+
+		n.x = 100.0;                 // the register the program reads
+		n.y = 50.0;                  // the base it composes over
+		overlay.holdPolicy(HOLD_ALL);
+		overlay.evaluate(s, instant(220), OFFSET, true);
+		assertEquals("the BASE tracks (50) and the frozen read does NOT (10). 150 would mean it"
+				+ " re-ran, 11 would mean the base stopped too — 60 is the documented limit:"
+				+ " a held program's view of the world is as old as its last evaluation",
+				60.0, overlay.of(1).y, 1e-6);
+	}
+
+	/** A null policy is the shipped one, not a NullPointerException on the render thread. */
+	@Test
+	public void aNullHoldPolicyFallsBackToEvaluatingAlways() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.holdPolicy(HOLD_ALL);
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		overlay.holdPolicy(null);
+		assertTrue("null must read as EVALUATE_ALWAYS", overlay.wouldEvaluate(s));
+		overlay.evaluate(s, instant(220), OFFSET, true);
+		assertNotNull(overlay.of(1));
+	}
+
+	/**
+	 * Re-attaching a node to a DIFFERENT program must not leave the old program's properties
+	 * claimed. The entry object is reused across frames now, so its masks are state that outlives
+	 * the program that set them — and a leftover bit would keep substituting a value the current
+	 * program never writes, over a base that has since moved.
+	 *
+	 * The FRESH path only — {@code swappingAHeldNodesProgramRunsTheNewOne} is the held mirror, and
+	 * it is a different mechanism (the entry's program id), not the same one retested.
+	 */
+	@Test
+	public void reattachingToAnotherProgramClearsTheOldPropertyClaims() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)),
+				info(2, program(OcslWire.PROP_ANIM_Y, 9.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertTrue(overlay.of(1).wrote(OcslWire.PROP_ANIM_X));
+
+		n.animator = 2;
+		overlay.evaluate(s, instant(220), OFFSET, true);
+		assertTrue("the new program owns y", overlay.of(1).wrote(OcslWire.PROP_ANIM_Y));
+		assertFalse("and the old program's claim on x must not survive the reused entry",
+				overlay.of(1).wrote(OcslWire.PROP_ANIM_X));
+	}
 }

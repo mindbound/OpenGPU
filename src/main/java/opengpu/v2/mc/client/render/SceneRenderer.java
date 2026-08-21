@@ -414,24 +414,57 @@ public final class SceneRenderer {
 		// INLINE, not hoisted to a local: a local would be evaluated eagerly every frame and the
 		// short-circuit described above would be decorative. (`interpolating` is a local because
 		// it is read again below; this one is not.)
+		// WILL ANY PROGRAM RUN, not "is any program attached" (2026-08-21, ANIM-16). Under the
+		// budget a scene can have animators and still owe this frame no new animator work, and
+		// then the other four conjuncts already say the picture is identical to the one on
+		// screen: nothing is dirty, nothing is uploading, it has been drawn, and nothing is
+		// interpolating, so the base a held node recomposes over has not moved either. Skipping
+		// is correct, and it is where most of the saving is -- declining the VM while still
+		// re-rendering the scene every frame would forfeit the GL cost, which is the larger half.
+		//
+		// IDENTICAL TODAY. `wouldEvaluate` answers exactly what `hasAttachedAnimator()` answered
+		// while EVALUATE_ALWAYS is the only policy, dangling and broken attachments included.
+		// This is the seam, not a behaviour change.
+		//
+		// STILL INLINE, for the reason stated two comments up: hoisting it to a local would
+		// evaluate the walk eagerly on every frame and make the short-circuit decorative. It also
+		// reads `byNode` as the PREVIOUS pass left it, which is the state it must judge -- whether
+		// a node can be held depends on whether it has an output to hold, and this pass has not
+		// produced one yet.
 		if (!mirror.isDirty() && !gl.uploadDirty && gl.everRendered && !interpolating
-				&& !mirror.state().hasAttachedAnimator()) {
+				&& !gl.overlay.wouldEvaluate(mirror.state())) {
 			return;
 		}
 		// ANIMATOR EVALUATION -- once per frame per scene, before any GL work, and against the
 		// SAME interpolator and `now` the render below draws with (ANIM-4: one time sample per
 		// frame per scene; the overlay composes over the exact base the frame displays). On a
-		// scene with no attached animator this clears last frame's entries and walks a loop of
-		// continues -- cheap, and it is what makes detach snap without a special case.
+		// scene with no attached animator this walks a loop of continues and then sweeps last
+		// frame's entries away -- cheap, and it is what makes detach snap.
+		//
+		// It used to say "without a special case", because the pass began by clearing the map
+		// outright. The map is persistent as of the hold seam (a held node needs an output to
+		// still be there), so dropping stale entries IS the special case now, and it is
+		// AnimatorOverlay.sweepUntouched.
 		//
 		// Timed only when an animator is attached, so animatorNanos means "what animators cost"
 		// rather than "what this call costs on scenes that have none" -- ANIM-16 wants the first
 		// number.
-		boolean animated = mirror.state().hasAttachedAnimator();
-		long animStart = animated ? System.nanoTime() : 0L;
+		// TIMED WHEN A PROGRAM ACTUALLY RAN, decided AFTERWARDS from the counter rather than
+		// predicted beforehand. A first cut asked `wouldEvaluate` again here, which was wrong
+		// twice over: that predicate is conservative (it answers true for dangling, undecodable
+		// and wrong-stage attachments, none of which run a VM), so `animatorNanos` would grow
+		// against a frozen `animatorNodesEvaluated` and quietly corrupt the per-node ratio
+		// FIELD-TEST-ANIM16 exists to measure -- and it was a SECOND full node walk on every
+		// frame that reached this line, including the active scenes the guard's inline
+		// short-circuit is written to keep free. Reading the counter costs nothing and is exact.
+		long nodesBefore = RenderStats.animatorNodesEvaluated;
+		long animStart = System.nanoTime();
 		gl.overlay.evaluate(mirror.state(), gl.interp.renderInstant(now),
 				mirror.sessionTickOffset(), mirror.animatorClockKnown(), gl.interp, now);
-		if (animated) {
+		if (RenderStats.animatorNodesEvaluated != nodesBefore) {
+			// A MIXED pass still charges its held nodes' recomposition into this window with no
+			// denominator of its own -- a small upward bias on the per-node figure, and
+			// RenderStats.animatorNodesHeld is what makes it quantifiable rather than invisible.
 			RenderStats.onAnimatorEvaluate(System.nanoTime() - animStart);
 		}
 		Map<Integer, Integer> glMap = new HashMap<Integer, Integer>();

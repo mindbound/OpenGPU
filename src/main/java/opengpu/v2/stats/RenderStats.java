@@ -134,6 +134,29 @@ public final class RenderStats {
 	 */
 	public static long animatorNodesEvaluated;
 
+	/**
+	 * NODES whose program was SKIPPED in favour of their previous output — the other half of
+	 * {@link #animatorNodesEvaluated}, and the two never count the same node twice in one pass.
+	 *
+	 * "Skipped", not "recomposed": an entry that claims no properties (a program declaring only
+	 * Stage C ids, which the evaluator stores nothing for) is counted here and recomposes nothing,
+	 * because what this measures is work DECLINED, not work done.
+	 *
+	 * READS ZERO IN EVERY BUILD SO FAR, and that is not a defect to chase: the only hold policy
+	 * wired into PRODUCTION is {@code AnimatorOverlay.EVALUATE_ALWAYS}. It exists now so that when
+	 * ANIM-16's budget starts declining work, the amount declined is visible on the same footing
+	 * as the work done — a budget whose effect can only be inferred from a frame-time change is a
+	 * budget nobody can tell apart from a stutter.
+	 *
+	 * <b>It is also the correction term for the per-node instrument.</b>
+	 * {@code animatorNanos / animatorNodesEvaluated} charges a frame's whole overlay cost to the
+	 * nodes that ran a VM, so on a mixed frame the recomposition of held nodes lands in the
+	 * numerator with no denominator of its own. That bias is upward and small — recomposition is
+	 * a base read and at most six composes — but it is real, and this counter is what makes it
+	 * quantifiable rather than invisible.
+	 */
+	public static long animatorNodesHeld;
+
 	public static void onAnimatorEvaluate(long nanos) {
 		animatorEvaluations++;
 		animatorNanos += nanos;
@@ -224,5 +247,6 @@ public final class RenderStats {
 		animatorChargeTotal = 0;
 		animatorChargeMax = 0;
 		animatorNodesEvaluated = 0;
+		animatorNodesHeld = 0;
 	}
 }

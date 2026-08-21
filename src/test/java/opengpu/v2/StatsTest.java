@@ -195,6 +195,11 @@ public class StatsTest {
 		// reset it". Adding this field fired the precondition first, which is how the
 		// distinction surfaced.
 		RenderStats.animatorNodesEvaluated += 3L;
+		// Same reason, one step further out: no production path increments this at all yet (the
+		// only hold policy is EVALUATE_ALWAYS), so nothing but a direct write can drive it. The
+		// precondition below is what makes "added a counter, forgot reset()" impossible to land
+		// even for a counter that no shipped code can move.
+		RenderStats.animatorNodesHeld += 5L;
 
 		java.util.List<java.lang.reflect.Field> counters =
 				new java.util.ArrayList<java.lang.reflect.Field>();

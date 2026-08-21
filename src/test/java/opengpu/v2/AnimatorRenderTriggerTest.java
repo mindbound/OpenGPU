@@ -13,9 +13,17 @@ import opengpu.v2.scene.ServerScene;
  *
  * WHAT IS AND IS NOT COVERED HERE. The term itself is one conjunct in
  * {@code SceneRenderer.renderIfNeeded}, which needs GL and Forge to load, so no JVM test can drive
- * the guard. What IS testable is the predicate the conjunct asks —
- * {@code SceneState.hasAttachedAnimator()} — and that is where the decision lives; the guard line
- * is a composition of it with four booleans that already had their own coverage.
+ * the guard. What IS testable is the predicate the conjunct asks — and that is where the decision
+ * lives; the guard line is a composition of it with four booleans that already had their own
+ * coverage.
+ *
+ * SINCE 2026-08-21 THE CONJUNCT ASKS {@code AnimatorOverlay.wouldEvaluate(state)}, not
+ * {@code SceneState.hasAttachedAnimator()} directly — ANIM-16's budget can leave a scene with
+ * animators attached and no animator work owed this frame. The two answer identically under the
+ * only policy production wires, which is asserted in
+ * {@code AnimatorOverlayTest.underTheShippedPolicyWouldEvaluateMatchesHasAttachedAnimator}; that
+ * equivalence is what keeps the cases below meaningful, and if it is ever broken deliberately
+ * these tests describe the OLD guard and must be moved rather than merely re-read.
  *
  * This is the third increment running where the deciding half was deliberately factored into a
  * pure class so the Forge-bound half is a thin composition. Stating it because the pattern is now

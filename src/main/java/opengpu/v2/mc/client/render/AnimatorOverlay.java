@@ -56,7 +56,32 @@ import opengpu.v2.scene.SceneState;
  * drawn with. A null interpolation source composes over the raw fields — the same convention as
  * {@code Canvas2dRenderer.renderScene}, and what headless tests exercise.
  *
+ * <h2>The side map survives the frame boundary (ANIM-16, 2026-08-21)</h2>
+ *
+ * It used to be cleared at the top of every pass, which made several properties free: an entry
+ * could only describe the current frame, and detach snapped because the entry simply stopped
+ * being recreated. Holding needs the opposite — a node whose program is skipped has to find its
+ * previous output still there — so the map now persists and each pass stamps what it touched.
+ * Three things move from "free" to "enforced" as a result, and all three are the kind that fail
+ * silently:
+ *
+ * <ul>
+ *   <li><b>A node the pass abandons loses its entry immediately</b>, inside the loop — detach, a
+ *       program freed out from under the attachment, an undecodable or wrong-stage blob. NOT left
+ *       to the sweep, because {@link #bindParentProperties} reads the map DURING the loop and
+ *       would otherwise hand a child its parent's already-abandoned output.</li>
+ *   <li><b>{@link #sweepUntouched} drops what the loop never visited</b> — a node deleted from the
+ *       scene outright, which the loop cannot reach to remove.</li>
+ *   <li><b>The no-clock path clears explicitly</b>, because a scene that lost its anchor
+ *       recomposing over a moving base would go on animating plausibly instead of falling back to
+ *       its server values.</li>
+ * </ul>
+ *
  * <h2>What this class deliberately does not do</h2>
+ *
+ * It does not decide WHICH nodes to hold. {@link HoldPolicy} is the seam ANIM-16's client-global
+ * budget will drive; the only policy wired into production is {@link #EVALUATE_ALWAYS}, so as
+ * shipped nothing is ever held and the mechanism above is exercised by tests alone.
  *
  * It does not touch GL and it does not read the renderer — the renderer reads IT, at
  * {@code Canvas2dRenderer.readTransform} (via {@link #overlayTransform}) and {@code beginNode}
@@ -90,19 +115,151 @@ final class AnimatorOverlay {
 	 */
 	static final float SINCE_ATTACH_CAP_SECONDS = 600.0f;
 
-	/** One node's composed, clamped output. Only the properties its program actually wrote. */
+	/**
+	 * One past the highest animator property id, so {@code Composed.raw} and every loop that walks
+	 * the property space are sized from ONE place rather than from whichever ids happen to be
+	 * reachable today. {@code PROP_ANIM_SZ} is the current highest (10).
+	 */
+	private static final int PROPERTY_LIMIT = OcslWire.PROP_ANIM_SZ + 1;
+
+	/**
+	 * One node's composed, clamped output. Only the properties its program actually wrote.
+	 *
+	 * <h3>It carries the RAW output too, and that is what makes holding possible</h3>
+	 *
+	 * The composed fields are {@code compose(base, raw)} — a function of the base the frame
+	 * displayed when the program ran. Reusing a composed value on a later frame therefore freezes
+	 * the BASE as well as the animator, so a node whose server position is still changing would
+	 * stop dead: under a relative write {@code disp = base + raw}, a stale {@code disp} discards
+	 * every base update since. Keeping {@code raw} and the write form lets a held frame recompose
+	 * over the CURRENT base, which freezes only the animator's own contribution — the thing the
+	 * budget actually declined to compute.
+	 *
+	 * That distinction is not cosmetic. Degradation that freezes a node entirely is
+	 * indistinguishable in-game from the evaluator being broken, which is the failure mode 3.4
+	 * was sequenced before 3.3 to keep unambiguous.
+	 *
+	 * <h3>WHICH writes keep tracking, stated exactly</h3>
+	 *
+	 * Recomposition can only preserve motion for rules that USE the base, so the honest claim is
+	 * narrower than "held nodes keep moving":
+	 *
+	 * <ul>
+	 *   <li><b>Relative x/y/rot2d (ADD) and sx/sy (MULTIPLY): track.</b> The base is an operand,
+	 *       so server-driven and interpolated motion continue at full rate under a hold.</li>
+	 *   <li><b>Absolute writes ({@code OP_OUT_ABS}) and tint (RULE_REPLACE): do not, and cannot.</b>
+	 *       Those rules discard the base by definition — {@code OcslWriteBoundary} consults it only
+	 *       as the fallback for a REJECTED write — so a held frame reproduces the last output
+	 *       exactly. That is not a defect of recomposition; it is what "absolute" means. It does
+	 *       mean a held absolute writer is frozen for the duration, so the budget must bound how
+	 *       long a hold can last rather than assuming holds are visually free.</li>
+	 * </ul>
+	 *
+	 * <h3>The case recomposition gets WRONG, recorded rather than fixed</h3>
+	 *
+	 * A program whose output COMPENSATES for the base — {@code rot2d = -parent.rot2d} for a label
+	 * that stays upright on a spinning dial, {@code sx = 1/parent.sx} for a constant-width outline —
+	 * reads its own or its parent's registers, and those are frozen along with everything else
+	 * while the transform they cancel keeps advancing. Held, the label rotates at the dial's full
+	 * rate and snaps back on release. Freezing the composed value instead does not fix it either:
+	 * the parent transform is applied downstream in {@code NodeFold}, so the child still swings.
+	 * <b>No output-reuse scheme can hold a base-compensating program correctly</b> — the only sound
+	 * answers are to not hold it, or to hold it only briefly.
+	 *
+	 * Deliberately NOT enforced here, because the mechanism cannot tell which programs those are
+	 * cheaply: the obvious test — "does the program's frame map an own/parent register" — is
+	 * useless, since {@code IrValidator} lays out a slot for every typed built-in whether the
+	 * program reads it or not, so it answers yes for every animator program. Detecting it needs an
+	 * operand scan that knows which opcodes carry non-register operands ({@code FOR}'s trip count,
+	 * {@code OUT}'s property id, and any others), and shipping a half-audited scan on the render
+	 * thread is worse than shipping a documented limit. <b>This is a required input to ANIM-16's
+	 * policy, not an open bug in this class.</b> None of the four shipped demos is affected — they
+	 * read only {@code time}, {@code nodeSeed} and {@code sinceAttach}.
+	 */
 	static final class Composed {
 		int writtenMask;
+		/** Bit per property: the write form the program used ({@code OP_OUT_ABS} vs relative). */
+		int absoluteMask;
 		double x, y, sx, sy, rot;
 		/** RGBA 0..1, composed and clamped; packing to ARGB is the renderer's business. */
 		final float[] tint = new float[4];
 
+		/**
+		 * The VM's own output per transform property, indexed BY PROPERTY ID — uncomposed and
+		 * unclamped, exactly as {@code vm.output} produced it.
+		 *
+		 * Indexing by id rather than by a private ordinal is deliberate — a second numbering is a
+		 * second thing to keep in step, and this one would be silently wrong rather than loudly out
+		 * of range.
+		 *
+		 * SIZED TO THE WHOLE ANIMATOR PROPERTY SPACE, not to the five ids reachable today. Sizing
+		 * it to {@code PROP_ANIM_ROT2D + 1} was correct and was a trap: {@link #applyProperty}'s
+		 * Stage C filter is an explicit three-id blacklist whose comment promises it will OPEN
+		 * ("When Stage C lands, this is the guard that opens"), and {@code PROP_ANIM_SZ} is 10.
+		 * Opening the guard without also resizing here is an ArrayIndexOutOfBoundsException on the
+		 * render thread, from an edit whose author has no reason to look at this line. Six unused
+		 * floats per animated node buys that away.
+		 */
+		final float[] raw = new float[PROPERTY_LIMIT];
+		/** The VM's own RGBA tint output, uncomposed and unclamped. */
+		final float[] rawTint = new float[4];
+
+		/**
+		 * The frame this entry was last refreshed on. Entries not touched by a pass are dropped,
+		 * which is how a node REMOVED from the scene stops animating; the in-loop removals handle
+		 * detach and the rest.
+		 */
+		int frameSeq;
+
+		/**
+		 * Which program produced everything above. A held entry is only reusable while the node is
+		 * still attached to THAT program.
+		 *
+		 * Without this, swapping a node's animator while the budget holds it replays the OLD
+		 * program's frozen output for as long as the hold lasts — and {@code ServerScene.setAnimator}
+		 * replaces an attachment DIRECTLY, one delta, never passing through 0, so neither the
+		 * detach removal above nor the sweep sees anything happen. In-game that reads as "attaching
+		 * the new animator did nothing", which is indistinguishable from the attach call failing.
+		 */
+		int programId;
+
 		boolean wrote(int propertyId) {
 			return (writtenMask & (1 << propertyId)) != 0;
+		}
+
+		boolean isAbsolute(int propertyId) {
+			return (absoluteMask & (1 << propertyId)) != 0;
 		}
 	}
 
 	private final Map<Integer, Composed> byNode = new HashMap<Integer, Composed>();
+
+	/**
+	 * Which nodes may skip their program this frame — ANIM-16's degradation seam.
+	 *
+	 * <b>INERT IN PRODUCTION AS SHIPPED.</b> The only policy wired into PRODUCTION is
+	 * {@link #EVALUATE_ALWAYS}, so nothing holds and behaviour is unchanged; the budget that will
+	 * answer {@code true} needs the per-node cost constant, which is still unmeasured
+	 * (FIELD-TEST-ANIM16). This increment lands the mechanism the budget will steer, and the tests
+	 * drive the policy directly rather than waiting for it — a seam with a stub is checkable, a
+	 * comment saying "the budget goes here" is not.
+	 */
+	interface HoldPolicy {
+		/** True to reuse {@code nodeId}'s previous output instead of running its program. */
+		boolean hold(int nodeId);
+	}
+
+	static final HoldPolicy EVALUATE_ALWAYS = new HoldPolicy() {
+		public boolean hold(int nodeId) {
+			return false;
+		}
+	};
+
+	private HoldPolicy holdPolicy = EVALUATE_ALWAYS;
+
+	void holdPolicy(HoldPolicy policy) {
+		this.holdPolicy = policy == null ? EVALUATE_ALWAYS : policy;
+	}
 
 	/**
 	 * Decoded programs, keyed by program id.
@@ -159,6 +316,14 @@ final class AnimatorOverlay {
 	private NodeInterpolator interp;
 	private long frameNanos;
 
+	/**
+	 * Which pass is running, so {@link #sweepUntouched} can tell this frame's entries from the
+	 * leftovers. WRAPPING IS HARMLESS, unusually for a sequence used in an equality test: an entry
+	 * is stamped by every pass that keeps it and removed by the very next pass that does not, so
+	 * no entry can survive long enough to meet its own stamp again 2^32 passes later.
+	 */
+	private int frameSeq;
+
 	/** The raw-base form: composes over the raw server fields. For tests and for callers with
 	 *  no interpolator — the same convention as {@code Canvas2dRenderer.renderScene}. */
 	void evaluate(SceneState state, long renderInstant, long sessionTickOffset,
@@ -187,7 +352,12 @@ final class AnimatorOverlay {
 			boolean clockKnown, NodeInterpolator interp, long nowNanos) {
 		this.interp = interp;
 		this.frameNanos = nowNanos;
-		byNode.clear();
+		// NOT cleared any more, and the replacement is the loop's frameSeq stamp plus the sweep
+		// at the bottom. The map has to survive the frame boundary for a held entry to exist at
+		// all, so "detach snaps without a special case" — which the blanket clear used to give
+		// for free — becomes a special case, and it is the sweep. An entry no pass touched is an
+		// entry whose node was detached, removed, or went dangling, and it goes.
+		frameSeq++;
 		// NO CLOCK, NO ANIMATION, and failing closed is the point. Without the anchor a stamp
 		// cannot be placed in the render clock's domain at all, and the plausible fallbacks are
 		// worse than nothing: offset 0 puts every scene's epoch at the start of the session, so
@@ -195,6 +365,12 @@ final class AnimatorOverlay {
 		// time — moving smoothly and confidently at the wrong point in its cycle, which is far
 		// harder to notice than a node that simply does not move.
 		if (!clockKnown || renderInstant == Long.MIN_VALUE) {
+			// Explicit now that the top of the method no longer clears. Without this the last
+			// good frame's output would persist — and worse, would keep RECOMPOSING over a moving
+			// base, so a scene that lost its clock would go on animating plausibly instead of
+			// falling back to its server values. Failing closed has to survive the map becoming
+			// persistent.
+			byNode.clear();
 			return;
 		}
 
@@ -205,7 +381,18 @@ final class AnimatorOverlay {
 		// invariant, so every parent is composed before any child that reads it.
 		for (Map.Entry<Integer, SceneNode> entry : state.nodes.entrySet()) {
 			SceneNode node = entry.getValue();
+			Integer id = entry.getKey();
+			// DROPPED HERE, NOT LEFT TO THE SWEEP, and the difference is a real one-frame bug.
+			// The sweep runs after the loop, but `bindParentProperties` reads `byNode` DURING it —
+			// so an abandoned parent that merely went unstamped would still be sitting in the map,
+			// fully populated, when its child is evaluated later in the same pass. The child would
+			// compose against an animator output the pass had already decided no longer exists,
+			// while the renderer (which reads the map after the sweep) draws the parent at its
+			// server base: one frame of internal inconsistency, of the size of the parent's whole
+			// animated offset, exactly at the moment of detach. The old blanket clear made this
+			// impossible for free; making the map persistent is what put it back.
 			if (node.animator == 0) {
+				byNode.remove(id);
 				continue;
 			}
 			ProgramInfo info = state.programs.get(Integer.valueOf(node.animator));
@@ -213,24 +400,108 @@ final class AnimatorOverlay {
 				// A DANGLING attachment, which ANIM-17 rules legal: the program was freed while
 				// still attached. The node renders at its server value, exactly as it would one
 				// tick before the attach — not an error, and not worth a diagnostic every frame.
+				byNode.remove(id);
 				continue;
 			}
 			Compiled compiled = vmFor(node.animator, info);
 			if (compiled == null) {
+				byNode.remove(id);
 				continue; // decode/validate failed; recorded once in `broken`
 			}
-			// AFTER every skip and BEFORE the work: this counts nodes a VM actually ran for, which
-			// is the denominator ANIM-16's per-node constant needs. Charged here rather than at the
-			// top of the loop so dangling attachments, detached nodes and broken blobs — all of
-			// which cost nothing — cannot inflate it and make the per-node mean read low.
-			opengpu.v2.stats.RenderStats.animatorNodesEvaluated++;
-			Composed out = evaluateNode(compiled, node, state, time, renderInstant,
-					sessionTickOffset);
-			if (out != null) {
-				byNode.put(Integer.valueOf(node.id), out);
+			Composed held = byNode.get(id);
+			// ADMISSION BEFORE THE WORK. The predicate is shared with the render guard rather
+			// than restated here, because the two disagreeing is the defect that would hurt: a
+			// guard that short-circuits a scene this loop was about to animate freezes it
+			// outright, and nothing downstream could tell that from a broken program.
+			if (runsThisFrame(node, held)) {
+				// AFTER every skip and BEFORE the work: this counts nodes a VM actually ran for,
+				// which is the denominator ANIM-16's per-node constant needs. Charged here rather
+				// than at the top of the loop so dangling attachments, detached nodes and broken
+				// blobs — all of which cost nothing — cannot inflate it and make the per-node mean
+				// read low. Held nodes are charged to their own counter for the same reason.
+				opengpu.v2.stats.RenderStats.animatorNodesEvaluated++;
+				Composed out = evaluateNode(compiled, node, state, time, renderInstant,
+						sessionTickOffset, held);
+				if (out == null) {
+					// The program wrote nothing this frame. Drop any earlier entry rather than
+					// leaving it to be swept: a stale value must not survive the pass that
+					// decided there is none.
+					byNode.remove(id);
+					continue;
+				}
+				out.frameSeq = frameSeq;
+				out.programId = node.animator;
+				byNode.put(id, out);
+			} else {
+				opengpu.v2.stats.RenderStats.animatorNodesHeld++;
+				// The whole point of holding: the animator's own output stays where it was, and
+				// the base underneath it does not.
+				recompose(held, node);
+				held.frameSeq = frameSeq;
 			}
 		}
+		sweepUntouched();
 		pruneCaches(state);
+	}
+
+	/**
+	 * Will any node in {@code state} run its program on the next pass? The render guard's fifth
+	 * conjunct asks through here.
+	 *
+	 * <p>SHARES {@link #runsThisFrame} WITH THE LOOP, which is the whole reason this is a method
+	 * rather than a repeated condition: if the guard concluded "nothing to animate" while
+	 * {@link #evaluate} still ran a program, the scene would be composed and never drawn. (The
+	 * loop calls {@code runsThisFrame} directly — it already holds the node and its entry — so
+	 * what the two share is the predicate, not this method.)
+	 *
+	 * <p><b>It is deliberately CONSERVATIVE, not exact.</b> {@code evaluate} skips three further
+	 * cases this walk does not look at: a dangling attachment, an undecodable blob, and a
+	 * wrong-stage program. A scene whose only attachments are of those kinds answers true here and
+	 * runs no program at all. That errs toward rendering, which is the safe direction — the
+	 * dangerous one is claiming no work while the loop animates — but it means the budget can
+	 * never suppress the re-render of a scene whose only animator is dangling. Worth closing when
+	 * the budget lands; not worth decoding blobs inside a render guard to close now.
+	 *
+	 * <p>Under {@link #EVALUATE_ALWAYS} this returns exactly what
+	 * {@code SceneState.hasAttachedAnimator()} returns, including for those same attachments —
+	 * deliberately, so that swapping the guard over to this method is a no-op until a policy says
+	 * otherwise.
+	 */
+	boolean wouldEvaluate(SceneState state) {
+		for (SceneNode node : state.nodes.values()) {
+			if (node.animator == 0) {
+				continue;
+			}
+			if (runsThisFrame(node, byNode.get(Integer.valueOf(node.id)))) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * A node runs its program unless a policy holds it AND there is something VALID to hold.
+	 *
+	 * Two guards ahead of the policy, both of them cases where the policy's answer is simply not
+	 * available to act on:
+	 *
+	 * <ul>
+	 *   <li><b>Nothing to hold.</b> A node with no previous output has nothing to recompose, so
+	 *       holding it would show the server value while the budget believed it was showing a
+	 *       frozen animation — a first frame that silently skips is a node that never starts
+	 *       moving. Holding reuses work, and is unavailable before any work exists.</li>
+	 *   <li><b>Held output belongs to a different program.</b> See {@link Composed#programId}.</li>
+	 * </ul>
+	 *
+	 * <p><b>Contract on {@link HoldPolicy#hold}: it must answer the same for a given node
+	 * throughout one frame.</b> This method is reached from two places per frame — the render
+	 * guard's walk and the evaluation loop — and the guarantee that the guard cannot short-circuit
+	 * a scene this loop was about to animate rests entirely on both getting the same answer. A
+	 * budget implemented by decrementing a counter per CALL would break that and freeze scenes.
+	 * The shape that satisfies it is to decide once per frame and answer from the decision.
+	 */
+	private boolean runsThisFrame(SceneNode node, Composed held) {
+		return held == null || held.programId != node.animator || !holdPolicy.hold(node.id);
 	}
 
 	/** The composed values for a node, or null if it has none this frame. */
@@ -376,7 +647,7 @@ final class AnimatorOverlay {
 	}
 
 	private Composed evaluateNode(Compiled compiled, SceneNode node, SceneState state, float time,
-			long renderInstant, long offset) {
+			long renderInstant, long offset, Composed reuse) {
 		OcslVm vm = compiled.vm;
 		bindClock(vm, time, node, offset, renderInstant);
 		bindOwnProperties(vm, node);
@@ -392,11 +663,66 @@ final class AnimatorOverlay {
 		Composed out = null;
 		for (int i = 0; i < compiled.written.length; i++) {
 			if (out == null) {
-				out = new Composed();
+				// REUSES last frame's object when there is one — the map is persistent now, so
+				// the entry already exists and allocating a replacement every frame per node
+				// would be pure garbage in a class advertising a zero-allocation frame.
+				// writtenMask MUST be cleared: a node can be re-attached to a different program
+				// with a different declaration, and a leftover bit would keep substituting a
+				// property the current program never writes.
+				//
+				// absoluteMask is REDUNDANT and kept anyway. applyProperty sets or clears that
+				// bit explicitly for every property it writes, and nothing reads the bit for a
+				// property writtenMask does not claim — so a mutation deleting this line
+				// survives, which is a statement about the line, not about the tests. It stays
+				// because the two masks are one concept and leaving half of it stale is a trap
+				// for whatever next sets writtenMask without going through applyProperty.
+				out = reuse;
+				if (out == null) {
+					out = new Composed();
+				} else {
+					out.writtenMask = 0;
+					out.absoluteMask = 0;
+				}
 			}
 			applyProperty(vm, node, compiled.written[i], compiled.absolute[i], out);
 		}
 		return out;
+	}
+
+	/**
+	 * Re-derive a held node's composed output over the CURRENT frame's base, without running its
+	 * program. This is what a held frame costs, and the gap between it and {@link #evaluateNode}
+	 * is what ANIM-16's budget buys: a base read and up to six composes, against a whole VM.
+	 *
+	 * Deliberately shares {@link #composeStored} with the fresh path instead of restating the
+	 * composition. A composition rule living in two places is this codebase's most-repeated
+	 * defect, and here the two copies would diverge invisibly — a held node and a fresh node
+	 * disagreeing by a clamp is not something a frame shows you.
+	 */
+	private void recompose(Composed held, SceneNode node) {
+		if (held.writtenMask == 0) {
+			return;
+		}
+		displayedBase(node, baseTrs);
+		// Walks the WHOLE property space, from the same constant that sizes `raw`. Bounding this
+		// at PROP_ANIM_TINT would have been correct today and would silently stop recomposing any
+		// property admitted later — a held node whose new property never tracks its base, with
+		// nothing to indicate why.
+		for (int property = 0; property < PROPERTY_LIMIT; property++) {
+			if (held.wrote(property)) {
+				composeStored(held, node, property);
+			}
+		}
+	}
+
+	/** Drop entries this pass did not touch — a detached, removed or newly-dangling node. */
+	private void sweepUntouched() {
+		for (Iterator<Map.Entry<Integer, Composed>> it = byNode.entrySet().iterator();
+				it.hasNext();) {
+			if (it.next().getValue().frameSeq != frameSeq) {
+				it.remove();
+			}
+		}
 	}
 
 	/** The node's transform as the frame displays it — interpolated when a source is present. */
@@ -500,7 +826,12 @@ final class AnimatorOverlay {
 			return;
 		}
 		displayedBase(parent, parentTrs);
-		Composed pc = byNode.get(Integer.valueOf(parent.id)); // evaluated already: parent < child
+		// CURRENT-PASS BY CONSTRUCTION, and it takes two rules now, not one. Ascending id plus
+		// parent < child means the parent was VISITED before this child; and every path the loop
+		// can take for that parent either refreshes its entry (evaluated or recomposed) or removes
+		// it on the spot. Without the second rule this read could return an entry the pass had
+		// already abandoned — the sweep only runs after the loop, far too late for a child.
+		Composed pc = byNode.get(Integer.valueOf(parent.id));
 		vm.set(SurfaceTable.REG_ANIM_PARENT_X,
 				(float) pick(pc, OcslWire.PROP_ANIM_X, parentTrs[NodeFold.TRS_X]));
 		vm.set(SurfaceTable.REG_ANIM_PARENT_Y,
@@ -570,20 +901,56 @@ final class AnimatorOverlay {
 				|| property == OcslWire.PROP_ANIM_ROT3D) {
 			return;
 		}
+		// CAPTURE, then compose. The raw output is stored before anything is done to it so that a
+		// later held frame has the animator's own answer to recompose, rather than a value with
+		// this frame's base already folded in.
+		vm.output(property, scratch4);
+		if (absolute) {
+			out.absoluteMask |= 1 << property;
+		} else {
+			out.absoluteMask &= ~(1 << property);
+		}
 		if (property == OcslWire.PROP_ANIM_TINT) {
-			vm.output(property, scratch4);
+			out.rawTint[0] = scratch4[0];
+			out.rawTint[1] = scratch4[1];
+			out.rawTint[2] = scratch4[2];
+			out.rawTint[3] = scratch4[3];
+		} else {
+			out.raw[property] = scratch4[0];
+		}
+		// Only on a property that actually landed somewhere. The switch's unreachable arm answers
+		// false, so a property id added later without a slot in Composed stays UNWRITTEN rather
+		// than being advertised as written and read back as a stale zero — the silent
+		// fall-through the arm was kept to prevent.
+		if (composeStored(out, node, property)) {
+			out.writtenMask |= 1 << property;
+		}
+	}
+
+	/**
+	 * Compose one stored raw output over the base and clamp — the ONE place composition happens.
+	 *
+	 * Reads {@code baseTrs}, which both callers fill from {@link #displayedBase} beforehand, and
+	 * {@code node.tint}, which is raw by design: tint has no interpolation track, so its displayed
+	 * value is its server value.
+	 *
+	 * @param property must already be recorded in {@code out.absoluteMask} and present in
+	 *                 {@code out.raw}/{@code out.rawTint}
+	 * @return true if the composed value landed in a field of {@code out}
+	 */
+	private boolean composeStored(Composed out, SceneNode node, int property) {
+		boolean absolute = out.isAbsolute(property);
+		if (property == OcslWire.PROP_ANIM_TINT) {
 			unpackTint(node.tint, out.tint);
 			for (int c = 0; c < 4; c++) {
 				float composed = OcslCompose.compose(OcslWire.PROP_ANIM_TINT, out.tint[c],
-						scratch4[c], absolute);
+						out.rawTint[c], absolute);
 				out.tint[c] = OcslWriteBoundary.clampForWrite(OcslWire.PROP_ANIM_TINT, composed);
 			}
-			out.writtenMask |= 1 << property;
-			return;
+			return true;
 		}
-		vm.output(property, scratch4);
 		double base = baseOf(baseTrs, property);
-		float composed = OcslCompose.compose(property, base, scratch4[0], absolute);
+		float composed = OcslCompose.compose(property, base, out.raw[property], absolute);
 		float clamped = OcslWriteBoundary.clampForWrite(property, composed);
 		switch (property) {
 			case OcslWire.PROP_ANIM_X: out.x = clamped; break;
@@ -592,13 +959,13 @@ final class AnimatorOverlay {
 			case OcslWire.PROP_ANIM_SY: out.sy = clamped; break;
 			case OcslWire.PROP_ANIM_ROT2D: out.rot = clamped; break;
 			default:
-				// Unreachable: the Stage C ids are turned away at the top of this method, and
+				// Unreachable: the Stage C ids are turned away at the top of applyProperty, and
 				// `written` cannot contain anything else — the validator refuses an OUT to a
 				// property the stage has no row for. Kept as a total switch rather than deleted,
 				// because the alternative is a silent fall-through if a property id is ever added.
-				return;
+				return false;
 		}
-		out.writtenMask |= 1 << property;
+		return true;
 	}
 
 	private static double baseOf(double[] displayedTrs, int property) {
