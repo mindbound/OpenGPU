@@ -2342,7 +2342,7 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 		}
 	}
 
-	@Callback(direct = true, limit = 32, doc = "function(nodeId:number, programId:number) -- Attach an OCSL animator program to a node; pass 0 to detach. Attaching over an existing animator replaces it and restamps its attach time (nothing reads that yet; sinceAttach arrives with the evaluation loop). Refuses a program that owns the display node's transform (tint is allowed there).")
+	@Callback(direct = true, limit = 32, doc = "function(nodeId:number, programId:number) -- Attach an OCSL animator program to a node; pass 0 to detach. Attaching over an existing animator replaces it and restamps its attach time, which restarts the program's sinceAttach clock. Refuses a program that owns the display node's transform (tint is allowed there).")
 	public Object[] setAnimator(Context context, Arguments args) throws Exception {
 		int nodeId = args.checkInteger(0);
 		int programId = args.checkInteger(1);

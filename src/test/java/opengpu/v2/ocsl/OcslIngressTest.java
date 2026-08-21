@@ -234,9 +234,10 @@ public strictfp class OcslIngressTest {
 	@Test
 	public void composeAloneHonoursTheWriteBoundaryWithoutAPreApplyingCaller() throws Exception {
 		// compose() used to require its caller to run OcslWriteBoundary.accepted() first, and handed
-		// mul(2.5, NaN) = 0 -- an invisible node -- to anyone who did not. There are no callers yet,
-		// so nobody had ever met that obligation. Idempotent on a finite value, so a caller who does
-		// pre-apply is unaffected.
+		// mul(2.5, NaN) = 0 -- an invisible node -- to anyone who did not. There were no callers
+		// when this was fixed (AnimatorOverlay.applyProperty is one now, and leans on the totality
+		// this test pins). Idempotent on a finite value, so a caller who does pre-apply is
+		// unaffected.
 		float scale = OcslCompose.compose(OcslWire.PROP_ANIM_SX, 2.5, Float.NaN);
 		assertEquals("a rejected scale displays the server base", 2.5f, scale, 0f);
 		assertTrue("the caller-must-remember version gives 0 and collapses the node", scale != 0.0f);

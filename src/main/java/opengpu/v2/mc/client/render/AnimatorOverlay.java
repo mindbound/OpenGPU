@@ -43,11 +43,25 @@ import opengpu.v2.scene.SceneState;
  * and {@code SceneState.nodes} is a TreeMap. No sort, no traversal, and it stays correct if Stage
  * C lifts the one-level nesting limit.
  *
+ * <h2>The composition base is the INTERPOLATED display transform</h2>
+ *
+ * DESIGN (ANIM-7): "The interpolated display transform is the <i>composition base</i> — renderer
+ * behaviour, carrying no purity claim." A relative write lands on the base as DISPLAYED, so an
+ * animated node whose server base is mid-glide moves with the glide instead of stepping at 20 Hz
+ * — composing over the raw field would reintroduce, for animated nodes only, the stepping
+ * {@link NodeInterpolator} exists to remove. The OWN-property registers stay RAW per the same
+ * ANIM-7 paragraph, which is why a program reading {@code x} sees a value up to one interpolation
+ * window out of step with the base its output lands on. The parent registers carry the parent's
+ * composed-over-displayed value, because "the parent's effective rotation" means the one it is
+ * drawn with. A null interpolation source composes over the raw fields — the same convention as
+ * {@code Canvas2dRenderer.renderScene}, and what headless tests exercise.
+ *
  * <h2>What this class deliberately does not do</h2>
  *
- * It does not touch GL and it does not read the renderer. Substituting these values at
- * {@code Canvas2dRenderer.readTransform}/{@code foldTint} is 3.3b — kept separate so everything
- * that DECIDES anything is testable headlessly, and the Forge-bound half is pure wiring.
+ * It does not touch GL and it does not read the renderer — the renderer reads IT, at
+ * {@code Canvas2dRenderer.readTransform} (via {@link #overlayTransform}) and {@code beginNode}
+ * (via {@link #tintFactor}), wired 2026-08-21 in Phase 3.3b. Kept separate so everything that
+ * DECIDES anything is testable headlessly, and the Forge-bound half is pure wiring.
  */
 final class AnimatorOverlay {
 
@@ -99,6 +113,12 @@ final class AnimatorOverlay {
 	 * invalidating whenever the program table changed, and a stale entry would run yesterday's
 	 * program forever with nothing to detect it.
 	 *
+	 * WITHIN ONE SCENE INCARNATION ONLY. An epoch change is a new {@code ServerScene}, whose
+	 * {@code nextProgramId} restarts at 1 — so the new epoch's program 1 can be different code
+	 * under an id this cache already holds, and {@link #pruneCaches} cannot see it (the id is
+	 * still present). {@link #reset} exists for exactly that seam and must be called wherever
+	 * {@code NodeInterpolator.reset} is.
+	 *
 	 * One VM per PROGRAM, not per node: the frame is scratch space, and evaluation is sequential
 	 * on one thread, so N nodes sharing an attachment share its VM and its zero-allocation frame.
 	 */
@@ -131,6 +151,20 @@ final class AnimatorOverlay {
 	private final Map<Integer, Boolean> broken = new HashMap<Integer, Boolean>();
 
 	private final float[] scratch4 = new float[4];
+	/** The current node's displayed base TRS — what relative writes compose over. */
+	private final double[] baseTrs = new double[NodeFold.TRS_WIDTH];
+	/** The parent's displayed base TRS, for the parent registers' unanimated fallback. */
+	private final double[] parentTrs = new double[NodeFold.TRS_WIDTH];
+	/** The displayed-base source for the frame being evaluated; null = raw fields. */
+	private NodeInterpolator interp;
+	private long frameNanos;
+
+	/** The raw-base form: composes over the raw server fields. For tests and for callers with
+	 *  no interpolator — the same convention as {@code Canvas2dRenderer.renderScene}. */
+	void evaluate(SceneState state, long renderInstant, long sessionTickOffset,
+			boolean clockKnown) {
+		evaluate(state, renderInstant, sessionTickOffset, clockKnown, null, 0L);
+	}
 
 	/**
 	 * Evaluate every attached node in {@code state} for this frame.
@@ -138,13 +172,21 @@ final class AnimatorOverlay {
 	 * @param renderInstant     {@code NodeInterpolator.renderInstant} — the SAME instant
 	 *                          interpolation is replaying against (ANIM-4: one time sample per
 	 *                          frame per scene), or Long.MIN_VALUE if the timeline is unprimed
-	 * @param sessionTickOffset {@code SceneMirror.sessionTickOf}'s offset: world time + this =
+	 * @param sessionTickOffset {@code SceneMirror.sessionTickOffset}: world time + this =
 	 *                          the server-tick domain {@code renderInstant} counts
 	 * @param clockKnown        {@code SceneMirror.animatorClockKnown} — false until a snapshot
 	 *                          carrying a stamped anchor has landed
+	 * @param interp            the displayed-base source, or null to compose over raw fields.
+	 *                          MUST be the same interpolator, sampled at the same
+	 *                          {@code nowNanos}, that the renderer will draw with — a different
+	 *                          pair would compose animator output over a base the frame does not
+	 *                          display
+	 * @param nowNanos          the frame's local clock sample, as passed to {@code renderScene}
 	 */
 	void evaluate(SceneState state, long renderInstant, long sessionTickOffset,
-			boolean clockKnown) {
+			boolean clockKnown, NodeInterpolator interp, long nowNanos) {
+		this.interp = interp;
+		this.frameNanos = nowNanos;
 		byNode.clear();
 		// NO CLOCK, NO ANIMATION, and failing closed is the point. Without the anchor a stamp
 		// cannot be placed in the render clock's domain at all, and the plausible fallbacks are
@@ -195,6 +237,66 @@ final class AnimatorOverlay {
 		return byNode.isEmpty();
 	}
 
+	/**
+	 * Forget everything, including the compiled programs. For an epoch change: a new scene
+	 * incarnation restarts the program id space, so the never-reused property the VM cache leans
+	 * on holds only within one epoch — the new epoch's program 1 can be different code under an
+	 * id {@link #pruneCaches} would consider live. Mirrors {@code NodeInterpolator.reset} and
+	 * must be called beside it.
+	 */
+	void reset() {
+		byNode.clear();
+		vms.clear();
+		broken.clear();
+	}
+
+	/**
+	 * Substitute this node's composed transform properties into a displayed TRS vector, leaving
+	 * properties its program did not write at the value already there. The renderer calls this
+	 * from {@code readTransform}, AFTER the interpolated read — the vector holds the displayed
+	 * base, and a written property's composed value replaces it wholesale because it was composed
+	 * over that same base.
+	 */
+	void overlayTransform(int nodeId, double[] trs) {
+		Composed c = byNode.get(Integer.valueOf(nodeId));
+		if (c == null) {
+			return;
+		}
+		if (c.wrote(OcslWire.PROP_ANIM_X)) {
+			trs[NodeFold.TRS_X] = c.x;
+		}
+		if (c.wrote(OcslWire.PROP_ANIM_Y)) {
+			trs[NodeFold.TRS_Y] = c.y;
+		}
+		if (c.wrote(OcslWire.PROP_ANIM_ROT2D)) {
+			trs[NodeFold.TRS_ROT] = c.rot;
+		}
+		if (c.wrote(OcslWire.PROP_ANIM_SX)) {
+			trs[NodeFold.TRS_SX] = c.sx;
+		}
+		if (c.wrote(OcslWire.PROP_ANIM_SY)) {
+			trs[NodeFold.TRS_SY] = c.sy;
+		}
+	}
+
+	/**
+	 * The node's displayed tint factor, in {@code NodeFold}'s RGBA channel order: the animator's
+	 * composed-and-clamped tint when its program wrote one, else the raw packed tint unpacked.
+	 * Tint composes by REPLACE, so unlike the transforms there is no base to substitute into —
+	 * this IS the child factor {@code NodeFold.foldTint} consumes.
+	 */
+	void tintFactor(int nodeId, int rawPackedTint, double[] out) {
+		Composed c = byNode.get(Integer.valueOf(nodeId));
+		if (c != null && c.wrote(OcslWire.PROP_ANIM_TINT)) {
+			out[NodeFold.TINT_R] = c.tint[0];
+			out[NodeFold.TINT_G] = c.tint[1];
+			out[NodeFold.TINT_B] = c.tint[2];
+			out[NodeFold.TINT_A] = c.tint[3];
+			return;
+		}
+		NodeFold.unpack(rawPackedTint, out);
+	}
+
 	// ---------------------------------------------------------------- internals
 
 	private static long sessionTickOf(long worldStamp, long offset) {
@@ -215,6 +317,10 @@ final class AnimatorOverlay {
 			opengpu.v2.ocsl.IrProgram program =
 					IrCodec.decode(info.blobCopy(), IrCodec.Source.TRANSIENT);
 			IrValidator.Validated validated = IrValidator.validate(program);
+			// PLAN (op caps): "Have 3.3 report each program's structural charge at evaluation so
+			// that decision meets real data." Reported at compile rather than per frame — the
+			// charge is a property of the program, and per-frame would just repeat it.
+			opengpu.v2.stats.RenderStats.onAnimatorCompile((int) validated.structuralOps);
 			OcslVm vm = new OcslVm(validated);
 			int[] written = program.outProperties();
 			boolean[] absolute = new boolean[written.length];
@@ -259,6 +365,12 @@ final class AnimatorOverlay {
 		bindOwnProperties(vm, node);
 		bindParentProperties(vm, node, state);
 		vm.run();
+		// The composition base, read AFTER the VM ran to keep the two reads of the node visibly
+		// distinct: registers were bound from the RAW fields above (ANIM-7's purity rule), and
+		// relative writes land on the DISPLAYED base here — the interpolated transform when a
+		// source is present. This is the "up to one interpolation window out of step" the design
+		// documents, made concrete.
+		displayedBase(node, baseTrs);
 
 		Composed out = null;
 		for (int i = 0; i < compiled.written.length; i++) {
@@ -268,6 +380,19 @@ final class AnimatorOverlay {
 			applyProperty(vm, node, compiled.written[i], compiled.absolute[i], out);
 		}
 		return out;
+	}
+
+	/** The node's transform as the frame displays it — interpolated when a source is present. */
+	private void displayedBase(SceneNode node, double[] out) {
+		if (interp != null) {
+			interp.transformOf(node, frameNanos, out);
+			return;
+		}
+		out[NodeFold.TRS_X] = node.x;
+		out[NodeFold.TRS_Y] = node.y;
+		out[NodeFold.TRS_ROT] = node.rot;
+		out[NodeFold.TRS_SX] = node.sx;
+		out[NodeFold.TRS_SY] = node.sy;
 	}
 
 	private void bindClock(OcslVm vm, float time, SceneNode node, long offset,
@@ -337,9 +462,11 @@ final class AnimatorOverlay {
 	/**
 	 * The parent block, carrying the parent's COMPOSED values when it has any.
 	 *
-	 * Falls back to the parent's raw server values when the parent has no animator — which is not
-	 * a special case but the same answer: an unanimated parent's composed value IS its raw value,
-	 * so the two branches agree by construction rather than by coincidence.
+	 * Falls back to the parent's DISPLAYED base when the parent has no animator — which is not a
+	 * special case but the same answer: an unanimated parent's composed value IS its base, and
+	 * "the parent's effective rotation" (the counter-rotation use these registers exist for)
+	 * means the one the parent is drawn with, interpolation included. A raw fallback would put a
+	 * child's animator up to one interpolation window behind the parent it is compensating.
 	 */
 	private void bindParentProperties(OcslVm vm, SceneNode node, SceneState state) {
 		SceneNode parent = node.parent == 0 ? null
@@ -355,13 +482,18 @@ final class AnimatorOverlay {
 			vm.set(SurfaceTable.REG_ANIM_PARENT_TINT, 1.0f, 1.0f, 1.0f, 1.0f);
 			return;
 		}
+		displayedBase(parent, parentTrs);
 		Composed pc = byNode.get(Integer.valueOf(parent.id)); // evaluated already: parent < child
-		vm.set(SurfaceTable.REG_ANIM_PARENT_X, (float) pick(pc, OcslWire.PROP_ANIM_X, parent.x));
-		vm.set(SurfaceTable.REG_ANIM_PARENT_Y, (float) pick(pc, OcslWire.PROP_ANIM_Y, parent.y));
-		vm.set(SurfaceTable.REG_ANIM_PARENT_SX, (float) pick(pc, OcslWire.PROP_ANIM_SX, parent.sx));
-		vm.set(SurfaceTable.REG_ANIM_PARENT_SY, (float) pick(pc, OcslWire.PROP_ANIM_SY, parent.sy));
+		vm.set(SurfaceTable.REG_ANIM_PARENT_X,
+				(float) pick(pc, OcslWire.PROP_ANIM_X, parentTrs[NodeFold.TRS_X]));
+		vm.set(SurfaceTable.REG_ANIM_PARENT_Y,
+				(float) pick(pc, OcslWire.PROP_ANIM_Y, parentTrs[NodeFold.TRS_Y]));
+		vm.set(SurfaceTable.REG_ANIM_PARENT_SX,
+				(float) pick(pc, OcslWire.PROP_ANIM_SX, parentTrs[NodeFold.TRS_SX]));
+		vm.set(SurfaceTable.REG_ANIM_PARENT_SY,
+				(float) pick(pc, OcslWire.PROP_ANIM_SY, parentTrs[NodeFold.TRS_SY]));
 		vm.set(SurfaceTable.REG_ANIM_PARENT_ROT2D,
-				(float) pick(pc, OcslWire.PROP_ANIM_ROT2D, parent.rot));
+				(float) pick(pc, OcslWire.PROP_ANIM_ROT2D, parentTrs[NodeFold.TRS_ROT]));
 		if (pc != null && pc.wrote(OcslWire.PROP_ANIM_TINT)) {
 			vm.set(SurfaceTable.REG_ANIM_PARENT_TINT,
 					pc.tint[0], pc.tint[1], pc.tint[2], pc.tint[3]);
@@ -387,7 +519,8 @@ final class AnimatorOverlay {
 	}
 
 	/**
-	 * Compose one written property over the node's server base, then CLAMP.
+	 * Compose one written property over the node's DISPLAYED base, then CLAMP. ("Server base"
+	 * until 3.3b — the class header's composition-base section is where the change is argued.)
 	 *
 	 * The clamp is {@code OcslWriteBoundary.clampForWrite}, which had zero callers until this
 	 * method — it is the consumer the ledger named. Composition can leave the finite range even
@@ -432,7 +565,7 @@ final class AnimatorOverlay {
 			return;
 		}
 		vm.output(property, scratch4);
-		double base = baseOf(node, property);
+		double base = baseOf(baseTrs, property);
 		float composed = OcslCompose.compose(property, base, scratch4[0], absolute);
 		float clamped = OcslWriteBoundary.clampForWrite(property, composed);
 		switch (property) {
@@ -451,13 +584,13 @@ final class AnimatorOverlay {
 		out.writtenMask |= 1 << property;
 	}
 
-	private static double baseOf(SceneNode node, int property) {
+	private static double baseOf(double[] displayedTrs, int property) {
 		switch (property) {
-			case OcslWire.PROP_ANIM_X: return node.x;
-			case OcslWire.PROP_ANIM_Y: return node.y;
-			case OcslWire.PROP_ANIM_SX: return node.sx;
-			case OcslWire.PROP_ANIM_SY: return node.sy;
-			case OcslWire.PROP_ANIM_ROT2D: return node.rot;
+			case OcslWire.PROP_ANIM_X: return displayedTrs[NodeFold.TRS_X];
+			case OcslWire.PROP_ANIM_Y: return displayedTrs[NodeFold.TRS_Y];
+			case OcslWire.PROP_ANIM_SX: return displayedTrs[NodeFold.TRS_SX];
+			case OcslWire.PROP_ANIM_SY: return displayedTrs[NodeFold.TRS_SY];
+			case OcslWire.PROP_ANIM_ROT2D: return displayedTrs[NodeFold.TRS_ROT];
 			default: return 0.0;
 		}
 	}

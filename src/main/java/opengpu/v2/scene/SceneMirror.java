@@ -318,4 +318,15 @@ public final class SceneMirror {
 	public long sessionTickOf(long worldTimeStamp) {
 		return worldTimeStamp + sessionTickOffset;
 	}
+
+	/**
+	 * The raw offset {@link #sessionTickOf} adds. For the render-side animator evaluator, which
+	 * converts one attach stamp per attached node plus the scene epoch every frame, and takes
+	 * primitives so it stays testable without a mirror. Meaningless while
+	 * {@link #animatorClockKnown} is false — a caller must check, for the reason that method's
+	 * javadoc gives.
+	 */
+	public long sessionTickOffset() {
+		return sessionTickOffset;
+	}
 }

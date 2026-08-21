@@ -133,9 +133,11 @@ public final strictfp class OcslCompose {
 	 * <b>BOTH boundaries are applied HERE rather than left to the caller.</b> The first draft assumed
 	 * a caller would run {@link OcslWriteBoundary#accepted} first and then compose — under which
 	 * {@code compose(sx, 2.5, NaN)} was {@code mul(2.5, NaN)} = 0, an invisible node, for anyone who
-	 * did not. There are no callers yet, so nobody had remembered, and an ordering obligation that
-	 * has never once been met is not a contract. The boundary is idempotent on a finite value, so a
-	 * caller who does apply it first gets the same answer either way.
+	 * did not. There were no callers then (there are now — {@code AnimatorOverlay.applyProperty}
+	 * since Phase 3.3, and it relies on exactly this totality), so nobody had remembered, and an
+	 * ordering obligation that has never once been met is not a contract. The boundary is
+	 * idempotent on a finite value, so a caller who does apply it first gets the same answer
+	 * either way.
 	 */
 	public static float compose(int propertyId, double serverBase, float animatorOutput) {
 		switch (ruleFor(propertyId)) {

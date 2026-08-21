@@ -154,6 +154,24 @@ public final class StatsOverlay {
 		lines.add(String.format("  %.0f ns/command   upload %.1f KiB/s", nanosPerCommand,
 				uploadKbPerSec));
 
+		// Shown only once an animator has actually run, so the overlay costs no line on the
+		// scenes that predate the feature. "us/eval": the mean is per EVALUATION of a scene
+		// that had an attached animator, not per frame — several scenes evaluate per frame and
+		// frames without animated scenes are not in the denominator. The charge stats are the
+		// compile-time data ANIM-16's cap decision is waiting for (PLAN, op-caps section);
+		// "programs" counts COMPILES SINCE CLIENT LOAD, so a world rejoin legitimately doubles
+		// it -- climbing while you watch is the recompile-per-frame signature, a stable value
+		// is not.
+		if (RenderStats.animatorEvaluations > 0) {
+			long avg = RenderStats.animatorProgramsCompiled == 0 ? 0
+					: RenderStats.animatorChargeTotal / RenderStats.animatorProgramsCompiled;
+			lines.add(String.format(
+					"  animator %.0f us/eval   programs %d (charge avg %d, max %d/%d)",
+					RenderStats.meanAnimatorMicros(), RenderStats.animatorProgramsCompiled,
+					avg, RenderStats.animatorChargeMax,
+					opengpu.v2.ocsl.IrValidator.MAX_STRUCTURAL_OPS));
+		}
+
 		if (detailed) {
 			lines.add("§8  totals since load:§r");
 			lines.add(String.format("    pre-passes %d, renders %d (%d interp)",

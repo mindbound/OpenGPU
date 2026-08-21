@@ -287,4 +287,42 @@ public strictfp class NodeFoldTest {
 		assertEquals(1.0, m.a, 1e-12);
 		assertTrue("carrying the previous node over would give e = 100 + something", m.e < 50.0);
 	}
+
+	/**
+	 * The packed and unpacked tint folds are one rule in two forms — 3.3b added the array form
+	 * because a composed tint is continuous and has no packed representation. This agreement is
+	 * what ALLOWS the rule to exist twice: if it ever fails, one of the two has drifted and the
+	 * animated and unanimated paths are tinting differently.
+	 */
+	@Test
+	public void thePackedAndUnpackedTintFoldsAgree() throws Exception {
+		int[] tints = { 0x80402010, 0xFF808080, 0x00FFFFFF, 0x7F123456, NodeFold.WHITE };
+		double[] viaPacked = new double[4];
+		double[] viaArrays = new double[4];
+		double[] child = new double[4];
+		double[] parent = new double[4];
+		for (int c : tints) {
+			for (int p : tints) {
+				NodeFold.foldTint(c, p, viaPacked);
+				NodeFold.unpack(c, child);
+				NodeFold.unpack(p, parent);
+				NodeFold.foldTint(child, parent, viaArrays);
+				for (int ch = 0; ch < 4; ch++) {
+					assertEquals("channel " + ch + " of " + Integer.toHexString(c) + " x "
+							+ Integer.toHexString(p), viaPacked[ch], viaArrays[ch], 0.0);
+				}
+			}
+		}
+	}
+
+	/** unpack reads ARGB into TINT_* (RGBA) order — the swap is where a wrong shift would hide. */
+	@Test
+	public void unpackReadsTheChannelsInTintOrder() throws Exception {
+		double[] out = new double[4];
+		NodeFold.unpack(0x80402010, out);
+		assertEquals("R is bits 16-23", 0x40 / 255.0, out[NodeFold.TINT_R], 0.0);
+		assertEquals("G is bits 8-15", 0x20 / 255.0, out[NodeFold.TINT_G], 0.0);
+		assertEquals("B is bits 0-7", 0x10 / 255.0, out[NodeFold.TINT_B], 0.0);
+		assertEquals("A is bits 24-31", 0x80 / 255.0, out[NodeFold.TINT_A], 0.0);
+	}
 }

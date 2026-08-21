@@ -53,12 +53,15 @@ package opengpu.v2.ocsl;
  * is stored — which is where the ordering obligation this class warns about came due, exactly as
  * predicted.
  *
- * NOT THE SAME AS "on the render path", and the distinction is the one this paragraph got wrong
- * once already. A first version of this correction said the arm was "now LIVE"; that is a claim
- * about reachability, and it overshot — {@code AnimatorOverlay} is itself called only from tests
- * until 3.3b substitutes it at {@code Canvas2dRenderer}. Having a caller and being reached from a
- * production entry point are two claims, and swapping the weaker note for a stronger one is how a
- * ledger item gets marked done early.
+ * Having a caller and being reached from a production entry point are two claims, and this
+ * paragraph got their difference wrong once already: a first version of the 3.3a correction said
+ * the arm was "now LIVE" while {@code AnimatorOverlay} was still called only from tests — swapping
+ * the weaker note for a stronger one is how a ledger item gets marked done early. As of Phase 3.3b
+ * (2026-08-21) the stronger claim is finally true as well: {@code SceneRenderer.renderIfNeeded}
+ * evaluates the overlay every frame a scene renders, so this arm runs on the render path whenever
+ * the evaluator composes a written property — an attached animator whose clock is known; while
+ * the anchor has not arrived the evaluator returns before composing anything, and precision in
+ * that qualifier is the whole lesson of this paragraph's history.
  *
  * {@code compose} still does not clamp, and must not: composition can leave the finite range even
  * when both operands were inside it, so the clamp belongs at the consumer that knows the value is

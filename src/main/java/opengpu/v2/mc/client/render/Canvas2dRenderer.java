@@ -59,8 +59,20 @@ public final class Canvas2dRenderer {
 	 */
 	public void renderScene(SceneState state, int width, int height, Map<Integer, Integer> glTextures,
 			NodeInterpolator interp, long nowNanos) {
+		renderScene(state, width, height, glTextures, interp, nowNanos, null);
+	}
+
+	/**
+	 * As above, with animator output substituted from {@code overlay} — Phase 3.3b's form, the
+	 * one {@code SceneRenderer} calls. The overlay must have been evaluated THIS frame, against
+	 * the same {@code interp} and {@code nowNanos}, or the substituted values compose over a base
+	 * this call is not displaying. A null overlay draws server values only.
+	 */
+	public void renderScene(SceneState state, int width, int height, Map<Integer, Integer> glTextures,
+			NodeInterpolator interp, long nowNanos, AnimatorOverlay overlay) {
 		this.interp = interp;
 		this.interpNanos = nowNanos;
+		this.overlay = overlay;
 		// This renderer is shared across passes, so the texturing shadow must be re-synced
 		// with real GL at every entry — never inherited from the previous scene's tail.
 		GL11.glDisable(GL11.GL_TEXTURE_2D);
@@ -140,9 +152,13 @@ public final class Canvas2dRenderer {
 	/** Interpolation source for the current renderScene call; null = draw raw transforms. */
 	private NodeInterpolator interp;
 	private long interpNanos;
+	/** Animator output for the current renderScene call; null = draw server values only. */
+	private AnimatorOverlay overlay;
 	private final double[] xform = new double[NodeFold.TRS_WIDTH];
 	private final double[] parentXform = new double[NodeFold.TRS_WIDTH];
 	private final double[] tintRgba = new double[4];
+	private final double[] childTintFactor = new double[4];
+	private final double[] parentTintFactor = new double[4];
 
 	private void beginNode(SceneNode sceneNode, SceneState state) {
 		// PARENT FIRST, then the child, onto the same matrix -- NodeFold.foldTransform owns that
@@ -201,9 +217,19 @@ public final class Canvas2dRenderer {
 		// THE `parent.tint != 0xFFFFFFFF` SHORT-CIRCUIT IS GONE, and NodeFold explains why: it
 		// tested the parent's RAW field, so a group whose server tint is white and whose animator
 		// fades it would take the early exit and reach no child at all -- the very defect this
-		// comment block exists to refuse, reintroduced one level up. Bit-identical today, because a
-		// white parent multiplies every channel by exactly 1.0.
-		NodeFold.foldTint(sceneNode.tint, parent != null ? parent.tint : NodeFold.WHITE, tintRgba);
+		// comment block exists to refuse, reintroduced one level up. That hypothetical became
+		// concrete in 3.3b: tintFactorOf below is exactly the displayed-vs-raw split the removed
+		// short-circuit would have broken.
+		//
+		// UNPACKED FACTORS, not the packed fold: an animator's composed tint is continuous, so it
+		// has no packed form to hand the int overload -- see NodeFold.foldTint(double[],...).
+		tintFactorOf(sceneNode, childTintFactor);
+		if (parent != null) {
+			tintFactorOf(parent, parentTintFactor);
+		} else {
+			NodeFold.unpack(NodeFold.WHITE, parentTintFactor);
+		}
+		NodeFold.foldTint(childTintFactor, parentTintFactor, tintRgba);
 		tintR = tintRgba[NodeFold.TINT_R];
 		tintG = tintRgba[NodeFold.TINT_G];
 		tintB = tintRgba[NodeFold.TINT_B];
@@ -218,22 +244,39 @@ public final class Canvas2dRenderer {
 	}
 
 	/**
-	 * Reads one node's DISPLAYED TRS into {@code out} — interpolated when a source is available.
-	 *
-	 * This is where an animator's composed output will substitute, for the parent and the child
-	 * alike, because both go through here. It reads and does not apply: the applying is
+	 * Reads one node's DISPLAYED TRS into {@code out} — interpolated when a source is available,
+	 * then with the animator's composed output substituted per written property (Phase 3.3b).
+	 * The parent and the child alike go through here, which is what makes an animated group
+	 * carry its children. It reads and does not apply: the applying is
 	 * {@link NodeFold#foldTransform}'s job, so that the order is stated in one testable place.
 	 */
 	private void readTransform(SceneNode n, double[] out) {
 		if (interp != null) {
 			interp.transformOf(n, interpNanos, out);
-			return;
+		} else {
+			out[NodeFold.TRS_X] = n.x;
+			out[NodeFold.TRS_Y] = n.y;
+			out[NodeFold.TRS_ROT] = n.rot;
+			out[NodeFold.TRS_SX] = n.sx;
+			out[NodeFold.TRS_SY] = n.sy;
 		}
-		out[NodeFold.TRS_X] = n.x;
-		out[NodeFold.TRS_Y] = n.y;
-		out[NodeFold.TRS_ROT] = n.rot;
-		out[NodeFold.TRS_SX] = n.sx;
-		out[NodeFold.TRS_SY] = n.sy;
+		if (overlay != null) {
+			overlay.overlayTransform(n.id, out);
+		}
+	}
+
+	/**
+	 * A node's DISPLAYED tint factor: the animator's composed tint when one is written, else the
+	 * raw packed field unpacked. The overlay owns that choice; this helper only covers the
+	 * overlay-less path, so both readTransform and the tint read fail back to server values the
+	 * same way.
+	 */
+	private void tintFactorOf(SceneNode n, double[] out) {
+		if (overlay != null) {
+			overlay.tintFactor(n.id, n.tint, out);
+		} else {
+			NodeFold.unpack(n.tint, out);
+		}
 	}
 
 	/**

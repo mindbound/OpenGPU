@@ -312,16 +312,17 @@ public final class SurfaceTable {
 				// timePeriod unreadable until P was published. The cases differ: P was an
 				// undecided VALUE, so the register would have promised a number nobody had chosen,
 				// while sinceAttach's rule is decided (ANIM-6: saturating, host-computed from the
-				// replicated attach stamp) and only its host fill is unwritten (Phase 3.3).
+				// replicated attach stamp). The host fill this note used to defer to Phase 3.3
+				// EXISTS now -- AnimatorOverlay.bindClock fills it every frame, from the stamp,
+				// clamped at both ends -- so the paragraph below describes a closed era: it was
+				// true from this register's creation until 3.3 landed (2026-08-21), and is kept
+				// because the reachability reasoning is the part worth re-reading.
 				//
-				// BE PRECISE ABOUT WHO CAN REACH IT. "Nothing can reach it yet" is FALSE as of this
-				// commit: a program built in this package reads it today and gets 0.0, because
-				// nothing binds it. What nobody can do is reach it FROM THE GAME -- no callback
-				// creates a program and nothing attaches one -- so the register and its host fill
-				// become reachable to a player in the same step (Phase 3.1/3.3). Until then the 0.0
-				// is visible only to tests, which is the other half of the argument: OcslVm.set
-				// needs a frame slot and a frame slot needs a type here, so the first animator
-				// tests can bind it by hand.
+				// BE PRECISE ABOUT WHO CAN REACH IT. "Nothing can reach it yet" was FALSE even
+				// then: a program built in this package read it and got 0.0, because nothing
+				// bound it. What nobody could do was reach it FROM THE GAME -- no callback
+				// created a program and nothing attached one -- so the register and its host fill
+				// became reachable to a player in the same step (Phase 3.1/3.3).
 				switch (reg) {
 					case REG_TIME: return OcslType.FLOAT;
 					case REG_TIME_PERIOD: return OcslType.FLOAT;

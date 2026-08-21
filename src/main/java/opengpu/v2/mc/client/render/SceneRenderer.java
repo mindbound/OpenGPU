@@ -68,6 +68,8 @@ public final class SceneRenderer {
 		int failedHeight = -1;
 		/** Smooths node transforms across the 20 tps channel; see NodeInterpolator. */
 		final NodeInterpolator interp = new NodeInterpolator();
+		/** Per-frame animator output, held beside the interpolator it composes over. */
+		final AnimatorOverlay overlay = new AnimatorOverlay();
 		/** Last mirror epoch this cache saw; a change means a new timeline, so snap. */
 		int knownEpoch;
 		final Map<Integer, TexEntry> textures = new HashMap<Integer, TexEntry>();
@@ -373,6 +375,10 @@ public final class SceneRenderer {
 			// rather than interpolated across. DESIGN: "Resync always snaps."
 			gl.knownEpoch = mirror.knownEpoch();
 			gl.interp.reset();
+			// The overlay's VM cache leans on "program ids are never reused", which holds only
+			// within one incarnation -- a new epoch restarts the id space, so the new epoch's
+			// program 1 can be different code under a cached id. See AnimatorOverlay.reset.
+			gl.overlay.reset();
 		}
 		if (mirror.isDirty()) {
 			gl.interp.capture(mirror.state(), mirror.lastServerTick(), now, mirror.teleportedNodes());
@@ -412,6 +418,22 @@ public final class SceneRenderer {
 				&& !mirror.state().hasAttachedAnimator()) {
 			return;
 		}
+		// ANIMATOR EVALUATION -- once per frame per scene, before any GL work, and against the
+		// SAME interpolator and `now` the render below draws with (ANIM-4: one time sample per
+		// frame per scene; the overlay composes over the exact base the frame displays). On a
+		// scene with no attached animator this clears last frame's entries and walks a loop of
+		// continues -- cheap, and it is what makes detach snap without a special case.
+		//
+		// Timed only when an animator is attached, so animatorNanos means "what animators cost"
+		// rather than "what this call costs on scenes that have none" -- ANIM-16 wants the first
+		// number.
+		boolean animated = mirror.state().hasAttachedAnimator();
+		long animStart = animated ? System.nanoTime() : 0L;
+		gl.overlay.evaluate(mirror.state(), gl.interp.renderInstant(now),
+				mirror.sessionTickOffset(), mirror.animatorClockKnown(), gl.interp, now);
+		if (animated) {
+			RenderStats.onAnimatorEvaluate(System.nanoTime() - animStart);
+		}
 		Map<Integer, Integer> glMap = new HashMap<Integer, Integer>();
 		for (Map.Entry<Integer, TexEntry> entry : gl.textures.entrySet()) {
 			glMap.put(entry.getKey(), entry.getValue().glId);
@@ -434,7 +456,8 @@ public final class SceneRenderer {
 		// fixed term was measured the old way.
 		long renderStart = System.nanoTime();
 		pass.retarget(gl.fbo, gl.width, gl.height);
-		canvasRenderer.renderScene(mirror.state(), gl.width, gl.height, glMap, gl.interp, now);
+		canvasRenderer.renderScene(mirror.state(), gl.width, gl.height, glMap, gl.interp, now,
+				gl.overlay);
 		RenderStats.onSceneRender(System.nanoTime() - renderStart, commandCount, interpolationDriven);
 		gl.everRendered = true;
 		gl.uploadDirty = false;

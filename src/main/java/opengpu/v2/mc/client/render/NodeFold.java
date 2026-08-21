@@ -173,6 +173,12 @@ public final class NodeFold {
 	 * UNCONDITIONAL. Pass {@link #WHITE} for an unparented node rather than skipping the call — the
 	 * skip is what broke, and a multiply by 1.0 costs nothing worth a branch that can be wrong.
 	 *
+	 * THE PACKED FORM, kept for the conformance vectors and for any caller whose tints are both
+	 * still packed ints. Production folds the unpacked form below since 3.3b: an animator's
+	 * composed tint is continuous and has no packed representation, so quantizing it to 8 bits
+	 * here would turn a smooth fade into 256 steps for no reason. The two forms MUST agree —
+	 * {@code NodeFoldTest} pins that they do, which is what allows the rule to exist twice.
+	 *
 	 * @param childTint the child's DISPLAYED tint; an animator's output has already replaced the
 	 *        node's own factor by the time it arrives here
 	 * @param parentTint the parent's DISPLAYED tint, or {@link #WHITE}
@@ -182,6 +188,25 @@ public final class NodeFold {
 		out[TINT_G] = channel(childTint, 8) * channel(parentTint, 8);
 		out[TINT_B] = channel(childTint, 0) * channel(parentTint, 0);
 		out[TINT_A] = channel(childTint, 24) * channel(parentTint, 24);
+	}
+
+	/**
+	 * The fold on already-unpacked factors — the form the animator path uses. Same rule as the
+	 * packed form: child times parent, per channel, unconditionally.
+	 */
+	public static void foldTint(double[] childFactor, double[] parentFactor, double[] out) {
+		out[TINT_R] = childFactor[TINT_R] * parentFactor[TINT_R];
+		out[TINT_G] = childFactor[TINT_G] * parentFactor[TINT_G];
+		out[TINT_B] = childFactor[TINT_B] * parentFactor[TINT_B];
+		out[TINT_A] = childFactor[TINT_A] * parentFactor[TINT_A];
+	}
+
+	/** Unpack a packed ARGB tint into its four 0..1 channel factors, in TINT_* order. */
+	public static void unpack(int packedTint, double[] out) {
+		out[TINT_R] = channel(packedTint, 16);
+		out[TINT_G] = channel(packedTint, 8);
+		out[TINT_B] = channel(packedTint, 0);
+		out[TINT_A] = channel(packedTint, 24);
 	}
 
 	private static double channel(int packed, int shift) {

@@ -95,6 +95,40 @@ public final class RenderStats {
 	 */
 	public static long texturesDeferred;
 
+	/**
+	 * Animator cost, counted only over renders of scenes that HAD an attached animator, so the
+	 * mean means "what animators cost" rather than being diluted by scenes that have none.
+	 */
+	public static long animatorEvaluations;
+	public static long animatorNanos;
+
+	/**
+	 * Structural-op charges of animator programs compiled this session — the real-usage data
+	 * PLAN's op-cap section says the cap decision (ANIM-16 / Phase 4) must meet. A program is
+	 * charged once, at compile, because the charge is a property of the program.
+	 */
+	public static long animatorProgramsCompiled;
+	public static long animatorChargeTotal;
+	public static int animatorChargeMax;
+
+	public static void onAnimatorEvaluate(long nanos) {
+		animatorEvaluations++;
+		animatorNanos += nanos;
+	}
+
+	public static void onAnimatorCompile(int structuralOps) {
+		animatorProgramsCompiled++;
+		animatorChargeTotal += structuralOps;
+		if (structuralOps > animatorChargeMax) {
+			animatorChargeMax = structuralOps;
+		}
+	}
+
+	public static double meanAnimatorMicros() {
+		return animatorEvaluations == 0 ? 0.0
+				: animatorNanos / (double) animatorEvaluations / 1000.0;
+	}
+
 	public static void onPrePass(boolean didWork) {
 		prePasses++;
 		if (didWork) {
@@ -161,5 +195,10 @@ public final class RenderStats {
 		uploadBytes = 0;
 		uploads = 0;
 		texturesDeferred = 0;
+		animatorEvaluations = 0;
+		animatorNanos = 0;
+		animatorProgramsCompiled = 0;
+		animatorChargeTotal = 0;
+		animatorChargeMax = 0;
 	}
 }

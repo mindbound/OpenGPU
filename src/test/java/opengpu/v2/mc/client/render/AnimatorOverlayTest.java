@@ -697,4 +697,448 @@ public class AnimatorOverlayTest {
 		assertNull("a detached node must produce no entry, which is what snaps it to the base",
 				overlay.of(1));
 	}
+
+	// ------------------------------------------------- 3.3b: the interpolated composition base
+
+	/** First server tick and its local arrival, for the paced-arrival fixtures below. */
+	private static final long T0 = 1000L;
+	private static final long N0 = 7_000_000L;
+	private static final java.util.Set<Integer> NONE = java.util.Collections.<Integer>emptySet();
+
+	/** Local time at which the render clock is showing {@code serverTick} — the same helper
+	 *  every NodeInterpolatorTest fixture derives its instants from. */
+	private static long localShowing(double serverTick) {
+		return (long) (serverTick * TICK) - (T0 * TICK - N0)
+				+ ServerTimeline.INTERPOLATION_DELAY_TICKS * TICK;
+	}
+
+	/** An interpolator holding one mid-flight track for node {@code id}: x glides 0 -> 10
+	 *  between ticks T0 and T0+1. Mutates the node's x to 10 (the current server value). */
+	private static NodeInterpolator midFlightX(SceneState s, SceneNode n) {
+		NodeInterpolator interp = new NodeInterpolator();
+		n.x = 0.0;
+		interp.capture(s, T0, N0, NONE);
+		n.x = 10.0;
+		interp.capture(s, T0 + 1, N0 + TICK, NONE);
+		return interp;
+	}
+
+	/**
+	 * THE COMPOSITION BASE IS THE DISPLAYED TRANSFORM — DESIGN (ANIM-7): "The interpolated
+	 * display transform is the composition base". A relative write lands on the base as drawn,
+	 * so an animated node whose server base is mid-glide moves with the glide.
+	 *
+	 * Halfway through the keyframe pair the displayed base is 5.0, so +100 composes to 105.
+	 * The exclusion is what matters: composing over the RAW field gives 110 — and that failure
+	 * is invisible on every fixture whose base is settled, which is all of the ones above.
+	 */
+	@Test
+	public void aRelativeWriteComposesOverTheInterpolatedBase() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 100.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+		NodeInterpolator interp = midFlightX(s, n);
+
+		long now = localShowing(T0 + 0.5);
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, interp.renderInstant(now), OFFSET, true, interp, now);
+
+		assertEquals("base is DISPLAYED 5.0 mid-glide, so +100 gives 105 — 110 means the raw"
+				+ " field was composed over, re-stepping animated nodes at 20 Hz",
+				105.0, overlay.of(1).x, 1e-4);
+	}
+
+	/**
+	 * ANIM-7's split, both halves in one frame: the program's OWN register reads the RAW
+	 * server-set value even while the composition base is interpolated. "x is not where I am
+	 * drawn" — this is that sentence as arithmetic.
+	 */
+	@Test
+	public void ownRegistersStayRawWhileTheBaseIsInterpolated() throws Exception {
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		b.outAbsolute(OcslWire.PROP_ANIM_X, b.builtin(SurfaceTable.REG_ANIM_X));
+		SceneState s = sceneWith(info(1, IrCodec.encode(b.build())));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+		NodeInterpolator interp = midFlightX(s, n);
+
+		long now = localShowing(T0 + 0.5);
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, interp.renderInstant(now), OFFSET, true, interp, now);
+
+		assertEquals("the register carries the RAW 10.0; 5.0 means the displayed base leaked"
+				+ " into the purity-ruled registers, and 0.0 means nothing was bound",
+				10.0, overlay.of(1).x, 1e-4);
+	}
+
+	/**
+	 * The parent registers' unanimated fallback is the parent's DISPLAYED base, not its raw
+	 * field — "the parent's effective rotation" means the one it is drawn with, and a raw
+	 * fallback would put a counter-rotating child an interpolation window behind its parent.
+	 */
+	@Test
+	public void theParentRegistersCarryTheParentsDisplayedBase() throws Exception {
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		b.outAbsolute(OcslWire.PROP_ANIM_X, b.builtin(SurfaceTable.REG_ANIM_PARENT_X));
+		SceneState s = sceneWith(info(1, IrCodec.encode(b.build())));
+		SceneNode parent = node(s, 1, 0);
+		SceneNode child = node(s, 2, 1);
+		child.animator = 1;
+		child.attachedWorldTime = 100L;
+		NodeInterpolator interp = midFlightX(s, parent);
+
+		long now = localShowing(T0 + 0.5);
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, interp.renderInstant(now), OFFSET, true, interp, now);
+
+		assertEquals("the unanimated parent's register value is its displayed 5.0; 10.0 means"
+				+ " the raw fallback survived", 5.0, overlay.of(2).x, 1e-4);
+	}
+
+	// ------------------------------------------------- 3.3b: the renderer-facing surface
+
+	/**
+	 * reset() forgets COMPILED programs, not just results. An epoch change restarts the program
+	 * id space, so the same id can arrive carrying different code — the one case pruneCaches
+	 * structurally cannot see, because the id is still present.
+	 */
+	@Test
+	public void resetForgetsCompiledProgramsForANewEpoch() throws Exception {
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		SceneState s1 = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		SceneNode n1 = node(s1, 1, 0);
+		n1.x = 1.0;
+		n1.animator = 1;
+		n1.attachedWorldTime = 100L;
+		overlay.evaluate(s1, instant(200), OFFSET, true);
+		assertEquals(6.0, overlay.of(1).x, 1e-6);
+
+		// A new incarnation: the SAME program id now holds different code.
+		SceneState s2 = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 7.0f)));
+		SceneNode n2 = node(s2, 1, 0);
+		n2.x = 1.0;
+		n2.animator = 1;
+		n2.attachedWorldTime = 100L;
+		overlay.reset();
+		assertNull("reset forgets RESULTS too, not only programs — a caller reading between"
+				+ " reset and the next evaluate must see nothing, not the dead epoch's frame",
+				overlay.of(1));
+		overlay.evaluate(s2, instant(200), OFFSET, true);
+		assertEquals("8, not 6 — 6 means the stale epoch's compiled program survived reset and"
+				+ " the client is running yesterday's code under today's id",
+				8.0, overlay.of(1).x, 1e-6);
+	}
+
+	/**
+	 * The renderer-facing substitution touches ONLY the properties the program wrote — the
+	 * others keep whatever displayed base the caller already read into the vector.
+	 */
+	@Test
+	public void overlayTransformSubstitutesOnlyWrittenProperties() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.x = 7.0;
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+
+		double[] trs = { 1.0, 2.0, 3.0, 4.0, 5.0 };
+		overlay.overlayTransform(1, trs);
+		assertEquals("the written property is substituted", 12.0, trs[NodeFold.TRS_X], 1e-6);
+		assertEquals("unwritten properties keep the caller's base", 2.0, trs[NodeFold.TRS_Y], 1e-6);
+		assertEquals(3.0, trs[NodeFold.TRS_ROT], 1e-6);
+		assertEquals(4.0, trs[NodeFold.TRS_SX], 1e-6);
+		assertEquals(5.0, trs[NodeFold.TRS_SY], 1e-6);
+
+		double[] untouched = { 1.0, 2.0, 3.0, 4.0, 5.0 };
+		overlay.overlayTransform(99, untouched);
+		assertEquals("a node with no entry substitutes nothing", 1.0, untouched[NodeFold.TRS_X],
+				1e-6);
+	}
+
+	/**
+	 * tintFactor hands the renderer the composed tint when written, the raw unpack when not.
+	 *
+	 * DISTINCT VALUES IN ALL FOUR CHANNELS, learned the hard way in 3.3a: a channel-uniform
+	 * fixture (0.25 everywhere) cannot see a lane swap between {@code Composed.tint}'s RGBA and
+	 * {@code NodeFold}'s TINT_* order — every wrong permutation reads the same.
+	 */
+	@Test
+	public void tintFactorCarriesTheComposedTintAndFallsBackToThePacked() throws Exception {
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		b.out(OcslWire.PROP_ANIM_TINT, b.constant(0.1f, 0.2f, 0.3f, 0.4f));
+		SceneState s = sceneWith(info(1, IrCodec.encode(b.build())));
+		SceneNode animated = node(s, 1, 0);
+		animated.tint = 0x80808080;
+		animated.animator = 1;
+		animated.attachedWorldTime = 100L;
+		SceneNode plain = node(s, 2, 0);
+		plain.tint = 0x80402010;
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+
+		double[] out = new double[4];
+		overlay.tintFactor(1, animated.tint, out);
+		assertEquals("R: tint REPLACES, so the animator's value is the factor — 0.502 means the"
+				+ " raw field won over a written tint", 0.1, out[NodeFold.TINT_R], 1e-6);
+		assertEquals("G", 0.2, out[NodeFold.TINT_G], 1e-6);
+		assertEquals("B", 0.3, out[NodeFold.TINT_B], 1e-6);
+		assertEquals("A", 0.4, out[NodeFold.TINT_A], 1e-6);
+
+		overlay.tintFactor(2, plain.tint, out);
+		assertEquals("an unanimated node unpacks its raw tint", 0x40 / 255.0,
+				out[NodeFold.TINT_R], 1e-9);
+		assertEquals(0x20 / 255.0, out[NodeFold.TINT_G], 1e-9);
+		assertEquals(0x10 / 255.0, out[NodeFold.TINT_B], 1e-9);
+		assertEquals(0x80 / 255.0, out[NodeFold.TINT_A], 1e-9);
+	}
+
+	/**
+	 * The structural-charge report: once per PROGRAM at compile — not per frame and not per
+	 * node. PLAN's op-cap section wants real charge data for the ANIM-16 cap decision; a
+	 * per-frame count would be frame count in a charge costume, and a per-node count would
+	 * double every shared preset. TWO nodes share the one program here so the per-node reading
+	 * is visible, and the TOTAL is asserted alongside max — the panel found it accumulated but
+	 * pinned by nothing, so deleting the accumulation survived every channel at once.
+	 */
+	@Test
+	public void theChargeIsReportedOncePerProgramNotPerFrame() throws Exception {
+		opengpu.v2.stats.RenderStats.reset();
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+		SceneNode m = node(s, 2, 0);
+		m.animator = 1;              // the SAME program on a second node
+		m.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertEquals("one compile, one report — 2 would mean per-NODE reporting, doubling"
+				+ " every shared preset", 1L,
+				opengpu.v2.stats.RenderStats.animatorProgramsCompiled);
+		assertTrue("a real program has a non-zero charge",
+				opengpu.v2.stats.RenderStats.animatorChargeMax > 0);
+		assertEquals("with one program the total IS the max; a dropped accumulation reads 0",
+				opengpu.v2.stats.RenderStats.animatorChargeMax,
+				(int) opengpu.v2.stats.RenderStats.animatorChargeTotal);
+
+		overlay.evaluate(s, instant(201), OFFSET, true);
+		assertEquals("a second frame reuses the compiled program — 2 means the report is"
+				+ " per-frame and the charge data is frame count in disguise", 1L,
+				opengpu.v2.stats.RenderStats.animatorProgramsCompiled);
+		assertEquals("and the total holds with it",
+				opengpu.v2.stats.RenderStats.animatorChargeMax,
+				(int) opengpu.v2.stats.RenderStats.animatorChargeTotal);
+	}
+
+	// ---------------------------------------------- panel round 2: the states nothing produced
+
+	/**
+	 * tintFactor's THIRD state: an entry exists (the program wrote a transform) but tint was
+	 * never written. The guard's two conjuncts are distinguishable only here — relaxing
+	 * {@code c != null && c.wrote(TINT)} to {@code c != null} hands the renderer the Composed's
+	 * zero-initialized float[4], and every transform-only animated node renders invisible.
+	 * The panel proved that mutant survived all 703 tests: the two existing fixtures cover
+	 * entry-with-tint and no-entry, and no test produced this state at a tintFactor call.
+	 */
+	@Test
+	public void tintFactorFallsBackToRawWhenTheProgramWroteOnlyTransforms() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.tint = 0x80402010;
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertNotNull("the transform write must have produced an entry", overlay.of(1));
+
+		double[] out = new double[4];
+		overlay.tintFactor(1, n.tint, out);
+		assertEquals("R: the raw tint, NOT the entry's zero-initialized tint array — 0.0 here"
+				+ " is every transform-only animated node rendering invisible",
+				0x40 / 255.0, out[NodeFold.TINT_R], 1e-9);
+		assertEquals(0x20 / 255.0, out[NodeFold.TINT_G], 1e-9);
+		assertEquals(0x10 / 255.0, out[NodeFold.TINT_B], 1e-9);
+		assertEquals(0x80 / 255.0, out[NodeFold.TINT_A], 1e-9);
+	}
+
+	/**
+	 * Every transform property routes through its OWN base slot, its OWN Composed field and its
+	 * OWN TRS slot, with all five distinct — so any crossed wire (baseOf case swap, applyProperty
+	 * case swap, displayedBase assignment swap, overlayTransform transposition, a deleted scale
+	 * branch) lands on a value no other property produces. The panel found Y, SY and ROT2D were
+	 * never composed by any test: three of five routes were pinned by nothing.
+	 */
+	@Test
+	public void everyTransformPropertyRoutesThroughItsOwnSlot() throws Exception {
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		b.out(OcslWire.PROP_ANIM_X, b.f(10.0f));
+		b.out(OcslWire.PROP_ANIM_Y, b.f(20.0f));
+		b.out(OcslWire.PROP_ANIM_ROT2D, b.f(0.5f));
+		b.out(OcslWire.PROP_ANIM_SX, b.f(3.0f));
+		b.out(OcslWire.PROP_ANIM_SY, b.f(5.0f));
+		SceneState s = sceneWith(info(1, IrCodec.encode(b.build())));
+		SceneNode n = node(s, 1, 0);
+		n.x = 1.0;
+		n.y = 2.0;
+		n.rot = 0.25;
+		n.sx = 2.0;
+		n.sy = 4.0;
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		AnimatorOverlay.Composed c = overlay.of(1);
+		assertEquals("x: 1 + 10", 11.0, c.x, 1e-6);
+		assertEquals("y: 2 + 20", 22.0, c.y, 1e-6);
+		assertEquals("rot: 0.25 + 0.5", 0.75, c.rot, 1e-6);
+		assertEquals("sx: 2 * 3 (multiply, not add)", 6.0, c.sx, 1e-6);
+		assertEquals("sy: 4 * 5", 20.0, c.sy, 1e-6);
+
+		double[] trs = { -1.0, -1.0, -1.0, -1.0, -1.0 };
+		overlay.overlayTransform(1, trs);
+		assertEquals(11.0, trs[NodeFold.TRS_X], 1e-6);
+		assertEquals(22.0, trs[NodeFold.TRS_Y], 1e-6);
+		assertEquals(0.75, trs[NodeFold.TRS_ROT], 1e-6);
+		assertEquals("a transposed or deleted scale branch cannot produce 6 here",
+				6.0, trs[NodeFold.TRS_SX], 1e-6);
+		assertEquals(20.0, trs[NodeFold.TRS_SY], 1e-6);
+	}
+
+	/**
+	 * An ANIMATED parent under interpolation: the child's parent register carries the parent's
+	 * value composed over the parent's DISPLAYED base — the combination (both animated, base
+	 * mid-glide) that neither the parent-fallback test nor the 3.3a composed-parent test
+	 * reaches.
+	 */
+	@Test
+	public void anAnimatedParentsRegistersComposeOverItsDisplayedBase() throws Exception {
+		OcslBuilder child = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		child.outAbsolute(OcslWire.PROP_ANIM_X, child.builtin(SurfaceTable.REG_ANIM_PARENT_X));
+		SceneState s = sceneWith(
+				info(1, program(OcslWire.PROP_ANIM_X, 100.0f)),
+				info(2, IrCodec.encode(child.build())));
+		SceneNode parent = node(s, 1, 0);
+		parent.animator = 1;
+		parent.attachedWorldTime = 100L;
+		SceneNode rider = node(s, 2, 1);
+		rider.animator = 2;
+		rider.attachedWorldTime = 100L;
+		NodeInterpolator interp = midFlightX(s, parent);
+
+		long now = localShowing(T0 + 0.5);
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, interp.renderInstant(now), OFFSET, true, interp, now);
+
+		assertEquals("displayed 5 + animator 100 = 105; 110 means the parent composed over its"
+				+ " raw base, and 5 means the parent's animator never reached the register",
+				105.0, overlay.of(2).x, 1e-4);
+	}
+
+	/**
+	 * The parent TINT register, both branches per lane — the one tint surface the panel found
+	 * read by no test anywhere: an animated parent's composed tint, and an unanimated parent's
+	 * raw unpack, each with FOUR DISTINCT channel values so a lane swap in
+	 * bindParentProperties cannot hide.
+	 */
+	@Test
+	public void theParentTintRegisterCarriesBothBranchesPerLane() throws Exception {
+		OcslBuilder tintB = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		tintB.out(OcslWire.PROP_ANIM_TINT, tintB.constant(0.1f, 0.2f, 0.3f, 0.4f));
+		OcslBuilder readB = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		readB.outAbsolute(OcslWire.PROP_ANIM_TINT,
+				readB.builtin(SurfaceTable.REG_ANIM_PARENT_TINT));
+		SceneState s = sceneWith(
+				info(1, IrCodec.encode(tintB.build())),
+				info(2, IrCodec.encode(readB.build())));
+		SceneNode litParent = node(s, 1, 0);
+		litParent.tint = 0x80808080;
+		litParent.animator = 1;
+		litParent.attachedWorldTime = 100L;
+		SceneNode litChild = node(s, 2, 1);
+		litChild.animator = 2;
+		litChild.attachedWorldTime = 100L;
+		SceneNode plainParent = node(s, 3, 0);
+		plainParent.tint = 0x80402010;
+		SceneNode plainChild = node(s, 4, 3);
+		plainChild.animator = 2;
+		plainChild.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+
+		float[] viaAnimated = overlay.of(2).tint;
+		assertEquals("R from the animated parent's COMPOSED tint", 0.1f, viaAnimated[0], 1e-6f);
+		assertEquals(0.2f, viaAnimated[1], 1e-6f);
+		assertEquals(0.3f, viaAnimated[2], 1e-6f);
+		assertEquals(0.4f, viaAnimated[3], 1e-6f);
+
+		float[] viaRaw = overlay.of(4).tint;
+		assertEquals("R from the unanimated parent's raw unpack", 0x40 / 255.0f, viaRaw[0], 1e-6f);
+		assertEquals(0x20 / 255.0f, viaRaw[1], 1e-6f);
+		assertEquals(0x10 / 255.0f, viaRaw[2], 1e-6f);
+		assertEquals(0x80 / 255.0f, viaRaw[3], 1e-6f);
+	}
+
+	/**
+	 * reset() forgets BROKEN verdicts too. If the broken set survived an epoch change, the new
+	 * epoch's perfectly valid program would be skipped forever under its recycled id — vmFor
+	 * consults broken before compiling, so a stale verdict is a permanent veto.
+	 */
+	@Test
+	public void resetForgetsBrokenVerdictsForANewEpoch() throws Exception {
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		SceneState s1 = new SceneState();
+		s1.programs.put(Integer.valueOf(1), new ProgramInfo(
+				1, OcslWire.STAGE_ANIMATOR, new byte[] { 1, 2, 3 }, 1));
+		s1.nextProgramId = 2;
+		s1.creationWorldTime = 100L;
+		s1.worldTimeAnchor = 100L;
+		SceneNode n1 = node(s1, 1, 0);
+		n1.animator = 1;
+		n1.attachedWorldTime = 100L;
+		overlay.evaluate(s1, instant(200), OFFSET, true);
+		assertNull("the corrupt blob must have produced nothing", overlay.of(1));
+
+		SceneState s2 = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 7.0f)));
+		SceneNode n2 = node(s2, 1, 0);
+		n2.x = 1.0;
+		n2.animator = 1;
+		n2.attachedWorldTime = 100L;
+		overlay.reset();
+		overlay.evaluate(s2, instant(200), OFFSET, true);
+		assertNotNull("a surviving broken verdict permanently vetoes the new epoch's valid"
+				+ " program under the recycled id", overlay.of(1));
+		assertEquals(8.0, overlay.of(1).x, 1e-6);
+	}
+
+	/**
+	 * The raw-base overload CLEARS the interpolation source. Every other test constructs a
+	 * fresh overlay, so a mutant that kept the previous frame's interpolator on the 4-arg path
+	 * survived the whole suite — latent today (the one production caller always passes its
+	 * interpolator), and exactly the kind of latent that detonates when a second caller
+	 * arrives trusting the overload's own javadoc.
+	 */
+	@Test
+	public void theRawBaseOverloadClearsTheInterpolationSource() throws Exception {
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 100.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+		NodeInterpolator interp = midFlightX(s, n);
+		long now = localShowing(T0 + 0.5);
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, interp.renderInstant(now), OFFSET, true, interp, now);
+		assertEquals(105.0, overlay.of(1).x, 1e-4);
+
+		overlay.evaluate(s, instant(200), OFFSET, true);
+		assertEquals("the SAME overlay on the 4-arg path composes over raw 10 — 105 means the"
+				+ " previous frame's interpolator stuck", 110.0, overlay.of(1).x, 1e-4);
+	}
 }
