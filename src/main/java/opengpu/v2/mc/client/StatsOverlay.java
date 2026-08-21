@@ -27,6 +27,16 @@ import opengpu.v2.stats.RenderStats;
  * watching it while a program animates. Everything below is sampled over a rolling window and
  * shown per second, with the raw totals available only on the second page.
  *
+ * <h2>Resetting</h2>
+ * SHIFT + the toggle key, while the overlay is VISIBLE, zeroes every CLIENT counter and
+ * restarts the sampling window. Added 2026-08-21: run-scoped benchmarking needs a clean zero,
+ * and until then the only reset was restarting the client — {@code RenderStats.reset()} existed
+ * with no production caller. "Since load" throughout this class therefore means "since load or
+ * the last reset". Visible-only because shift is also the default sneak key, so a hidden reset
+ * would make sneak+toggle a silent benchmark wipe. CLIENT counters only: the server per-scene
+ * rows on the detailed page are {@code SceneStats}, untouched here — those zero when a Lua
+ * program calls {@code getStats}, which is the server side's own window mechanism.
+ *
  * <h2>Why it costs nothing when hidden</h2>
  * The counters themselves are always live — they are long increments and one nanoTime pair per
  * scene render — but this class does no work at all until toggled on, and the sampling only
@@ -77,6 +87,22 @@ public final class StatsOverlay {
 		// isPressed() consumes the press, so this must be polled exactly once per tick and
 		// nowhere else, or the toggle silently misses every other keypress.
 		while (toggle.isPressed()) {
+			// SHIFT+key RESETS the client counters instead of cycling the view. Run-scoped
+			// benchmarking needs a clean zero, and until this existed the only reset was
+			// restarting the client — RenderStats.reset() had no production caller at all.
+			//
+			// ONLY WHILE VISIBLE, and that is a safety decision, not a limitation: shift is
+			// also the default sneak key, so a hidden reset would let sneak+toggle silently
+			// wipe a benchmark with no feedback at all. Visible, the page zeroing in front of
+			// you IS the feedback; hidden, shift+key just opens the overlay like any press.
+			if (visible
+					&& (org.lwjgl.input.Keyboard.isKeyDown(org.lwjgl.input.Keyboard.KEY_LSHIFT)
+							|| org.lwjgl.input.Keyboard.isKeyDown(
+									org.lwjgl.input.Keyboard.KEY_RSHIFT))) {
+				RenderStats.reset();
+				resetWindow();
+				continue;
+			}
 			if (!visible) {
 				visible = true;
 				detailed = false;
@@ -123,7 +149,7 @@ public final class StatsOverlay {
 		meanMicros = renders == 0 ? 0.0 : nanos / (double) renders / 1000.0;
 		nanosPerCommand = commands == 0 ? 0.0 : nanos / (double) commands;
 		uploadKbPerSec = uploadBytes / 1024.0 / seconds;
-		maxMicros = RenderStats.renderNanosMax / 1000L;   // all-time; labelled as such below
+		maxMicros = RenderStats.renderNanosMax / 1000L;   // high-water since reset; labelled below
 
 		resetWindow();
 	}
@@ -147,10 +173,11 @@ public final class StatsOverlay {
 		lines.add(String.format("  interpolation-driven %.0f%%   frames doing work %.0f%%",
 				interpPct, workPct));
 		// Microseconds, not milliseconds: a scene render under 1 ms truncated to "0 ms", which
-		// is every healthy frame. And the worst figure is an all-time high-water mark rather
-		// than a windowed one, so it is labelled instead of sitting next to a per-second number
-		// as though it were one.
-		lines.add(String.format("  render %.0f us mean (worst ever %d us)", meanMicros, maxMicros));
+		// is every healthy frame. And the worst figure is a high-water mark since load or the
+		// last shift-reset rather than a windowed one, so it is labelled instead of sitting
+		// next to a per-second number as though it were one.
+		lines.add(String.format("  render %.0f us mean (worst since reset %d us)", meanMicros,
+				maxMicros));
 		lines.add(String.format("  %.0f ns/command   upload %.1f KiB/s", nanosPerCommand,
 				uploadKbPerSec));
 
@@ -173,7 +200,7 @@ public final class StatsOverlay {
 		}
 
 		if (detailed) {
-			lines.add("§8  totals since load:§r");
+			lines.add("§8  totals since load/reset (shift+key zeroes the client rows):§r");
 			lines.add(String.format("    pre-passes %d, renders %d (%d interp)",
 					RenderStats.prePasses, RenderStats.sceneRenders,
 					RenderStats.interpolationRenders));
