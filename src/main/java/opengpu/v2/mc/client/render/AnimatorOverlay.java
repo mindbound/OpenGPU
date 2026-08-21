@@ -219,6 +219,11 @@ final class AnimatorOverlay {
 			if (compiled == null) {
 				continue; // decode/validate failed; recorded once in `broken`
 			}
+			// AFTER every skip and BEFORE the work: this counts nodes a VM actually ran for, which
+			// is the denominator ANIM-16's per-node constant needs. Charged here rather than at the
+			// top of the loop so dangling attachments, detached nodes and broken blobs — all of
+			// which cost nothing — cannot inflate it and make the per-node mean read low.
+			opengpu.v2.stats.RenderStats.animatorNodesEvaluated++;
 			Composed out = evaluateNode(compiled, node, state, time, renderInstant,
 					sessionTickOffset);
 			if (out != null) {

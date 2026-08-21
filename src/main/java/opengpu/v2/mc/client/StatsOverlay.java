@@ -203,6 +203,21 @@ public final class StatsOverlay {
 					avg, RenderStats.animatorChargeMax,
 					opengpu.v2.ocsl.IrValidator.maxStructuralOps(
 							opengpu.v2.ocsl.OcslWire.STAGE_ANIMATOR)));
+			// THE PER-NODE LINE — the measurement ANIM-16's budget calibrates against, and the
+			// reason it is here rather than derived on paper: until this shipped, every per-node
+			// figure was a scene total divided by a node count read off a Lua script. Two cost
+			// models fit the field data and differ 16x at the op cap, so the constant has to be
+			// measured, not inferred. us/node is the slope's intercept; nodes/eval is what
+			// separates "one big scene" from "many small ones" in the same reading.
+			if (RenderStats.animatorNodesEvaluated > 0) {
+				lines.add(String.format(
+						"    %.2f us/node over %d node-evals (%.1f nodes/eval)",
+						RenderStats.animatorNanos / 1000.0
+								/ RenderStats.animatorNodesEvaluated,
+						RenderStats.animatorNodesEvaluated,
+						RenderStats.animatorNodesEvaluated
+								/ (double) Math.max(1L, RenderStats.animatorEvaluations)));
+			}
 		}
 
 		if (detailed) {

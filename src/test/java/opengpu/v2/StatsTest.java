@@ -162,4 +162,67 @@ public class StatsTest {
 		assertEquals(0, RenderStats.uploadBytes);
 		assertTrue(RenderStats.uploads == 0);
 	}
+
+	/**
+	 * EVERY mutable counter, by reflection — not the three someone remembered.
+	 *
+	 * The named assertions above covered three of RenderStats' eighteen fields. {@code reset()}
+	 * happens to be correct today, so this is not a bug fix; it is closing the way the NEXT one
+	 * arrives, which is a field added and not added to reset(). That defect is invisible to
+	 * every named assertion by construction — the test cannot mention a field that does not
+	 * exist yet — and the animator budget is about to add three more. A reflection sweep is the
+	 * only form that covers a field nobody has written yet.
+	 *
+	 * Drives every counter non-zero FIRST, so the sweep cannot pass merely because a field was
+	 * never touched: a reset that clears nothing at all would still pass a sweep run against
+	 * pristine zeros.
+	 */
+	@Test
+	public void resetClearsEveryRenderStatsCounterIncludingOnesThisTestNeverNames()
+			throws Exception {
+		RenderStats.onPrePass(true);
+		RenderStats.onSceneRender(3L * 1000L * 1000L, 7, true);   // over STALL_NANOS: stall rows
+		RenderStats.onUpload(4321);
+		RenderStats.onTextureDeferred();
+		RenderStats.onAnimatorEvaluate(555L);
+		RenderStats.onAnimatorCompile(42);
+		RenderStats.passOpens++;
+		RenderStats.passNanos += 17L;
+		// Driven directly, like passOpens/passNanos: this one only increments inside
+		// AnimatorOverlay's node loop, which this test does not run. Note the sweep's two halves
+		// catch DIFFERENT defects — the precondition catches "a counter was added and nobody
+		// drives it here", the post-reset assertion catches "a counter was added and nobody
+		// reset it". Adding this field fired the precondition first, which is how the
+		// distinction surfaced.
+		RenderStats.animatorNodesEvaluated += 3L;
+
+		java.util.List<java.lang.reflect.Field> counters =
+				new java.util.ArrayList<java.lang.reflect.Field>();
+		for (java.lang.reflect.Field f : RenderStats.class.getDeclaredFields()) {
+			int m = f.getModifiers();
+			if (!java.lang.reflect.Modifier.isStatic(m)
+					|| java.lang.reflect.Modifier.isFinal(m)) {
+				continue;   // STALL_NANOS is final: a threshold, not a counter
+			}
+			if (f.getType() != long.class && f.getType() != int.class) {
+				continue;
+			}
+			counters.add(f);
+		}
+		assertTrue("reflection found " + counters.size() + " counters; if this dropped, the sweep"
+				+ " is covering less than it claims", counters.size() >= 15);
+		for (java.lang.reflect.Field f : counters) {
+			f.setAccessible(true);
+			assertTrue("precondition: " + f.getName() + " must be non-zero BEFORE reset, or its"
+					+ " assertion below proves nothing", f.getLong(null) != 0L);
+		}
+
+		RenderStats.reset();
+
+		for (java.lang.reflect.Field f : counters) {
+			assertEquals("RenderStats." + f.getName() + " survived reset() — a counter was added"
+					+ " without adding it to reset(), which is exactly what this sweep exists to"
+					+ " catch", 0L, f.getLong(null));
+		}
+	}
 }

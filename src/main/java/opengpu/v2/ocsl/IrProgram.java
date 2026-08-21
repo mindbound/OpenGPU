@@ -128,8 +128,11 @@ public final class IrProgram {
 	 * CPU VM and unrolled GLSL codegen compute the same number for the same blob. That invariance
 	 * is the whole reason the cap can be checked once, at validation, and believed by both.
 	 *
-	 * This is NOT the weighted cost. The weight table (guarded ops charging their lowered cost,
-	 * swizzles charging 0) prices the fill budget and the bake op-pixel product. Two quantities,
+	 * This is NOT the weighted cost. The weight table prices the fill budget and the bake
+	 * op-pixel product — and NOT the animator budget, which prices measured nanoseconds because
+	 * the CPU column leaves 27 of 48 opcodes unpriced. "Swizzles charging 0" described the GPU
+	 * column only; the measured CPU column puts SWZ at 0.62, a real store on a flat float[]
+	 * frame. Two quantities,
 	 * two names, one of them the cap — resolving a conflict where both claimed it and gave
 	 * different answers.
 	 *

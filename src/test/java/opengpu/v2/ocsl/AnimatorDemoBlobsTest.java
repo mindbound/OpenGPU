@@ -118,12 +118,72 @@ public class AnimatorDemoBlobsTest {
 		return IrCodec.encode(b.build());
 	}
 
+	/**
+	 * HEAVY: a near-cap program for the ANIM-16 cost measurement's arm B, and nothing else.
+	 *
+	 * Deliberately NOT a visual demo — it computes a long dependent scalar chain and writes a
+	 * tiny bounded offset, so it is visually near-identical to a still node while costing ~35x
+	 * what ORBIT does. That is the point: arm B holds node count at 1 and varies PROGRAM SIZE,
+	 * so the reading must not be confounded by the node also moving further or drawing more.
+	 *
+	 * A DEPENDENT chain (each op consumes the last) rather than independent ops, because
+	 * OcslWeightBench measures dependent chains and an independent chain would let the JIT
+	 * pipeline them — a different quantity from the one the weight column priced.
+	 *
+	 * The `sin` keeps the accumulator bounded without a second op: values stay in [-1, 1] no
+	 * matter how long the chain runs, so the chain cannot drift to infinity and turn the
+	 * measurement into a NaN-handling benchmark.
+	 */
+	private static byte[] heavy() throws Exception {
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		Expr acc = b.builtin(SurfaceTable.REG_TIME).mul(b.f(0.5f));
+		for (int i = 0; i < 240; i++) {
+			acc = acc.add(b.f(0.01f)).sin();     // 2 charged ops per iteration
+		}
+		b.out(OcslWire.PROP_ANIM_X, acc.mul(b.f(3.0f)));
+		return IrCodec.encode(b.build());
+	}
+
+	/** The four VISUAL demos, carried by {@code ingame/animtest.lua} — Phase 3.3's protocol. */
 	private static Map<String, byte[]> demos() throws Exception {
 		Map<String, byte[]> m = new LinkedHashMap<String, byte[]>();
 		m.put("ORBIT", orbit());
 		m.put("BOUNCE", bounce());
 		m.put("SPINUP", spinup());
 		m.put("PULSE", pulse());
+		return m;
+	}
+
+	/**
+	 * The MEASUREMENT programs, carried by {@code ingame/animbench.lua} — ANIM-16's cost run.
+	 *
+	 * Kept out of {@code demos()} deliberately: animtest.lua is Phase 3.3's visual protocol with
+	 * ten registered predictions about what a viewer SEES, and a 483-op invisible program has no
+	 * business in it. Two scripts, two purposes, each pinned against its own blob set.
+	 */
+	/**
+	 * TINY: the smallest program that still evaluates — arm A's fixed program.
+	 *
+	 * Arm A varies node count to isolate the per-node PROLOGUE, so its program must contribute
+	 * as close to nothing as the format allows: any per-op cost left in it is charged to the
+	 * prologue constant the arm exists to measure. One multiply and the OUT is the floor.
+	 */
+	private static byte[] tiny() throws Exception {
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		b.out(OcslWire.PROP_ANIM_X, b.builtin(SurfaceTable.REG_TIME).mul(b.f(0.0f)));
+		return IrCodec.encode(b.build());
+	}
+
+	private static Map<String, byte[]> benchPrograms() throws Exception {
+		Map<String, byte[]> m = new LinkedHashMap<String, byte[]>();
+		m.put("TINY", tiny());
+		m.put("HEAVY", heavy());
+		return m;
+	}
+
+	private static Map<String, byte[]> allPrograms() throws Exception {
+		Map<String, byte[]> m = new LinkedHashMap<String, byte[]>(demos());
+		m.putAll(benchPrograms());
 		return m;
 	}
 
@@ -142,7 +202,7 @@ public class AnimatorDemoBlobsTest {
 		StringBuilder report = new StringBuilder();
 		report.append("Animator field-test demo blobs — regenerate by running this test.\n");
 		report.append("Paste each hex into ingame/animtest.lua; the pinning test checks they match.\n\n");
-		for (Map.Entry<String, byte[]> demo : demos().entrySet()) {
+		for (Map.Entry<String, byte[]> demo : allPrograms().entrySet()) {
 			IrProgram program = IrCodec.decode(demo.getValue(), IrCodec.Source.TRANSIENT);
 			IrValidator.Validated validated = IrValidator.validate(program);
 			// The ANIMATOR's cap, not the ceiling — the panel found this was the one
@@ -150,10 +210,25 @@ public class AnimatorDemoBlobsTest {
 			// per-stage split. NOT equal since the same-day raise (animator 512 vs ceiling 1024):
 			// dividing the ceiling here would already loosen this bound 2x past the budget these
 			// programs are actually priced against.
-			assertTrue(demo.getKey() + " must sit under half the animator's op cap, not squeak"
-					+ " past it — " + validated.structuralOps + " ops",
-					validated.structuralOps
-							<= IrValidator.maxStructuralOps(OcslWire.STAGE_ANIMATOR) / 2);
+			int animCap = IrValidator.maxStructuralOps(OcslWire.STAGE_ANIMATOR);
+			if ("HEAVY".equals(demo.getKey())) {
+				// THE ONE DELIBERATE EXEMPTION, and it is exempt from the HEADROOM rule only —
+				// never from the cap. HEAVY exists to be near-cap: ANIM-16's arm B varies program
+				// size against a fixed node count, and the two candidate cost models are only
+				// separable at the large end (they predict ~8 us vs ~236 us for one node there).
+				// A "comfortably under half" version of this program could not tell them apart,
+				// which would make the measurement unable to see the effect it is for.
+				assertTrue("HEAVY must still VALIDATE — a measurement program that trips the cap"
+						+ " measures the refusal path, not the cost: " + validated.structuralOps,
+						validated.structuralOps <= animCap);
+				assertTrue("HEAVY must actually be large enough to separate the models — under"
+						+ " half the cap it is just another demo: " + validated.structuralOps,
+						validated.structuralOps > animCap / 2);
+			} else {
+				assertTrue(demo.getKey() + " must sit under half the animator's op cap, not squeak"
+						+ " past it — " + validated.structuralOps + " ops",
+						validated.structuralOps <= animCap / 2);
+			}
 			report.append(demo.getKey()).append(" (").append(validated.structuralOps)
 					.append(" ops, ").append(demo.getValue().length).append(" bytes)\n")
 					.append(hex(demo.getValue())).append("\n\n");
@@ -181,15 +256,25 @@ public class AnimatorDemoBlobsTest {
 	 */
 	@Test
 	public void theLuaScriptCarriesExactlyTheseBlobs() throws Exception {
-		File script = new File("ingame/animtest.lua");
-		org.junit.Assume.assumeTrue("ingame/animtest.lua absent (clean clone) — nothing to pin",
+		pinAgainst("ingame/animtest.lua", demos());
+	}
+
+	/** The bench script's own pin — same mutual check, different script and blob set. */
+	@Test
+	public void theBenchScriptCarriesExactlyTheseBlobs() throws Exception {
+		pinAgainst("ingame/animbench.lua", benchPrograms());
+	}
+
+	private static void pinAgainst(String path, Map<String, byte[]> programs) throws Exception {
+		File script = new File(path);
+		org.junit.Assume.assumeTrue(path + " absent (clean clone) — nothing to pin",
 				script.exists());
 		String lua = new String(Files.readAllBytes(script.toPath()), StandardCharsets.UTF_8);
-		for (Map.Entry<String, byte[]> demo : demos().entrySet()) {
+		for (Map.Entry<String, byte[]> demo : programs.entrySet()) {
 			Matcher m = Pattern.compile(
 					"BLOB_" + demo.getKey() + "\\s*=\\s*\"([0-9a-f]+)\"").matcher(lua);
-			assertTrue("animtest.lua must define BLOB_" + demo.getKey(), m.find());
-			assertEquals("BLOB_" + demo.getKey() + " in animtest.lua has drifted from the"
+			assertTrue(path + " must define BLOB_" + demo.getKey(), m.find());
+			assertEquals("BLOB_" + demo.getKey() + " in " + path + " has drifted from the"
 					+ " builder's output — regenerate from build/reports/animator-demo-blobs.txt",
 					hex(demo.getValue()), m.group(1));
 		}

@@ -1086,6 +1086,49 @@ public class AnimatorOverlayTest {
 	}
 
 	/**
+	 * The per-NODE counter, on a fixture where per-node and per-scene disagree.
+	 *
+	 * ANIM-16's budget calibrates against a per-node constant, and until this counter existed
+	 * the only animator instrument was per-SCENE — so every per-node figure in circulation was a
+	 * scene total divided by a node count read off a Lua script. A single-node fixture would be
+	 * the vacuous version of this test: 1 node in 1 scene makes per-node and per-scene counting
+	 * indistinguishable. Three evaluated nodes make them differ by 3x.
+	 *
+	 * The population is deliberately mixed, and the exclusions are the assertion: 3 attached and
+	 * evaluable, 2 unattached, 1 DANGLING (attached to a freed program). The dangling node is
+	 * skipped before any VM runs, so counting it would inflate the denominator with a node that
+	 * costs nothing and make the per-node mean read LOW — the direction that would make a budget
+	 * too generous.
+	 */
+	@Test
+	public void theNodeCounterCountsEvaluatedNodesNotScenesAndNotDanglingAttachments()
+			throws Exception {
+		opengpu.v2.stats.RenderStats.reset();
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		for (int id = 1; id <= 3; id++) {           // three evaluable nodes, one program
+			SceneNode n = node(s, id, 0);
+			n.animator = 1;
+			n.attachedWorldTime = 100L;
+		}
+		node(s, 4, 0);                              // unattached
+		node(s, 5, 0);                              // unattached
+		SceneNode dangling = node(s, 6, 0);
+		dangling.animator = 999;                    // no such program — ANIM-17's legal dangle
+		dangling.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);
+
+		assertEquals("three nodes ran a VM — 1 would mean the counter is per-SCENE, and 4 would"
+				+ " mean the dangling attachment was counted despite costing nothing",
+				3L, opengpu.v2.stats.RenderStats.animatorNodesEvaluated);
+
+		overlay.evaluate(s, instant(201), OFFSET, true);
+		assertEquals("it accumulates across frames — a second frame adds three more",
+				6L, opengpu.v2.stats.RenderStats.animatorNodesEvaluated);
+	}
+
+	/**
 	 * THE CRASH REGRESSION (2026-08-21): a wrong-stage attachment is skipped, not evaluated.
 	 *
 	 * This state is constructed directly because that is exactly what it is in the wild — a

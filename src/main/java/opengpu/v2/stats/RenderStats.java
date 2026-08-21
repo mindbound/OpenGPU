@@ -28,7 +28,13 @@ public final class RenderStats {
 
 	private RenderStats() {}
 
-	/** Pre-passes run — effectively client frames in which any scene was in use. */
+	/**
+	 * Pre-passes run — EVERY in-world client frame with FBO support, NOT only frames with a scene
+	 * in use: {@code V2ClientRuntime} calls {@code prePass} with no emptiness guard and the
+	 * increment below is unconditional. The javadoc claimed "frames in which any scene was in
+	 * use" until 2026-08-21, and it matters because this is the denominator of every rate
+	 * reported against it.
+	 */
 	public static long prePasses;
 	/** Pre-passes where at least one scene actually re-rendered. */
 	public static long framesWithWork;
@@ -110,6 +116,23 @@ public final class RenderStats {
 	public static long animatorProgramsCompiled;
 	public static long animatorChargeTotal;
 	public static int animatorChargeMax;
+
+	/**
+	 * NODES for which a VM actually ran — not scenes, not frames, and not attachments.
+	 *
+	 * The unit is named out loud because this class has already paid for the alternative once
+	 * ({@link #texturesDeferred}, whose predecessor said "frames" and made readers conclude the
+	 * budget was exhausted more often than it is). Until this counter existed the only animator
+	 * instrument was per-SCENE ({@link #animatorEvaluations}), so every per-node figure in
+	 * circulation — including the ~6-9 us/node the field test reports — was a DIVISION of a
+	 * scene total by a node count read off a Lua script, not a measurement. ANIM-16's budget is
+	 * calibrated against a per-node constant, so it needs the denominator measured.
+	 *
+	 * EXCLUDES dangling attachments deliberately: a node whose program was freed is skipped
+	 * before any VM work (ANIM-17 rules that legal), so counting it would inflate the
+	 * denominator with nodes that cost nothing and make the per-node mean read LOW.
+	 */
+	public static long animatorNodesEvaluated;
 
 	public static void onAnimatorEvaluate(long nanos) {
 		animatorEvaluations++;
@@ -200,5 +223,6 @@ public final class RenderStats {
 		animatorProgramsCompiled = 0;
 		animatorChargeTotal = 0;
 		animatorChargeMax = 0;
+		animatorNodesEvaluated = 0;
 	}
 }

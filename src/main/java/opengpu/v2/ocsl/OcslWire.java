@@ -263,7 +263,8 @@ public final class OcslWire {
 	 * table): every executed instruction charges 1, swizzles and constructors included, OUT
 	 * included; FOR/ENDFOR are encoding structure and charge 0. The weighted table prices the fill
 	 * budget and the bake op-pixel product and does NOT touch the cap — different question,
-	 * different name.
+	 * different name. (The animator budget is a THIRD customer and prices neither: it charges
+	 * measured nanoseconds, the CPU column leaving 27 of 48 opcodes unpriced.)
 	 */
 	public static final class Shape {
 		public final String name;
