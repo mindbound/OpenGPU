@@ -145,9 +145,15 @@ public class AnimatorDemoBlobsTest {
 		for (Map.Entry<String, byte[]> demo : demos().entrySet()) {
 			IrProgram program = IrCodec.decode(demo.getValue(), IrCodec.Source.TRANSIENT);
 			IrValidator.Validated validated = IrValidator.validate(program);
-			assertTrue(demo.getKey() + " must sit under half the op cap, not squeak past it — "
-					+ validated.structuralOps + " ops",
-					validated.structuralOps <= IrValidator.MAX_STRUCTURAL_OPS / 2);
+			// The ANIMATOR's cap, not the ceiling — the panel found this was the one
+			// animator-denominated headroom check left dividing MAX_STRUCTURAL_OPS after the
+			// per-stage split. NOT equal since the same-day raise (animator 512 vs ceiling 1024):
+			// dividing the ceiling here would already loosen this bound 2x past the budget these
+			// programs are actually priced against.
+			assertTrue(demo.getKey() + " must sit under half the animator's op cap, not squeak"
+					+ " past it — " + validated.structuralOps + " ops",
+					validated.structuralOps
+							<= IrValidator.maxStructuralOps(OcslWire.STAGE_ANIMATOR) / 2);
 			report.append(demo.getKey()).append(" (").append(validated.structuralOps)
 					.append(" ops, ").append(demo.getValue().length).append(" bytes)\n")
 					.append(hex(demo.getValue())).append("\n\n");

@@ -312,6 +312,16 @@ final class AnimatorOverlay {
 		if (broken.containsKey(key)) {
 			return null;
 		}
+		// WRONG-STAGE DEFENCE (2026-08-21). A non-animator program must never reach the bind:
+		// bindClock writes the animator registers, a pixel-stage frame maps none of them, and
+		// OcslVm.set THROWS -- on the render thread, out through the Forge tick. The server now
+		// refuses such attaches (ServerScene.setAnimator's stage gate), but a save written
+		// before that gate can legitimately carry one, and the renderer must not be the thing
+		// that takes a client down over scene data. Same memoization as damaged bytes: skipped
+		// forever, the node renders at its server base.
+		if (info.stage != OcslWire.STAGE_ANIMATOR) {
+			return markBroken(key);
+		}
 		try {
 			// TRANSIENT: this blob arrived over the wire in a snapshot or a delta, not off a disk.
 			opengpu.v2.ocsl.IrProgram program =
@@ -351,7 +361,9 @@ final class AnimatorOverlay {
 	 * arrives pre-ignored.
 	 *
 	 * The server validated this blob before storing it, so a decode or validation failure here
-	 * genuinely means the bytes were damaged in transit or on disk.
+	 * genuinely means the bytes were damaged in transit or on disk. Since 2026-08-21 the set
+	 * also holds WRONG-STAGE attachments (a pre-gate save can carry one) — not damage, but the
+	 * same outcome for the same reason: unusable by this evaluator, permanently.
 	 */
 	private Compiled markBroken(Integer key) {
 		broken.put(key, Boolean.TRUE);

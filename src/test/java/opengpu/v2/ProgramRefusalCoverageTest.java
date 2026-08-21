@@ -175,7 +175,13 @@ public class ProgramRefusalCoverageTest {
 		ServerScene server = new ServerScene(SCENE);
 		int canvas = server.createCanvas(64, 32, 256);
 		int node = server.createNode(V2Wire.NODE_CANVAS, canvas);
-		int program = server.createProgram(validBlob());
+		// An ANIMATOR blob, unlike this file's pixel-stage validBlob(): since the stage gate
+		// (2026-08-21) only animator programs may attach, and this fixture's attach was exactly
+		// the wrong-stage convenience the gate exists to refuse. The gate catching a TEST
+		// fixture on landing day is the newly-live-branch rule doing its job.
+		OcslBuilder anim = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		anim.out(OcslWire.PROP_ANIM_TINT, anim.constant(1f, 1f, 1f, 1f));
+		int program = server.createProgram(IrCodec.encode(anim.build()));
 		server.setAnimator(node, program, 100L);
 
 		server.freeNode(node); // must not throw, and must not touch the program table

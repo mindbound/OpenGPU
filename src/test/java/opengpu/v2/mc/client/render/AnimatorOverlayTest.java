@@ -1086,6 +1086,40 @@ public class AnimatorOverlayTest {
 	}
 
 	/**
+	 * THE CRASH REGRESSION (2026-08-21): a wrong-stage attachment is skipped, not evaluated.
+	 *
+	 * This state is constructed directly because that is exactly what it is in the wild — a
+	 * save written before ServerScene's stage gate existed, where nothing refused attaching a
+	 * legal pixel program to a node. Before the vmFor defence, evaluate() THREW here:
+	 * bindClock's vm.set on the animator registers has no frame slot in a pixel-stage program,
+	 * and the IllegalArgumentException went out through the render tick. The renderer must not
+	 * be the thing that takes a client down over scene data.
+	 */
+	@Test
+	public void aWrongStageAttachmentIsSkippedNotEvaluated() throws Exception {
+		OcslBuilder pixel = OcslBuilder.forStage(OcslWire.STAGE_PIXEL_MATERIAL);
+		pixel.out(OcslWire.PROP_COLOR, pixel.constant(1f, 1f, 1f, 1f));
+		byte[] blob = IrCodec.encode(pixel.build());
+		long charge = IrValidator.validate(
+				IrCodec.decode(blob, IrCodec.Source.TRANSIENT)).structuralOps;
+		SceneState s = new SceneState();
+		s.programs.put(Integer.valueOf(1),
+				new ProgramInfo(1, OcslWire.STAGE_PIXEL_MATERIAL, blob, (int) charge));
+		s.nextProgramId = 2;
+		s.creationWorldTime = 100L;
+		s.worldTimeAnchor = 100L;
+		SceneNode n = node(s, 1, 0);
+		n.x = 7.0;
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+
+		AnimatorOverlay overlay = new AnimatorOverlay();
+		overlay.evaluate(s, instant(200), OFFSET, true);   // must NOT throw
+		assertNull("a wrong-stage attachment produces no entry — the node renders at its base",
+				overlay.of(1));
+	}
+
+	/**
 	 * reset() forgets BROKEN verdicts too. If the broken set survived an epoch change, the new
 	 * epoch's perfectly valid program would be skipped forever under its recycled id — vmFor
 	 * consults broken before compiling, so a stale verdict is a permanent veto.

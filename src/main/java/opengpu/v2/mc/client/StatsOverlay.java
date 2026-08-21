@@ -192,11 +192,17 @@ public final class StatsOverlay {
 		if (RenderStats.animatorEvaluations > 0) {
 			long avg = RenderStats.animatorProgramsCompiled == 0 ? 0
 					: RenderStats.animatorChargeTotal / RenderStats.animatorProgramsCompiled;
+			// The ANIMATOR's cap, not the bare ceiling: every charge on this line came from an
+			// animator program, so the denominator has to be the budget those programs were
+			// actually priced against. NOT equal since the same-day raise (animator 512, ceiling 1024);
+			// quoting the ceiling here would overstate the animator's budget by 2x the moment
+			// diverge, and then this line would silently quote the wrong one.
 			lines.add(String.format(
 					"  animator %.0f us/eval   programs %d (charge avg %d, max %d/%d)",
 					RenderStats.meanAnimatorMicros(), RenderStats.animatorProgramsCompiled,
 					avg, RenderStats.animatorChargeMax,
-					opengpu.v2.ocsl.IrValidator.MAX_STRUCTURAL_OPS));
+					opengpu.v2.ocsl.IrValidator.maxStructuralOps(
+							opengpu.v2.ocsl.OcslWire.STAGE_ANIMATOR)));
 		}
 
 		if (detailed) {

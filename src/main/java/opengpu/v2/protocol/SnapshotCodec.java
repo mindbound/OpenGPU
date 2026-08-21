@@ -440,6 +440,10 @@ public final class SnapshotCodec {
 						throw new CodecException("Program id " + id + " out of range");
 					if (!opengpu.v2.ocsl.OcslWire.isKnownStage(stage))
 						throw new CodecException("Unknown program stage " + (stage & 0xFF));
+					// The CEILING, deliberately, not maxStructuralOps(stage) -- see BatchCodec's
+					// note at the same check. A persisted blob outlives the cap that admitted it,
+					// so bounding a SAVE by today's per-stage policy would make lowering a cap
+					// retroactively delete scenes.
 					if (structuralOps < 0
 							|| structuralOps > opengpu.v2.ocsl.IrValidator.MAX_STRUCTURAL_OPS)
 						throw new CodecException("Program structural charge out of range: "

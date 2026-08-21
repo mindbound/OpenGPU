@@ -258,6 +258,45 @@ public class NodeAttachSurfaceTest {
 				program, server.state().nodes.get(Integer.valueOf(node)).animator);
 	}
 
+	/**
+	 * A RESOLVABLE program of the wrong stage is REFUSED at attach — the stage gate, 2026-08-21.
+	 *
+	 * Until it existed, this exact sequence CRASHED the client: a legal pixel program validates
+	 * and attaches, and the evaluator then binds animator registers into a frame that maps none
+	 * of them — OcslVm.set throws on the render thread, out through the Forge tick. Two ordinary
+	 * Lua calls. The refusal names both stages, because the author's mistake is a stage mix-up
+	 * and the message is where they learn it.
+	 *
+	 * Scoped deliberately: the gate checks only programs it can RESOLVE. Attaching an absent id
+	 * stays legal (ANIM-17's dangling ruling — {@code detachingADanglingAttachmentWorks} attaches
+	 * id 777 and keeps passing), and ids are never reused, so an absent id can never later
+	 * resolve to a wrong-stage program within an incarnation.
+	 */
+	@Test
+	public void aNonAnimatorProgramIsRefusedAtAttach() throws Exception {
+		ServerScene server = new ServerScene(SCENE);
+		int canvas = server.createCanvas(64, 32, 256);
+		int node = server.createNode(V2Wire.NODE_CANVAS, canvas);
+
+		OcslBuilder pixel = OcslBuilder.forStage(OcslWire.STAGE_PIXEL_MATERIAL);
+		pixel.out(OcslWire.PROP_COLOR, pixel.constant(1f, 1f, 1f, 1f));
+		int program = server.createProgram(IrCodec.encode(pixel.build()));
+
+		try {
+			server.setAnimator(node, program, 100L);
+			fail("a pixel-stage program must not attach as an animator");
+		} catch (IllegalArgumentException expected) {
+			assertTrue("the refusal names the offending stage: " + expected.getMessage(),
+					expected.getMessage().contains(
+							"stage " + OcslWire.STAGE_PIXEL_MATERIAL));
+			assertTrue("and the required one: " + expected.getMessage(),
+					expected.getMessage().contains(
+							"stage " + OcslWire.STAGE_ANIMATOR));
+		}
+		assertEquals("the refused attach must not have landed", 0,
+				server.state().nodes.get(Integer.valueOf(node)).animator);
+	}
+
 	/** A detach after the program was freed still clears cleanly — no resolution is attempted. */
 	@Test
 	public void detachingADanglingAttachmentWorks() throws Exception {

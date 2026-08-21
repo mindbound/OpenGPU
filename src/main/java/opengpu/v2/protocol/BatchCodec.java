@@ -379,7 +379,11 @@ public final class BatchCodec {
 					throw new CodecException("Program blob exceeds remaining data");
 				// The charge is the SERVER's verdict and a mirror does not re-derive it, so the
 				// decoder is the only thing standing between a crafted number and whatever later
-				// reads it. Bound it by the acceptance cap that produced it.
+				// reads it. Bound it by the CEILING, not by maxStructuralOps(stage): a decoder
+				// that tightened per stage would refuse a legitimately larger program from a peer
+				// whose stage cap has been raised, turning an acceptance-policy change into a
+				// wire break. IrValidator's own note puts it exactly: the validator's caps are
+				// raiseable, while "the codec, whose rejections are format identity", is not.
 				if (structuralOps < 0 || structuralOps > opengpu.v2.ocsl.IrValidator.MAX_STRUCTURAL_OPS)
 					throw new CodecException("Program structural charge out of range: " + structuralOps);
 				if (!opengpu.v2.ocsl.OcslWire.isKnownStage(stage))

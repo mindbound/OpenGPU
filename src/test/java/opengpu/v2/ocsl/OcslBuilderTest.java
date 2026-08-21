@@ -703,6 +703,12 @@ public class OcslBuilderTest {
 			assertTrue(e.getMessage(), e.getMessage().contains("structural ops"));
 			assertTrue("and it must say the failure is here, not in some finished blob",
 					e.getMessage().contains("being written here"));
+			// The BUILDER's message names the stage too — the panel found the commit draft
+			// claiming "two assertions pin" the stage-naming while both went through the
+			// VALIDATOR; nothing asserted the builder's own message until this line.
+			assertTrue("the builder's refusal must name the stage whose budget was crossed",
+					e.getMessage().contains(
+							"over stage " + OcslWire.STAGE_PIXEL_MATERIAL + "'s cap"));
 		}
 	}
 
@@ -970,41 +976,144 @@ public class OcslBuilderTest {
 		// what this program actually costs, and three documents went on to call 1810 bytes "the
 		// acceptance ceiling".
 		//
-		// It is not the OP cap that binds this shape — it is the FRAME. Each vec4 ADD allocates a
-		// vec4 working register, so 4 floats per charged op against SurfaceTable.MAX_FRAME_WIDTH
-		// of 1024 runs out at 253, three short of MAX_STRUCTURAL_OPS. Pushing the loop to
-		// MAX_STRUCTURAL_OPS - 1 does not produce a bigger program, it produces a BuildException
-		// ("lays out a frame of 1028 floats"). So 253 is this shape's real maximum and the honest
-		// label; a scalar chain would reach further on ops and be smaller in bytes.
-		assertEquals("the vec4 chain's charge is frame-bound at 253, not op-bound at 256 — if this"
-				+ " moved, MAX_FRAME_WIDTH or the per-op register width changed and every size"
+		// RE-DERIVED for the 2026-08-21 raise, and the binding cap FLIPPED, which is exactly why
+		// this test's javadoc ordered re-derivation rather than assumption. Before: the FRAME
+		// (1024 floats) bound this shape at 255 charged ops, one short of the old 256 op cap
+		// (254 adds x 4 + the 8-float pixel-post prologue = exactly 1024, and the check is
+		// strictly greater-than; a first re-derivation wrote 253 here, which was the old
+		// fixture's MAX-4 margin masquerading as the bind -- the panel recomputed it).
+		// After: the frame is 2048 (admitting ~500 vec4 registers) while the pixel stage's op
+		// cap stays 256 — so the OP cap binds now, and the shape's true maximum is exactly the
+		// stage cap. The frame-bound story did not vanish; it moved to the ANIMATOR (512 op
+		// cap), where theAnimatorsVec4ChainIsFrameBoundBelowItsOpCap pins it.
+		assertEquals("the pixel vec4 chain is now OP-bound at the stage cap under the 2048 frame"
+				+ " — if this moved, a cap or the per-op register width changed and every size"
 				+ " derived from this program needs recomputing",
-				253L, charge);
+				(long) IrValidator.maxStructuralOps(OcslWire.STAGE_PIXEL_POST), charge);
 
 		// Two-sided, because a one-sided ceiling admits an encoder that dropped the op records.
-		// 256 charged ops at ~7 B/op is ~1.8 KiB; a floor of 5 B/op catches a truncating encoder
-		// while leaving room for the shape table to change.
-		assertTrue("a ceiling program encodes to only " + encoded.length + " bytes, which is below"
-				+ " what " + IrValidator.MAX_STRUCTURAL_OPS + " op records can occupy — the encoder"
-				+ " is dropping something", encoded.length > 5 * IrValidator.MAX_STRUCTURAL_OPS);
-		assertTrue("a ceiling program encodes to " + encoded.length
+		// The floor is derived from the CHARGE, not the ceiling constant: 1024 op records were
+		// never in this program.
+		assertTrue("a cap-sized program encodes to only " + encoded.length + " bytes, which is"
+				+ " below what " + charge + " op records can occupy — the encoder is dropping"
+				+ " something", encoded.length > 5 * charge);
+		assertTrue("a cap-sized program encodes to " + encoded.length
 				+ " bytes; the ledger's arithmetic assumed a few KiB", encoded.length < 8192);
 	}
 
 	/**
-	 * The largest vec4 ADD chain that validates: 252 adds + one OUT = 253 charged ops.
+	 * THE FRAME-BOUND STORY, relocated to the animator by the 2026-08-21 raise.
 	 *
-	 * Constants cost no op and each ADD charges one, so the OP cap would allow 255 adds — but each
-	 * allocates a vec4 working register, and 4 floats x 256 exceeds
-	 * {@link SurfaceTable#MAX_FRAME_WIDTH} (1024). The frame is what binds this shape. Named for
-	 * the shape rather than for "the ceiling", because it is not the largest program the validator
-	 * accepts in BYTES — see ProgramLedgerBoundTest, where a two-op program with a full constant
-	 * pool is an order of magnitude larger.
+	 * The animator's op cap is 512, but each vec4 ADD lays out a vec4 working register, and the
+	 * 2048-float frame admits only ~500 of them plus the stage prologue — so the FRAME binds
+	 * this shape below the op cap, deliberately adjacent to it. Pinned with a bracketing pair
+	 * rather than one exact count because the exact bind depends on the stage prologue's width:
+	 * 470 adds must BUILD (safely inside both caps), 510 must be REFUSED by the frame (2040
+	 * floats of working registers + any nonzero prologue exceeds 2048, while its charge of 511
+	 * sits under the 512 op cap — so a refusal here that named the OP cap would mean the frame
+	 * check is dead).
+	 */
+	@Test
+	public void theAnimatorsVec4ChainIsFrameBoundBelowItsOpCap() throws Exception {
+		OcslBuilder ok = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		Expr accOk = ok.constant(0f, 0f, 0f, 1f);
+		for (int i = 0; i < 470; i++) {
+			accOk = accOk.add(ok.f(1.0f));
+		}
+		ok.out(OcslWire.PROP_ANIM_TINT, accOk);
+		long charge = IrValidator.validate(ok.build()).structuralOps;
+		assertEquals("470 adds + OUT — past the old 255 frame bind, proof the raise delivered",
+				471L, charge);
+
+		try {
+			OcslBuilder over = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+			Expr acc = over.constant(0f, 0f, 0f, 1f);
+			for (int i = 0; i < 510; i++) {
+				acc = acc.add(over.f(1.0f));
+			}
+			over.out(OcslWire.PROP_ANIM_TINT, acc);
+			IrValidator.validate(over.build());
+			fail("510 vec4 registers cannot fit a 2048-float frame");
+		} catch (OcslBuilder.BuildException e) {
+			assertTrue("the refusal must be the FRAME's — an op-cap message here means the frame"
+					+ " check is dead (charge 511 is under the 512 cap): " + e.getMessage(),
+					e.getMessage().contains("frame"));
+		} catch (opengpu.v2.ocsl.ValidationException e) {
+			assertTrue("the refusal must be the FRAME's: " + e.getMessage(),
+					e.getMessage().contains("frame"));
+		}
+	}
+
+	/**
+	 * THE FRAME CAP'S EQUALITY BOUNDARY — a program laying out EXACTLY MAX_FRAME_WIDTH floats
+	 * must VALIDATE, and one float more must not.
+	 *
+	 * The panel found the {@code cursor > MAX_FRAME_WIDTH} check's boundary untested: mutating
+	 * {@code >} to {@code >=} survived the whole suite, because every frame fixture sat clear of
+	 * the line (the animator bracket passes at 1914 and rejects at 2074). This is also the exact
+	 * boundary the pre-raise "253" misreading got wrong — 254 adds laid out exactly 1024 and
+	 * PASSED, which is what made the true bind 255, not 253.
+	 *
+	 * Construction: the animator prologue is 34 floats (time 1 + timePeriod 1 + own block 15 +
+	 * nodeSeed/sinceAttach 2 + parent block 15), so 503 vec4 working registers (2012) + 2 scalar
+	 * working registers + 34 = exactly 2048. The pooled vec4 constant takes NO frame slot — a
+	 * first version of this fixture counted it as one and sat at 2044/2045, so its reject arm
+	 * never reached the line it claimed to test; the suite failure is what corrected the count.
+	 * If the prologue ever changes width, this test fails loudly and gets re-derived —
+	 * deliberately, since the prologue's width is part of what the frame cap means.
+	 */
+	@Test
+	public void aFrameOfExactlyTheCapValidatesAndOneFloatMoreDoesNot() throws Exception {
+		OcslBuilder exact = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		Expr acc = exact.constant(0f, 0f, 0f, 1f);
+		for (int i = 0; i < 503; i++) {          // 503 adds = 503 vec4 working registers
+			acc = acc.add(exact.f(1.0f));
+		}
+		Expr s1 = exact.f(1.0f).add(exact.f(2.0f));   // scalar working reg 1
+		Expr s2 = s1.add(exact.f(3.0f));              // scalar working reg 2
+		exact.out(OcslWire.PROP_ANIM_TINT, acc);
+		exact.out(OcslWire.PROP_ANIM_X, s2);
+		long charge = IrValidator.validate(exact.build()).structuralOps;
+		assertEquals("503 vec4 adds + 2 scalar adds + 2 OUTs, at a frame of exactly 2048 — a"
+				+ " frame check of >= instead of > refuses this legal program",
+				507L, charge);
+
+		OcslBuilder over = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		Expr acc2 = over.constant(0f, 0f, 0f, 1f);
+		for (int i = 0; i < 503; i++) {
+			acc2 = acc2.add(over.f(1.0f));
+		}
+		Expr t1 = over.f(1.0f).add(over.f(2.0f));
+		Expr t2 = t1.add(over.f(3.0f));
+		Expr t3 = t2.add(over.f(4.0f));               // one scalar register too many: 2049
+		try {
+			over.out(OcslWire.PROP_ANIM_TINT, acc2);
+			over.out(OcslWire.PROP_ANIM_X, t3);
+			IrValidator.validate(over.build());
+			fail("a 2049-float frame must be refused");
+		} catch (OcslBuilder.BuildException e) {
+			assertTrue("the refusal is the frame's: " + e.getMessage(),
+					e.getMessage().contains("frame"));
+		} catch (opengpu.v2.ocsl.ValidationException e) {
+			assertTrue("the refusal is the frame's: " + e.getMessage(),
+					e.getMessage().contains("frame"));
+		}
+	}
+
+	/**
+	 * The largest vec4 ADD chain the PIXEL-POST stage accepts: cap-1 adds + one OUT = exactly
+	 * the stage's op cap in charge.
+	 *
+	 * OP-bound since the 2026-08-21 raise: the 2048-float frame admits ~500 vec4 registers, so
+	 * the pixel stage's 256 op cap is what stops this shape now (it was the 1024 frame at 255,
+	 * pre-raise). Named for the shape rather than for "the ceiling", because it is not the
+	 * largest program the validator accepts in BYTES — see ProgramLedgerBoundTest, where a
+	 * two-op program with a full constant pool is an order of magnitude larger.
 	 */
 	static IrProgram largestVec4ChainProgram() {
 		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_PIXEL_POST);
 		Expr acc = b.constant(0f, 0f, 0f, 1f);
-		for (int i = 0; i < IrValidator.MAX_STRUCTURAL_OPS - 4; i++) {
+		for (int i = 0; i < IrValidator.maxStructuralOps(OcslWire.STAGE_PIXEL_POST) - 1; i++) {
 			acc = acc.add(b.f(1.0f));
 		}
 		b.out(OcslWire.PROP_COLOR, acc);

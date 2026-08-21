@@ -57,16 +57,19 @@ public final class SurfaceTable {
 	 * saved program names its registers by these numbers. The reasoning is preserved because the
 	 * sizing argument it makes is still the right one; only its cost conclusion expired.
 	 *
-	 * The uniform block keeps its 64 slots. The working span drops 416 → 400 — and the first draft
-	 * of this note claimed that "cannot bind, since every op allocates at most one register", which
-	 * is FALSE and was measured false. {@code FOR} allocates a register and charges ZERO
-	 * ({@code OcslWire} gives it {@code hasDst=true} with {@code structuralCharge=0}, because the
-	 * structural count is post-unroll and unrolled GLSL emits nothing for loop control), so a
-	 * program of {@code FOR 1 / ADD / ENDFOR} triples allocates two registers per charged op. 199
-	 * such triples validate at 201 structural ops using 399 working registers; 200 are refused for
-	 * declaring 513. The register span therefore binds at around 200 charged ops, and this widening
-	 * cost <b>16 reachable working registers</b>. Not a format break — nothing has been written —
-	 * but the next person judging whether a widening is free should not inherit the wrong reason.
+	 * The uniform block keeps its 64 slots. The working span dropped 416 → 400 at the widening —
+	 * and the first draft of this note claimed that "cannot bind, since every op allocates at
+	 * most one register", which is FALSE and was measured false. {@code FOR} allocates a register
+	 * and charges ZERO ({@code OcslWire} gives it {@code hasDst=true} with
+	 * {@code structuralCharge=0}, because the structural count is post-unroll and unrolled GLSL
+	 * emits nothing for loop control), so a program of {@code FOR 1 / ADD / ENDFOR} triples
+	 * allocates two registers per charged op. Measured at the time (MAX_REGISTERS = 512): 199
+	 * such triples validated at 201 structural ops using 399 working registers; 200 were refused
+	 * for declaring 513 — the register span bound at ~200 charged ops, and the widening cost 16
+	 * reachable working registers. THE NUMBERS MOVED 2026-08-21 when MAX_REGISTERS went to 1024
+	 * (the working span is 912 now, binding FOR-triple shapes near ~455 charged ops), but the
+	 * LESSON is why the paragraph stays: register pressure, not the op cap, is what binds
+	 * allocation-heavy shapes, and anyone judging a future widening should measure, not assume.
 	 */
 	public static final int BUILTIN_BASE = 0;
 	public static final int BUILTIN_LIMIT = 48;
@@ -237,9 +240,20 @@ public final class SurfaceTable {
 	 * break, so a provisional value should err high. The codec's own MAX_REGISTERS is a separate,
 	 * structural bound on what a blob may DECLARE; this is the semantic one, checked against what
 	 * the program actually lays out.
+	 *
+	 * RAISED 2026-08-21 with the op-cap package (512 → 1024 registers, 1024 → 2048 frame
+	 * floats), because the measurements showed both binding BELOW the op caps they accompany:
+	 * the vec4-chain shape was frame-bound at 255 charged ops — one short of the old 256 op
+	 * cap (the panel corrected a first note here that said 253, which was the old fixture's
+	 * MAX-4 margin, not the bind) — and
+	 * SSA's register-per-op layout bound straight-line code near ~400. Registers now sit at the
+	 * DECODER's own bound (the frozen table's note: "maxRegisters may be raised only to the
+	 * DECODER's own separate bound"), which consumes the whole pre-paid band — the next register
+	 * raise is a format event or a builder that learns register reuse. The frame at 2048 moves
+	 * the vec4-chain bind to ~503, deliberately adjacent to the animator's 512 op cap.
 	 */
-	public static final int MAX_REGISTERS = 512;
-	public static final int MAX_FRAME_WIDTH = 1024;
+	public static final int MAX_REGISTERS = 1024;
+	public static final int MAX_FRAME_WIDTH = 2048;
 
 	private SurfaceTable() {}
 

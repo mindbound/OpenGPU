@@ -319,7 +319,7 @@ CONS4_V2V2 v2,v2 v4 1
 light 10 16
 animator 16 48
 uniform 48 112
-working 112 512
+working 112 1024
 
 [caps] name value
 # Most of these may be RAISED under the monotonicity rule and never lowered once
@@ -332,13 +332,20 @@ working 112 512
 #   maxRegisters may be raised only to the DECODER's own separate bound, which
 #                is not this number and is not in this file. Same simple name,
 #                different constant.
-maxRegisters 512
-maxFrameWidth 1024
+maxRegisters 1024
+maxFrameWidth 2048
 maxSlots 16
 maxUniforms 64
-maxStructuralOps 256
+maxStructuralOps 1024
+maxStructuralOps.stage1 256
+maxStructuralOps.stage2 256
+maxStructuralOps.stage3 256
+maxStructuralOps.stage4 256
+maxStructuralOps.stage5 256
+maxStructuralOps.stage6 512
+maxStructuralOps.stage7 256
 maxFetches 16
-maxUnrollProduct 256
+maxUnrollProduct 1024
 maxUniformComponents 64
 [not-frozen-here] contract where-it-lives
 # Proved absent by mutation: each of these can change while this file renders

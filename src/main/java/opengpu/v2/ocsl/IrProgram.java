@@ -118,7 +118,9 @@ public final class IrProgram {
 	}
 
 	/**
-	 * The STRUCTURAL count — the currency the ~256 acceptance cap is stated against.
+	 * The STRUCTURAL count — the currency the per-stage acceptance caps are stated against
+	 * (256 for the pixel family, 512 for the animator since 2026-08-21; IrValidator's
+	 * maxStructuralOps is the record).
 	 *
 	 * Every executed instruction charges 1, swizzles and constructors included, OUT included;
 	 * FOR/ENDFOR are encoding structure and charge 0. Body ops charge once per iteration, because

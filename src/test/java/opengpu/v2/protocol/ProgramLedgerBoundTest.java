@@ -159,11 +159,12 @@ public class ProgramLedgerBoundTest {
 				opHeavy * 4 < OcslWire.MAX_BLOB_BYTES);
 	}
 
-	/** The largest vec4 ADD chain that validates — frame-bound at 253 charged ops, not 256. */
+	/** A large vec4 ADD chain near the PIXEL stage's cap (byte-identical to the pre-raise
+	 *  fixture: the stage stays at 256 while the ceiling constant moved to 1024). */
 	private static IrProgram opHeavyShape() {
 		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_PIXEL_POST);
 		Expr acc = b.constant(0f, 0f, 0f, 1f);
-		for (int i = 0; i < IrValidator.MAX_STRUCTURAL_OPS - 4; i++) {
+		for (int i = 0; i < IrValidator.maxStructuralOps(OcslWire.STAGE_PIXEL_POST) - 4; i++) {
 			acc = acc.add(b.f(1.0f));
 		}
 		b.out(OcslWire.PROP_COLOR, acc);

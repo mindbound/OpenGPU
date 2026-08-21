@@ -287,12 +287,16 @@ public final class OcslBuilder {
 
 	private void charge(int perExecution) {
 		structural += multiplier * perExecution;
-		if (structural > IrValidator.MAX_STRUCTURAL_OPS) {
+		// PER-STAGE, and this builder has always known its stage. The two acceptance sites -- here
+		// and IrValidator -- must consult the SAME budget or an author could build a program the
+		// validator then refuses, which is the failure the build-time check exists to prevent.
+		int opCap = IrValidator.maxStructuralOps(stage);
+		if (structural > opCap) {
 			// AT THE CALL SITE. The validator would refuse the finished program with an op index,
 			// which is the right surface for a wire blob and the wrong one for an author who is
 			// still typing.
-			throw new BuildException("program charges " + structural + " structural ops, over the"
-					+ " cap of " + IrValidator.MAX_STRUCTURAL_OPS
+			throw new BuildException("program charges " + structural + " structural ops, over"
+					+ " stage " + (stage & 0xFF) + "'s cap of " + opCap
 					+ "; the op that crossed it is the one being written here");
 		}
 	}
@@ -664,8 +668,9 @@ public final class OcslBuilder {
 	/**
 	 * A5's frame layout, computed the way the validator computes it.
 	 *
-	 * The builder bounded the register COUNT (512, unreachable under a 256-op cap) and not the
-	 * frame WIDTH (1024, reached at 254 vec4 registers — comfortably inside every cap the builder
+	 * The builder bounded the register COUNT (then 512, unreachable under the then-256-op cap)
+	 * and not the frame WIDTH (then 1024, reached at 254 vec4 registers — comfortably inside
+	 * every cap the builder
 	 * knew about). So a legal-looking program was refused inside build() by a message blaming the
 	 * implementation. Registers are counted from the OPS rather than from the allocation list,
 	 * because a retargeted fold leaves an allocated-but-never-written register that the layout

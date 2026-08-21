@@ -62,7 +62,10 @@ public class ProgramStorageTest {
 	 * few hundred creates, which is what these tests need it for.
 	 */
 	private static byte[] ceiling() throws Exception {
-		return blob(IrValidator.MAX_STRUCTURAL_OPS - 4);
+		// The PIXEL-POST stage's cap, not the ceiling constant: since the 2026-08-21 raise the
+		// constant is 1024 while this stage stays at 256, and a 1020-op pixel program would be
+		// refused — this helper's fixture is byte-identical to what it built before the raise.
+		return blob(IrValidator.maxStructuralOps(OcslWire.STAGE_PIXEL_POST) - 4);
 	}
 
 	/** The smallest thing that is still a program. */
@@ -432,9 +435,10 @@ public class ProgramStorageTest {
 			server.createProgram(IrCodec.encode(overCap));
 			fail("a program charging 402 structural ops was accepted");
 		} catch (IllegalArgumentException expected) {
-			assertTrue("the refusal should be the validator's own, naming the cap, got: "
-					+ expected.getMessage(),
-					expected.getMessage().contains("structural ops, over the cap"));
+			assertTrue("the refusal should be the validator's own, naming the STAGE whose cap was"
+					+ " crossed, got: " + expected.getMessage(),
+					expected.getMessage().contains("structural ops, over stage "
+							+ OcslWire.STAGE_PIXEL_MATERIAL + "'s cap"));
 		}
 		assertEquals("a refused program charged the ledger anyway", 0L, server.programBytes());
 	}

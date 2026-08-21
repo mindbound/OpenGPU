@@ -496,7 +496,14 @@ public final class OcslTables {
 		line(out, "maxFrameWidth " + SurfaceTable.MAX_FRAME_WIDTH);
 		line(out, "maxSlots " + SurfaceTable.MAX_SLOTS);
 		line(out, "maxUniforms " + SurfaceTable.MAX_UNIFORMS);
+		// The CEILING (the codec bound) and the per-stage acceptance caps, both — until the
+		// 2026-08-21 divergence one line served for all, and a second backend built from this
+		// artifact would then have accepted the ceiling at every stage while real acceptance
+		// was per-stage. The panel caught it; acceptance now renders per stage.
 		line(out, "maxStructuralOps " + IrValidator.MAX_STRUCTURAL_OPS);
+		for (byte st = OcslWire.STAGE_PIXEL_MATERIAL; st <= OcslWire.STAGE_COMPUTE; st++) {
+			line(out, "maxStructuralOps.stage" + st + " " + IrValidator.maxStructuralOps(st));
+		}
 		line(out, "maxFetches " + IrValidator.MAX_FETCHES);
 		line(out, "maxUnrollProduct " + IrValidator.MAX_UNROLL_PRODUCT);
 		line(out, "maxUniformComponents " + IrValidator.MAX_UNIFORM_COMPONENTS);

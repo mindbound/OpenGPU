@@ -392,10 +392,16 @@ public final class ServerScene {
 		}
 		// Narrowing is safe BECAUSE validate() returned: the charge is a long only so the
 		// validator can detect an unroll product overflowing on the way to this cap, and anything
-		// above MAX_STRUCTURAL_OPS (256) threw above. Asserted rather than assumed, because the
-		// value crosses into an int field and a future cap raise is planned work (ANIM-16).
+		// above the stage's cap threw above. Asserted rather than assumed, because the value
+		// crosses into an int field and a future cap raise is planned work (ANIM-16).
+		//
+		// THE PER-STAGE CAP, unlike the codec bounds: this asserts that the validator did what it
+		// says, so it must ask the same question the validator asked. Bounding by the ceiling
+		// instead would keep passing after a stage cap was lowered, which is precisely the state
+		// this line exists to catch.
 		if (validated.structuralOps < 0
-				|| validated.structuralOps > opengpu.v2.ocsl.IrValidator.MAX_STRUCTURAL_OPS)
+				|| validated.structuralOps
+						> opengpu.v2.ocsl.IrValidator.maxStructuralOps(program.stage))
 			throw new IllegalStateException("Validator returned an out-of-range structural charge "
 					+ validated.structuralOps + "; it should have refused the program");
 
@@ -462,6 +468,27 @@ public final class ServerScene {
 		requireNode(nodeId);
 		if (programId < 0)
 			throw new IllegalArgumentException("Program id must be non-negative (0 detaches)");
+		// THE STAGE GATE (2026-08-21). Nothing on this path checked the program's stage, and a
+		// legal PIXEL program attached to a node CRASHED the client render thread: the evaluator
+		// binds the animator registers, a pixel frame maps none of them, and OcslVm.set throws
+		// out through the Forge render tick. Reachable from Lua as createProgram(<pixel blob>)
+		// + setAnimator(node, id) -- two ordinary calls. Found by the per-stage-cap review
+		// panel (as a stats-population hole) and upgraded to a crash by tracing the bind.
+		//
+		// RESOLVABLE PROGRAMS ONLY, deliberately: ANIM-17 rules a dangling attachment legal, and
+		// ids are never reused, so an id absent here can never later resolve to a wrong-stage
+		// program within this incarnation. The gate therefore refuses everything it can see and
+		// nothing it cannot. The client still defends independently (AnimatorOverlay.vmFor),
+		// because a save written before this gate existed can carry a wrong-stage attachment.
+		if (programId != 0) {
+			ProgramInfo attached = state.programs.get(Integer.valueOf(programId));
+			if (attached != null && attached.stage != opengpu.v2.ocsl.OcslWire.STAGE_ANIMATOR) {
+				throw new IllegalArgumentException("Program " + programId + " is stage "
+						+ (attached.stage & 0xFF) + "; only animator programs (stage "
+						+ (opengpu.v2.ocsl.OcslWire.STAGE_ANIMATOR & 0xFF)
+						+ ") may attach to nodes");
+			}
+		}
 		applyAndStage(new Delta.NodeAttach(nodeId, programId,
 				programId == 0 ? 0L : attachedWorldTime));
 	}

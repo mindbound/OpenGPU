@@ -35,10 +35,71 @@ import java.util.Map;
  */
 public final class IrValidator {
 
-	/** Post-unroll structural ops. Conservative on purpose: raiseable, never tightenable. */
-	public static final int MAX_STRUCTURAL_OPS = 256;
+	/**
+	 * Post-unroll structural ops — the CEILING. No stage sits at it since 2026-08-21: it is the
+	 * bound the CODECS check a wire/disk {@code structuralOps} field against ({@code BatchCodec},
+	 * {@code SnapshotCodec}) and the number every per-stage cap must stay at or under —
+	 * {@code IrValidatorTest}'s range invariant fires if one tries to pass it, because a stage
+	 * above the ceiling would have this validator accepting programs the decoders then refuse.
+	 *
+	 * RAISED 256 → 1024 on 2026-08-21 (user decision, against the cap-adequacy review), and
+	 * DELIBERATELY PAST today's largest per-stage cap: the ceiling move is the format-adjacent
+	 * event — after it, every per-stage adjustment up to 1024 is free acceptance policy, so
+	 * paying the event once buys the whole band. The known cost, stated rather than hidden:
+	 * the moment a >256-charge program is saved or sent, an OLDER build's decoder refuses the
+	 * whole batch or save with a generic CodecException — monotonicity covers upgrades only.
+	 * One-way door: never tightenable once such blobs exist.
+	 */
+	public static final int MAX_STRUCTURAL_OPS = 1024;
 	/** Texture fetches, post-unroll, user tier. */
 	public static final int MAX_FETCHES = 16;
+
+	/**
+	 * The structural-op cap AT A STAGE — the per-stage form ANIM-16/PLAN asks for.
+	 *
+	 * <b>THE STAGES DIVERGED THE SAME DAY THE SEAM LANDED.</b> The seam was installed
+	 * behaviour-neutral (256 everywhere) on the morning of 2026-08-21 — its javadoc then noted
+	 * that no test could tell it from the bare constant, which was true for the hours it lasted —
+	 * and the user's cap-raise decision used it that afternoon: the animator moved to 512 on its
+	 * measured cost model, the rest hold at 256 pending the GLSL-side measurement, and
+	 * {@code IrValidatorTest.theStageCapsCarryTheDecidedDivergence} now pins every value, so the
+	 * seam and the constant are no longer interchangeable anywhere. The cost models are why: an
+	 * animator program runs on the CPU VM once per attached node per FRAME (~6–9 us per node at
+	 * 5–14 ops, field-measured), while a pixel program runs on the GPU per fragment. One number
+	 * priced for both is a number priced for neither.
+	 *
+	 * Written as a switch with only a default so the shape is obvious: a stage that diverges gets
+	 * a case, HERE, and nowhere else. FOUR callers, by design, in two roles: the acceptance
+	 * sites ({@code IrValidator.validate}, {@code OcslBuilder.charge}), which must consult the
+	 * same budget or an author can build what validation refuses; and two readers that follow
+	 * the seam deliberately — {@code ServerScene}'s postcondition assertion (it asserts the
+	 * validator did what it says, so it asks the validator's question) and {@code StatsOverlay}'s
+	 * denominator (it prices animator charges against the animator's budget). The codecs
+	 * deliberately bound by {@link #MAX_STRUCTURAL_OPS} instead, because a decoder that tightened
+	 * per stage would refuse a legitimately larger program rather than merely decline to author
+	 * one. (A first draft of this paragraph said "two callers" while the same increment created
+	 * four — the review panel's census caught it, and the lesson is the usual one about
+	 * totalizing words.)
+	 */
+	public static int maxStructuralOps(byte stage) {
+		switch (stage) {
+			case OcslWire.STAGE_ANIMATOR:
+				// 512, decided 2026-08-21 — the one stage with a measured cost model on both
+				// sides: 0.46 us/op microbenchmarked, ~6-9 us/node at 5-14 ops in the field
+				// (FIELD-TEST-3.3). An at-cap node is ~236 us ≈ 1.4% of a 60 Hz frame; 36x the
+				// largest real program. Conservative on purpose: monotonicity makes every raise
+				// a one-way door, and ANIM-16's client-global budget — the aggregate bound the
+				// design calls "the real bound" — still has no number.
+				return 512;
+			default:
+				// 256 for the pixel family (and the still-closed vertex/compute): PLAN's own
+				// gate — "the pixel stages need a GLSL-side measurement nobody has taken" — is
+				// unmet, and these stages execute nothing today, so a raise would spend a number
+				// that should come from data while refusing nothing anyone can run. When the
+				// measurement lands, each stage gets a case HERE, under the 1024 ceiling.
+				return 256;
+		}
+	}
 
 	/**
 	 * The fetch cap AT A STAGE — ANIM-16, which asks for the animator's caps to be stated rather
@@ -83,8 +144,15 @@ public final class IrValidator {
 	}
 	/** Uniform COMPONENTS, against the GL 2.1 minimum of 64 fragment components. */
 	public static final int MAX_UNIFORM_COMPONENTS = 64;
-	/** Product of all loop trip counts. Equal to the op cap and therefore non-binding today. */
-	public static final int MAX_UNROLL_PRODUCT = 256;
+	/**
+	 * Product of all loop trip counts. Equal to the CEILING, in lockstep since 2026-08-21 —
+	 * raised with it precisely so it stays non-binding: unrollProduct <= charged ops (the
+	 * empty-body rule) <= the stage's cap <= this. Left at 256 while the ceiling moved to 1024,
+	 * a thin FOR-512 loop with a one-op body would charge legally under the animator's 512 and
+	 * still be refused at the FOR — loop-heavy shapes becoming second-class exactly where a
+	 * raise aims.
+	 */
+	public static final int MAX_UNROLL_PRODUCT = 1024;
 
 	private IrValidator() {}
 
@@ -274,7 +342,8 @@ public final class IrValidator {
 							+ " directly");
 				}
 				// No MAX_LOOP_TRIPS check here on purpose: trips is always <= multiplier <=
-				// unrollProduct, so the 256 cap below refuses anything the 4096 wire bound would
+				// unrollProduct, so the unroll cap below (1024 since 2026-08-21) refuses anything the
+				// 4096 wire bound would
 				// have, and a second check that can never fire reads like protection it is not.
 				multiplier *= trips;
 				// The cap is on the deepest NESTING PATH, not on every loop in the program
@@ -466,9 +535,12 @@ public final class IrValidator {
 		}
 
 		long structural = program.structuralCount();
-		if (structural > MAX_STRUCTURAL_OPS) {
+		// PER-STAGE, not the bare constant: this is an ACCEPTANCE decision, and the message names
+		// the stage so an author reading it knows which budget they crossed.
+		int opCap = maxStructuralOps(stage);
+		if (structural > opCap) {
 			throw new ValidationException(-1, "program charges " + structural
-					+ " structural ops, over the cap of " + MAX_STRUCTURAL_OPS);
+					+ " structural ops, over stage " + (stage & 0xFF) + "'s cap of " + opCap);
 		}
 
 		// A5: pack the frame by declared width. Built-ins and uniforms first, at fixed positions

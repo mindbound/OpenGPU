@@ -547,12 +547,91 @@ public class IrValidatorTest {
 	public void enforcesTheStructuralOpCap() {
 		List<IrOp> ops = new ArrayList<IrOp>();
 		ops.add(new IrOp(OcslWire.OP_SPLAT, W, k(0), 4));
-		for (int i = 0; i < IrValidator.MAX_STRUCTURAL_OPS; i++) {
+		for (int i = 0; i < IrValidator.maxStructuralOps(OcslWire.STAGE_PIXEL_MATERIAL); i++) {
 			ops.add(new IrOp(OcslWire.OP_ABS, W, W));
 		}
 		ops.add(new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W));
+		// The message must name the STAGE whose budget was crossed, and the stage id is derived
+		// rather than written as "1" so this keeps discriminating if the constant ever moves.
 		expectReject(new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, ops,
-				new ArrayList<String>(), W + 1), "over the cap");
+				new ArrayList<String>(), W + 1),
+				"over stage " + OcslWire.STAGE_PIXEL_MATERIAL + "'s cap");
+	}
+
+	/**
+	 * The SAME refusal at a SECOND stage — the panel found that with only the stage-1 assertion,
+	 * a validator emitting a hardcoded "stage 1" for every refusal passed the whole suite. Two
+	 * stages with distinct ids are the minimum that pins the message's stage as DERIVED.
+	 */
+	@Test
+	public void theOpCapRefusalNamesTheStageThatWasActuallyCrossed() {
+		List<IrOp> ops = new ArrayList<IrOp>();
+		ops.add(new IrOp(OcslWire.OP_SPLAT, W, k(0), 4));
+		for (int i = 0; i < IrValidator.maxStructuralOps(OcslWire.STAGE_PIXEL_POST); i++) {
+			ops.add(new IrOp(OcslWire.OP_ABS, W, W));
+		}
+		ops.add(new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W));
+		expectReject(new IrProgram(OcslWire.STAGE_PIXEL_POST, new float[] { 1.0f }, ops,
+				new ArrayList<String>(), W + 1),
+				"over stage " + OcslWire.STAGE_PIXEL_POST + "'s cap");
+	}
+
+	/**
+	 * THE RANGE INVARIANT for the per-stage op caps — a tripwire, and deliberately one that
+	 * cannot fire today.
+	 *
+	 * Both bounds exist for a reason the caps' own history supplies. The CEILING: the codecs bound
+	 * a wire/disk {@code structuralOps} field by {@code MAX_STRUCTURAL_OPS}, so a stage cap raised
+	 * above it would have the validator accept programs the decoders then refuse — an acceptance
+	 * change leaking into format identity. The FLOOR: "raiseable, never tightenable" is only
+	 * meaningful if something says how far down is too far, and the answer is the conformance
+	 * suite — the four acceptance programs charge up to 102 (P2, 101 + the prologue), so a cap
+	 * below that refuses a program the suite requires to pass. Without this, "lower it" is
+	 * unbounded and the first sign would be acceptance tests failing for a reason nothing names.
+	 */
+	@Test
+	public void everyStagesOpCapSitsBetweenTheConformanceFloorAndTheCodecCeiling() {
+		final int conformanceFloor = 102;   // P2, the largest acceptance program, + its prologue
+		for (byte stage = OcslWire.STAGE_PIXEL_MATERIAL; stage <= OcslWire.STAGE_COMPUTE; stage++) {
+			int cap = IrValidator.maxStructuralOps(stage);
+			assertTrue("stage " + stage + "'s op cap " + cap + " exceeds MAX_STRUCTURAL_OPS ("
+					+ IrValidator.MAX_STRUCTURAL_OPS + "), which the codecs bound by — the"
+					+ " validator would accept what BatchCodec and SnapshotCodec then reject",
+					cap <= IrValidator.MAX_STRUCTURAL_OPS);
+			assertTrue("stage " + stage + "'s op cap " + cap + " is below the conformance floor of "
+					+ conformanceFloor + "; the acceptance programs no longer fit",
+					cap >= conformanceFloor);
+		}
+	}
+
+	/**
+	 * THE DECIDED DIVERGENCE — 2026-08-21, the user's cap-raise decision, pinned stage by stage.
+	 *
+	 * This test's predecessor pinned "every stage at the ceiling" and carried instructions to be
+	 * updated deliberately when a stage diverged; this is that update. The expectations are the
+	 * decision record: the ANIMATOR at 512 because it is the one stage with a measured cost
+	 * model (0.46 us/op; ~6-9 us/node in the field); everything else at 256 because PLAN's gate
+	 * — the pixel stages need a GLSL-side measurement nobody has taken — is unmet; and the
+	 * CEILING at 1024 so that every future per-stage move up to it is free acceptance policy,
+	 * the format-adjacent codec event having been paid once. A stage moving off these numbers
+	 * must move this test with it, with the reason.
+	 */
+	@Test
+	public void theStageCapsCarryTheDecidedDivergence() {
+		assertEquals("the ceiling — the codec bound, paid once", 1024,
+				IrValidator.MAX_STRUCTURAL_OPS);
+		assertEquals("the animator's measured raise", 512,
+				IrValidator.maxStructuralOps(OcslWire.STAGE_ANIMATOR));
+		for (byte stage = OcslWire.STAGE_PIXEL_MATERIAL; stage <= OcslWire.STAGE_COMPUTE; stage++) {
+			if (stage == OcslWire.STAGE_ANIMATOR) {
+				continue;
+			}
+			assertEquals("stage " + stage + " awaits the GLSL-side measurement; a diverging"
+					+ " value here needs that data and this test updated with it",
+					256, IrValidator.maxStructuralOps(stage));
+		}
+		assertEquals("unroll stays lockstep with the ceiling, or thin loops become second-class",
+				IrValidator.MAX_STRUCTURAL_OPS, IrValidator.MAX_UNROLL_PRODUCT);
 	}
 
 	@Test
@@ -599,15 +678,21 @@ public class IrValidatorTest {
 				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W));
 		assertEquals("40 body ops + splat + OUT", 42L, IrValidator.validate(p).structuralOps);
 
-		// Nesting still multiplies, which is the half that must keep working.
+		// Nesting still multiplies, which is the half that must keep working. Re-derived for the
+		// 2026-08-21 raise: the old 20x20 fixture's product of 400 tripped the 256 unroll cap,
+		// but under the 1024 cap it walks clean and dies at the pixel op cap instead (charge
+		// 402 > 256) — the wrong refusal for this test's claim. 40x40 = 1600 restores the
+		// unroll refusal, which fires MID-WALK at the inner FOR, before the structural check
+		// ever runs — the same ordering the old fixture relied on (its charge of 402 was also
+		// over the op cap, and the unroll message won).
 		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 3,
 				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
-				new IrOp(OcslWire.OP_FOR, W + 1, 20, k(0)),
-				new IrOp(OcslWire.OP_FOR, W + 2, 20, k(0)),
+				new IrOp(OcslWire.OP_FOR, W + 1, 40, k(0)),
+				new IrOp(OcslWire.OP_FOR, W + 2, 40, k(0)),
 				new IrOp(OcslWire.OP_ADD, W + 2, W + 2, k(0)),
 				new IrOp(OcslWire.OP_ENDFOR, -1),
 				new IrOp(OcslWire.OP_ENDFOR, -1),
-				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "unroll product 400");
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "unroll product 1600");
 	}
 
 	@Test
@@ -678,19 +763,25 @@ public class IrValidatorTest {
 				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
 				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "over the cap of");
 
-		// The frame cap has to be tripped INSIDE the op cap or the op cap answers first, and the
-		// two sit close: at 256 ops the widest reachable frame is 255 vec4 registers plus the
-		// material built-ins, about 1029 floats against the 1024 cap. 255 splats + OUT is exactly
-		// 256 ops and 9 + 1020 = 1029 floats -- the narrow window where the frame cap is the one
-		// that speaks. That narrowness is itself worth knowing: raising the op cap later (which
-		// monotonicity permits) makes this cap bind much sooner.
+		// The frame cap has to be tripped INSIDE some stage's op cap or the op cap answers
+		// first. RE-DERIVED TWICE for the 2026-08-21 raise — the first re-derivation claimed
+		// "the pixel stages can no longer reach the frame cap at all", reasoning only from
+		// SPLAT chains (255 vec4 + the 10-float material prologue = 1030, inside 2048), and the
+		// review panel refuted it with the shape SurfaceTable's own widening note documents:
+		// FOR allocates a register and charges ZERO, so FOR(1, vec4-const)/ADD/ENDFOR triples
+		// lay out 8 frame floats per charged op — 255 triples + OUT charge exactly 256 and lay
+		// out 10 + 510*4 = 2050 > 2048. The pixel stages CAN still reach the frame cap; only
+		// the straight-line splat shape cannot. What DID move: the cheapest fixture for this
+		// refusal now lives at the ANIMATOR (512 ops), where 510 vec4 splats lay out 2040
+		// working floats + a 34-float prologue = 2074 > 2048 at a charge of 511 — inside the op
+		// cap, so the frame is the cap that speaks.
 		List<IrOp> wide = new ArrayList<IrOp>();
-		int n = 255;
+		int n = 510;
 		for (int i = 0; i < n; i++) {
 			wide.add(new IrOp(OcslWire.OP_SPLAT, W + i, k(0), 4)); // vec4: 4 floats each
 		}
-		wide.add(new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W));
-		expectReject(new IrProgram(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, wide,
+		wide.add(new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_ANIM_TINT, W));
+		expectReject(new IrProgram(OcslWire.STAGE_ANIMATOR, new float[] { 1.0f }, wide,
 				new ArrayList<String>(), W + n), "frame of");
 	}
 
