@@ -935,6 +935,185 @@ public class AnimatorOverlayTest {
 				(int) opengpu.v2.stats.RenderStats.animatorChargeTotal);
 	}
 
+	/**
+	 * The frame and register columns must report the PROGRAM's own numbers, not the charge
+	 * wearing their names.
+	 *
+	 * Three values now cross one call in the same order they are declared, which is the shape
+	 * that makes an argument swap invisible to every "> 0" assertion — so these are pinned by
+	 * EQUALITY against the validator's own answer for the same blob, not by non-zeroness. If the
+	 * overlay passed the charge for the frame, or the frame for the registers, this fails and
+	 * names which one moved.
+	 */
+	@Test
+	public void theFrameAndRegisterColumnsReportTheProgramNotTheCharge() throws Exception {
+		opengpu.v2.stats.RenderStats.reset();
+		byte[] blob = program(OcslWire.PROP_ANIM_X, 5.0f);
+		IrValidator.Validated expected =
+				IrValidator.validate(IrCodec.decode(blob, IrCodec.Source.TRANSIENT));
+
+		SceneState s = sceneWith(info(1, blob));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+		new AnimatorOverlay().evaluate(s, instant(200), OFFSET, true);
+
+		assertEquals("the frame column must be the validator's laid-out frame, in floats",
+				expected.frameWidth, opengpu.v2.stats.RenderStats.animatorFrameWidthMax);
+		assertEquals("the register column must be the blob's declared register count",
+				expected.program().declaredRegisters,
+				opengpu.v2.stats.RenderStats.animatorRegistersMax);
+		assertEquals("one program: each total IS its max, so a dropped accumulation reads 0",
+				opengpu.v2.stats.RenderStats.animatorFrameWidthMax,
+				(int) opengpu.v2.stats.RenderStats.animatorFrameWidthTotal);
+		assertEquals(opengpu.v2.stats.RenderStats.animatorRegistersMax,
+				(int) opengpu.v2.stats.RenderStats.animatorRegistersTotal);
+	}
+
+	/**
+	 * THE FRAME HAS A FLOOR THE CHARGE CANNOT SEE — which is the whole reason this column was
+	 * added rather than inferred from the charge.
+	 *
+	 * The validator types every builtin from the surface table and lays out EVERY typed builtin,
+	 * read or not ({@code IrValidator}'s frame loop runs over {@code r < WORKING_BASE} on
+	 * {@code types[r] != null}, and the types come from {@code builtinType} unconditionally). So
+	 * the animator's readable builtin block is charged to the frame of the most trivial program
+	 * in existence: the one-op program below charges a handful of ops and still occupies dozens
+	 * of frame floats before it computes anything.
+	 *
+	 * A first version of this test predicted the opposite and asserted a vec4 program would lay
+	 * out a wider frame than a scalar one; both read 34, because both take their value from the
+	 * constant POOL and neither allocates a working register. The measurement is kept here as
+	 * the assertion rather than the hypothesis: the floor is real, it is what a reader of the
+	 * overlay line has to know to interpret "34/2048", and a future change that makes builtin
+	 * layout lazy would show up here as a drop rather than passing silently.
+	 */
+	@Test
+	public void everyAnimatorProgramPaysTheBuiltinBlockBeforeItComputesAnything() throws Exception {
+		opengpu.v2.stats.RenderStats.reset();
+		byte[] blob = program(OcslWire.PROP_ANIM_X, 5.0f);
+		IrValidator.Validated v =
+				IrValidator.validate(IrCodec.decode(blob, IrCodec.Source.TRANSIENT));
+
+		SceneState s = sceneWith(info(1, blob));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+		new AnimatorOverlay().evaluate(s, instant(200), OFFSET, true);
+
+		assertTrue("a trivial program's charge is small: " + v.structuralOps,
+				v.structuralOps < 10L);
+		assertTrue("yet its frame already carries the builtin block, which is what makes the"
+				+ " charge useless as a predictor of the frame cap: frame="
+				+ opengpu.v2.stats.RenderStats.animatorFrameWidthMax,
+				opengpu.v2.stats.RenderStats.animatorFrameWidthMax > 10 * v.structuralOps);
+	}
+
+	/**
+	 * FRAME COUNTS FLOATS, REGISTERS COUNT REGISTERS — asserted as exact deltas, because that is
+	 * the only form that separates the two columns.
+	 *
+	 * Both programs write the same vec4 property. One takes its value from the constant pool and
+	 * allocates NO working register; the other builds it with a CONS4, which under the frozen
+	 * eager rule ("one call, one op, one register") allocates exactly one register of width four.
+	 * So the register column must move by 1 and the frame column by 4 — the same event measured
+	 * in its own unit. Any wiring that reports one column in the other's unit fails one half.
+	 */
+	@Test
+	public void oneExtraVec4RegisterIsPlusOneRegisterAndPlusFourFrameFloats() throws Exception {
+		opengpu.v2.stats.RenderStats.reset();
+		SceneState pooled = sceneWith(info(1, program(OcslWire.PROP_ANIM_TINT, 0.5f)));
+		SceneNode pn = node(pooled, 1, 0);
+		pn.animator = 1;
+		pn.attachedWorldTime = 100L;
+		new AnimatorOverlay().evaluate(pooled, instant(200), OFFSET, true);
+		int pooledFrame = opengpu.v2.stats.RenderStats.animatorFrameWidthMax;
+		int pooledRegs = opengpu.v2.stats.RenderStats.animatorRegistersMax;
+
+		opengpu.v2.stats.RenderStats.reset();
+		SceneState composed = sceneWith(info(1, composedTintProgram()));
+		SceneNode cn = node(composed, 1, 0);
+		cn.animator = 1;
+		cn.attachedWorldTime = 100L;
+		new AnimatorOverlay().evaluate(composed, instant(200), OFFSET, true);
+		int composedFrame = opengpu.v2.stats.RenderStats.animatorFrameWidthMax;
+		int composedRegs = opengpu.v2.stats.RenderStats.animatorRegistersMax;
+
+		assertEquals("one CONS4 is ONE more declared register", 1,
+				composedRegs - pooledRegs);
+		assertEquals("and FOUR more frame floats — the same register measured in the frame's"
+				+ " unit, which is the distinction the two columns exist to keep visible", 4,
+				composedFrame - pooledFrame);
+	}
+
+	/** A tint program built with CONS4 — one working vec4 register, unlike the pooled helper. */
+	private static byte[] composedTintProgram() throws Exception {
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		b.out(OcslWire.PROP_ANIM_TINT, b.vec4(b.f(0.1f), b.f(0.2f), b.f(0.3f), b.f(0.4f)));
+		return IrCodec.encode(b.build());
+	}
+
+	/**
+	 * Across DIFFERENT programs the maxima take the larger and the totals take the sum.
+	 *
+	 * THE FIXTURES MUST DIFFER, AND THIS TEST PROVES THEY DO BEFORE RELYING ON IT. The first
+	 * version of this test paired {@code program(PROP_ANIM_X, …)} with
+	 * {@code program(PROP_ANIM_TINT, …)} and asserted the max equalled {@code Math.max} of the
+	 * two — but BOTH take their value from the constant pool, so both lay out 34 frame floats
+	 * and declare 112 registers, and {@code Math.max(34, 34)} is satisfied by last-wins,
+	 * first-wins and a true maximum alike. A panel found it: the mutation "replace the
+	 * if-greater with a plain assignment" survived the entire suite, on the one test whose
+	 * message claimed to be watching for exactly that.
+	 *
+	 * So the pair is now pooled-vs-CONS4, which differ in both columns, the difference is
+	 * ASSERTED rather than assumed, and the WIDER program is compiled FIRST — so a last-wins
+	 * assignment leaves the smaller value behind and fails. Compiling in two separate passes
+	 * rather than one scene keeps that order deterministic instead of dependent on node walk
+	 * order.
+	 */
+	@Test
+	public void theColumnsAccumulateAcrossProgramsAndTheMaximaTakeTheLarger() throws Exception {
+		byte[] wide = composedTintProgram();
+		byte[] narrow = program(OcslWire.PROP_ANIM_TINT, 0.5f);
+		IrValidator.Validated wideV =
+				IrValidator.validate(IrCodec.decode(wide, IrCodec.Source.TRANSIENT));
+		IrValidator.Validated narrowV =
+				IrValidator.validate(IrCodec.decode(narrow, IrCodec.Source.TRANSIENT));
+		assertTrue("the fixtures must differ in frame or this test cannot see a max at all:"
+				+ " wide=" + wideV.frameWidth + " narrow=" + narrowV.frameWidth,
+				wideV.frameWidth > narrowV.frameWidth);
+		assertTrue("and in registers, for the same reason",
+				wideV.program().declaredRegisters > narrowV.program().declaredRegisters);
+
+		opengpu.v2.stats.RenderStats.reset();
+
+		SceneState first = sceneWith(info(1, wide));         // the WIDER one compiles first
+		SceneNode a = node(first, 1, 0);
+		a.animator = 1;
+		a.attachedWorldTime = 100L;
+		new AnimatorOverlay().evaluate(first, instant(200), OFFSET, true);
+
+		SceneState second = sceneWith(info(1, narrow));      // then the narrower, no reset
+		SceneNode b = node(second, 1, 0);
+		b.animator = 1;
+		b.attachedWorldTime = 100L;
+		new AnimatorOverlay().evaluate(second, instant(200), OFFSET, true);
+
+		assertEquals("two distinct programs, two compiles", 2L,
+				opengpu.v2.stats.RenderStats.animatorProgramsCompiled);
+		assertEquals("the frame total is the SUM, which is what the avg column divides",
+				wideV.frameWidth + narrowV.frameWidth,
+				(int) opengpu.v2.stats.RenderStats.animatorFrameWidthTotal);
+		assertEquals("the frame max must survive a NARROWER program compiled after it — reading"
+				+ " the narrow value here means the max is last-wins, not a maximum",
+				wideV.frameWidth, opengpu.v2.stats.RenderStats.animatorFrameWidthMax);
+		assertEquals(wideV.program().declaredRegisters + narrowV.program().declaredRegisters,
+				(int) opengpu.v2.stats.RenderStats.animatorRegistersTotal);
+		assertEquals("and the same for registers",
+				wideV.program().declaredRegisters,
+				opengpu.v2.stats.RenderStats.animatorRegistersMax);
+	}
+
 	// ---------------------------------------------- panel round 2: the states nothing produced
 
 	/**

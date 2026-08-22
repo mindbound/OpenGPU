@@ -203,6 +203,29 @@ public final class StatsOverlay {
 					avg, RenderStats.animatorChargeMax,
 					opengpu.v2.ocsl.IrValidator.maxStructuralOps(
 							opengpu.v2.ocsl.OcslWire.STAGE_ANIMATOR)));
+			// THE OTHER TWO CAPS, on their own line because the charge above cannot stand in for
+			// them: the 2026-08-21 raise moved all three together precisely BECAUSE frame and
+			// registers were binding first (a vec4 chain ran out of frame at 255 charged ops
+			// against a 256 op cap), and only the charge was ever instrumented. Reading all three
+			// side by side is what tells the next cap round which number to spend.
+			//
+			// Both denominators are the ACCEPTANCE caps in SurfaceTable, deliberately, and the
+			// register one is a live trap: `OcslWire.MAX_REGISTERS` is a SEPARATE constant of the
+			// same name and the same value today, but it is the DECODER's bound — what a blob may
+			// describe — while SurfaceTable's is what the validator ACCEPTS. These programs were
+			// priced against acceptance, so acceptance is the honest denominator, and quoting the
+			// codec's would silently misreport the moment the two diverge. Same reasoning as the
+			// animator-vs-ceiling choice on the charge line above, one layer down.
+			if (RenderStats.animatorProgramsCompiled > 0) {
+				lines.add(String.format(
+						"    frame avg %d, max %d/%d floats   regs avg %d, max %d/%d",
+						RenderStats.animatorFrameWidthTotal / RenderStats.animatorProgramsCompiled,
+						RenderStats.animatorFrameWidthMax,
+						opengpu.v2.ocsl.SurfaceTable.MAX_FRAME_WIDTH,
+						RenderStats.animatorRegistersTotal / RenderStats.animatorProgramsCompiled,
+						RenderStats.animatorRegistersMax,
+						opengpu.v2.ocsl.SurfaceTable.MAX_REGISTERS));
+			}
 			// THE PER-NODE LINE — the measurement ANIM-16's budget calibrates against, and the
 			// reason it is here rather than derived on paper: until this shipped, every per-node
 			// figure was a scene total divided by a node count read off a Lua script. Two cost

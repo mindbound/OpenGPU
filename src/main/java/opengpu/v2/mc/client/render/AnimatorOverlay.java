@@ -611,7 +611,15 @@ final class AnimatorOverlay {
 			// PLAN (op caps): "Have 3.3 report each program's structural charge at evaluation so
 			// that decision meets real data." Reported at compile rather than per frame — the
 			// charge is a property of the program, and per-frame would just repeat it.
-			opengpu.v2.stats.RenderStats.onAnimatorCompile((int) validated.structuralOps);
+			//
+			// Frame width and register count ride the same call for the same reason, and because
+			// the charge ALONE cannot answer the question the next cap round asks: both of those
+			// caps were measured binding below the op cap they accompany, so a program's charge
+			// does not tell you which limit it will reach first. `validated` already carries the
+			// frame — the validator lays it out to enforce MAX_FRAME_WIDTH — so this costs a
+			// field read, not a second pass.
+			opengpu.v2.stats.RenderStats.onAnimatorCompile((int) validated.structuralOps,
+					validated.frameWidth, program.declaredRegisters);
 			OcslVm vm = new OcslVm(validated);
 			int[] written = program.outProperties();
 			boolean[] absolute = new boolean[written.length];

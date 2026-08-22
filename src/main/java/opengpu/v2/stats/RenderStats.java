@@ -118,6 +118,46 @@ public final class RenderStats {
 	public static int animatorChargeMax;
 
 	/**
+	 * The two dimensions the op charge does NOT bound — and the data the 2026-08-21 cap round
+	 * did not have.
+	 *
+	 * That round raised four numbers together (op ceiling 256→1024, animator stage 256→512,
+	 * registers 512→1024, frame 1024→2048) because measurement showed the register and frame
+	 * caps binding BELOW the op cap they accompany: {@code SurfaceTable}'s own note records a
+	 * vec4-chain shape that ran out of FRAME at 255 charged ops — one short of the then-256 op
+	 * cap — and SSA's register-per-op layout binding straight-line code near ~400 registers. So
+	 * "how many ops did real programs charge" cannot answer "which cap will a real program hit
+	 * first", and only the op number was ever instrumented. These two are the missing columns.
+	 *
+	 * Both are recorded at COMPILE beside the charge, for the same reason: they are properties
+	 * of the program, not of a frame. Frame width is in FLOATS (a vec4 register occupies four),
+	 * which is why it is a different quantity from the register count rather than a multiple of
+	 * it — a program of many scalars and one of few vec4s can carry the same charge and sit at
+	 * opposite ends of both caps.
+	 *
+	 * READ THE FRAME COLUMN AGAINST ITS FLOOR, NOT AGAINST ZERO. The validator types the
+	 * builtins from the surface table and lays out every TYPED builtin whether the program reads
+	 * it or not, so the animator's readable builtin block is in the frame of even a one-op
+	 * program: measured 2026-08-22, a trivial {@code out(x, <pooled constant>)} program lays out
+	 * <b>34 floats</b> before computing anything. The program's own contribution is the excess
+	 * over that floor. This is exactly why the charge cannot stand in for the frame — they do
+	 * not even share an origin — and it is pinned by
+	 * {@code everyAnimatorProgramPaysTheBuiltinBlockBeforeItComputesAnything}.
+	 *
+	 * The floor is a floor for every program the BUILDER produces, not a universal law: the
+	 * typing loop runs to {@code min(declaredRegisters, BUILTIN_LIMIT)}, so a hand-encoded blob
+	 * declaring fewer registers than the builtin block is wide types — and therefore lays out —
+	 * only that many. Builder output always declares {@code WORKING_BASE} (112) or more, so the
+	 * distinction cannot arise from anything this client compiles today; it is stated because a
+	 * blob arrives over the WIRE, and "every program" would be the wrong thing to believe when
+	 * reading a number a peer's encoder produced.
+	 */
+	public static long animatorFrameWidthTotal;
+	public static int animatorFrameWidthMax;
+	public static long animatorRegistersTotal;
+	public static int animatorRegistersMax;
+
+	/**
 	 * NODES for which a VM actually ran — not scenes, not frames, and not attachments.
 	 *
 	 * The unit is named out loud because this class has already paid for the alternative once
@@ -198,11 +238,24 @@ public final class RenderStats {
 		animatorNanos += nanos;
 	}
 
-	public static void onAnimatorCompile(int structuralOps) {
+	/**
+	 * @param structuralOps    the post-unroll charge, the number the stage cap is enforced on
+	 * @param frameWidth       the laid-out frame in FLOATS, against {@code MAX_FRAME_WIDTH}
+	 * @param declaredRegisters the blob's register count, against {@code MAX_REGISTERS}
+	 */
+	public static void onAnimatorCompile(int structuralOps, int frameWidth, int declaredRegisters) {
 		animatorProgramsCompiled++;
 		animatorChargeTotal += structuralOps;
 		if (structuralOps > animatorChargeMax) {
 			animatorChargeMax = structuralOps;
+		}
+		animatorFrameWidthTotal += frameWidth;
+		if (frameWidth > animatorFrameWidthMax) {
+			animatorFrameWidthMax = frameWidth;
+		}
+		animatorRegistersTotal += declaredRegisters;
+		if (declaredRegisters > animatorRegistersMax) {
+			animatorRegistersMax = declaredRegisters;
 		}
 	}
 
@@ -282,6 +335,10 @@ public final class RenderStats {
 		animatorProgramsCompiled = 0;
 		animatorChargeTotal = 0;
 		animatorChargeMax = 0;
+		animatorFrameWidthTotal = 0;
+		animatorFrameWidthMax = 0;
+		animatorRegistersTotal = 0;
+		animatorRegistersMax = 0;
 		animatorNodesEvaluated = 0;
 		animatorNodesHeld = 0;
 		animatorScenePassesSettled = 0;
