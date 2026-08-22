@@ -157,6 +157,36 @@ public final class RenderStats {
 	 */
 	public static long animatorNodesHeld;
 
+	/**
+	 * Animator scene-passes that ran on an otherwise-SETTLED scene — not dirty, not uploading,
+	 * already drawn once, not interpolating.
+	 *
+	 * Against {@link #animatorEvaluations} this is the fraction of animator work that occurred on
+	 * a scene the budget could have skipped ENTIRELY, fixed cost and GL re-render included, had
+	 * every one of its nodes been held. On any other frame, holding declines only the VM runs,
+	 * which for typical content is a fraction of a microsecond per node against ~12 us of fixed
+	 * cost — so this ratio is the ceiling on how much ANIM-16's budget can actually save, and it
+	 * was never measured before increment 5. If it reads low, the budget's main lever does not
+	 * exist in this workload and the honest response is to say so rather than tune thresholds.
+	 *
+	 * A LOWER BOUND once degradation is active: a settled scene whose nodes are all held
+	 * short-circuits before this increments, and is absent from the denominator too.
+	 */
+	public static long animatorScenePassesSettled;
+
+	/**
+	 * Frames the client-global animator budget spent in degradation, and scene-admissions it
+	 * granted while there.
+	 *
+	 * Both read zero in an unloaded client by design — degradation is the exceptional state, and
+	 * a budget whose engagement can only be inferred from a frame-time change is one nobody can
+	 * tell apart from a stutter. {@code animatorBudgetAdmissions} over
+	 * {@code animatorBudgetFrames} is the mean number of scenes running at full rate while
+	 * engaged, which is what the rotation period actually is.
+	 */
+	public static long animatorBudgetFrames;
+	public static long animatorBudgetAdmissions;
+
 	public static void onAnimatorEvaluate(long nanos) {
 		animatorEvaluations++;
 		animatorNanos += nanos;
@@ -248,5 +278,8 @@ public final class RenderStats {
 		animatorChargeMax = 0;
 		animatorNodesEvaluated = 0;
 		animatorNodesHeld = 0;
+		animatorScenePassesSettled = 0;
+		animatorBudgetFrames = 0;
+		animatorBudgetAdmissions = 0;
 	}
 }

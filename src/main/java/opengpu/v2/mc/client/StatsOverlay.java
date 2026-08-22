@@ -217,6 +217,26 @@ public final class StatsOverlay {
 						RenderStats.animatorNodesEvaluated,
 						RenderStats.animatorNodesEvaluated
 								/ (double) Math.max(1L, RenderStats.animatorEvaluations)));
+				// THE CEILING ON WHAT THE BUDGET CAN SAVE. Holding nodes declines only their own
+				// evaluation; the fixed per-pass cost and the scene's GL re-render go only when
+				// the whole scene short-circuits, which needs the scene otherwise settled. This
+				// is the fraction of animator passes where that was available. A low reading
+				// means ANIM-16's budget has little to work with in this workload -- which is a
+				// finding about the workload, not a number to tune.
+				lines.add(String.format(
+						"    %.0f%% of passes on a settled scene (the budget's reachable ceiling)",
+						100.0 * RenderStats.animatorScenePassesSettled
+								/ Math.max(1L, RenderStats.animatorEvaluations)));
+			}
+			// ONLY WHEN ENGAGED. Absent in a client that never overloads, so the line appearing
+			// at all is the signal -- degradation is not a state that should be inferred from a
+			// frame-time wobble.
+			if (RenderStats.animatorBudgetFrames > 0) {
+				lines.add(String.format(
+						"    budget ENGAGED %d frames, %.1f scenes/frame at full rate",
+						RenderStats.animatorBudgetFrames,
+						RenderStats.animatorBudgetAdmissions
+								/ (double) RenderStats.animatorBudgetFrames));
 			}
 		}
 

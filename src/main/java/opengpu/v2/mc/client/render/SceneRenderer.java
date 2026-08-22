@@ -76,6 +76,12 @@ public final class SceneRenderer {
 	}
 
 	private final Map<String, SceneGl> scenes = new HashMap<String, SceneGl>();
+	/**
+	 * ANIM-16's client-global animator budget. One instance for the whole client, which is what
+	 * "client-global" means: the scenes compete with each other for one frame's worth of animator
+	 * time, so a per-scene budget would bound nothing.
+	 */
+	private final AnimatorBudget animatorBudget = new AnimatorBudget();
 	private final FramebufferPass pass = new FramebufferPass();
 	/**
 	 * Whether {@link #pass} is open this pre-pass. Not a duplicate of the pass's own {@code
@@ -156,6 +162,15 @@ public final class SceneRenderer {
 			return;
 		}
 		pruneDeadScenes(mirrors);
+		// THE ANIMATOR BUDGET ROLLS HERE, and this is the only point in the client that is both
+		// once-per-frame and aware of every scene -- prePass has exactly one caller, behind
+		// Phase.START. Rolling AFTER pruneDeadScenes so the decision never plans for a scene that
+		// no longer exists, and BEFORE the loop because the whole design rests on the answer being
+		// fixed before anything asks: AnimatorOverlay consults the policy twice per scene (the
+		// render guard's walk and the evaluation loop) and a disagreement between the two freezes
+		// the scene outright.
+		animatorBudget.prune(scenes.keySet());
+		animatorBudget.beginFrame(usedScenes);
 		long budget = UPLOAD_BUDGET_PER_FRAME;
 		long rendersBefore = RenderStats.sceneRenders;
 		// ONE FramebufferPass around every scene, opened lazily by renderIfNeeded and closed
@@ -177,6 +192,12 @@ public final class SceneRenderer {
 				if (gl == null) {
 					gl = new SceneGl();
 					scenes.put(sceneId, gl);
+					// INSTALLED ONCE, at creation, not per frame. The policy object carries the
+					// scene id -- HoldPolicy.hold takes a bare node id, and node ids restart at 1
+					// in every scene, so a policy shared across scenes would hold node 1
+					// everywhere at once. Allocating one per frame here would also contradict
+					// AnimatorOverlay's zero-allocation-frame claim.
+					gl.overlay.holdPolicy(animatorBudget.policyFor(sceneId));
 				}
 				budget = uploadTextures(gl, mirror, budget);
 				renderIfNeeded(gl, mirror);
@@ -330,6 +351,20 @@ public final class SceneRenderer {
 	}
 
 	private void renderIfNeeded(SceneGl gl, SceneMirror mirror) {
+		// CHARGED ZERO UP FRONT, then charged again for real if the animator pass happens.
+		//
+		// Every return below this line leaves the scene having done NO animator work, and the
+		// budget has to be told so. Without this, a scene that always returns early — no canvas
+		// node yet, or a latched FBO failure, both of which are indefinite states — is never
+		// charged at all, so its estimate stays at the never-measured fallback of 30 us FOREVER
+		// while it still occupies admission budget. Five such phantoms sum to 150 us of demand
+		// that nothing pays and nothing can reduce, which is above EXIT_NANOS: the client latches
+		// into permanent degradation on behalf of scenes with no animators at all.
+		//
+		// Safe on the paths that DO evaluate: charge() accumulates within the frame, so the real
+		// measurement adds to this zero rather than replacing it, and a zero full-rate reading is
+		// only recorded for a scene that genuinely did nothing.
+		animatorBudget.charge(mirror.sceneId, 0L);
 		int[] size = sceneLogicalSize(mirror);
 		if (size == null) {
 			return; // no canvas node yet — nothing to render
@@ -431,9 +466,29 @@ public final class SceneRenderer {
 		// reads `byNode` as the PREVIOUS pass left it, which is the state it must judge -- whether
 		// a node can be held depends on whether it has an output to hold, and this pass has not
 		// produced one yet.
-		if (!mirror.isDirty() && !gl.uploadDirty && gl.everRendered && !interpolating
-				&& !gl.overlay.wouldEvaluate(mirror.state())) {
-			return;
+		if (!mirror.isDirty() && !gl.uploadDirty && gl.everRendered && !interpolating) {
+			if (!gl.overlay.wouldEvaluate(mirror.state())) {
+				return;
+			}
+			// THE SETTLED-FRAME MEASUREMENT (ANIM-16), and it is FREE here: reaching this line
+			// means the four cheap conjuncts held AND wouldEvaluate answered true, so there is
+			// animator work on an otherwise-settled scene -- no extra walk, no extra branch on
+			// any other path.
+			//
+			// WHY IT IS WORTH COUNTING. Holding a node declines only that node's own evaluation.
+			// The fixed per-evaluation cost and the scene's GL re-render -- the terms actually
+			// worth having -- are declined only when the short-circuit above fires, which needs
+			// every node held AND these four conjuncts. Nobody knows what fraction of a real
+			// animated scene's frames satisfy them; one taking 20 Hz server batches may be dirty
+			// or interpolating for most of its life, in which case the budget's headline lever
+			// does not exist in the workload it was built for. Against RenderStats'
+			// animatorEvaluations this gives that fraction directly.
+			//
+			// UNDERCOUNTS ONCE DEGRADATION IS ACTIVE, deliberately and in the safe direction: a
+			// settled scene with every node held returns at the line above and is counted in
+			// neither this nor animatorEvaluations. Those frames are the budget's wins, so the
+			// ratio reads as a LOWER bound on how often the lever was available.
+			RenderStats.animatorScenePassesSettled++;
 		}
 		// ANIMATOR EVALUATION -- once per frame per scene, before any GL work, and against the
 		// SAME interpolator and `now` the render below draws with (ANIM-4: one time sample per
@@ -461,11 +516,22 @@ public final class SceneRenderer {
 		long animStart = System.nanoTime();
 		gl.overlay.evaluate(mirror.state(), gl.interp.renderInstant(now),
 				mirror.sessionTickOffset(), mirror.animatorClockKnown(), gl.interp, now);
+		long animNanos = System.nanoTime() - animStart;
+		// THE BUDGET IS CHARGED UNCONDITIONALLY, outside the gate below, and the difference is
+		// the whole reason it keeps its own accumulator instead of reading RenderStats. An
+		// all-held pass runs no VM, so the gate is false and `animatorNanos` does not move -- yet
+		// that pass genuinely paid the fixed per-evaluation cost and every recomposition. A
+		// budget reading the gated counter would watch spend collapse to zero the instant it
+		// began holding, release, spike, and re-enter: blind exactly when it is engaged.
+		animatorBudget.charge(mirror.sceneId, animNanos);
 		if (RenderStats.animatorNodesEvaluated != nodesBefore) {
 			// A MIXED pass still charges its held nodes' recomposition into this window with no
 			// denominator of its own -- a small upward bias on the per-node figure, and
 			// RenderStats.animatorNodesHeld is what makes it quantifiable rather than invisible.
-			RenderStats.onAnimatorEvaluate(System.nanoTime() - animStart);
+			// The SAME reading the budget was charged, deliberately: a second nanoTime here would
+			// fold the charge call into the per-node instrument FIELD-TEST-ANIM16 calibrates
+			// against, changing what a measured constant means for no reason.
+			RenderStats.onAnimatorEvaluate(animNanos);
 		}
 		Map<Integer, Integer> glMap = new HashMap<Integer, Integer>();
 		for (Map.Entry<Integer, TexEntry> entry : gl.textures.entrySet()) {

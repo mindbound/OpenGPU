@@ -200,6 +200,13 @@ public class StatsTest {
 		// precondition below is what makes "added a counter, forgot reset()" impossible to land
 		// even for a counter that no shipped code can move.
 		RenderStats.animatorNodesHeld += 5L;
+		// Same again for increment 5's three. The sweep's precondition is what catches "added a
+		// counter, never drove it here"; the post-reset assertion catches "added a counter, never
+		// reset it". Both are needed, and neither is reachable from production in an unloaded
+		// client, which is exactly why they are driven by hand.
+		RenderStats.animatorScenePassesSettled += 7L;
+		RenderStats.animatorBudgetFrames += 11L;
+		RenderStats.animatorBudgetAdmissions += 13L;
 
 		java.util.List<java.lang.reflect.Field> counters =
 				new java.util.ArrayList<java.lang.reflect.Field>();
