@@ -1,9 +1,11 @@
 package opengpu.v2.mc.client.render;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -82,6 +84,26 @@ public final class SceneRenderer {
 	 * time, so a per-scene budget would bound nothing.
 	 */
 	private final AnimatorBudget animatorBudget = new AnimatorBudget();
+	/**
+	 * The scenes this frame will actually walk: {@code usedScenes} minus those with no mirror.
+	 *
+	 * ONE POPULATION, FED TO BOTH THE BUDGET AND THE LOOP. They used to differ — {@code prune}
+	 * was given the {@code SceneGl} keys while {@code beginFrame} was given raw {@code
+	 * usedScenes} — and the gap between them was a permanent-degradation bug. A scene marked used
+	 * with no mirror is skipped before it can acquire a {@code SceneGl}, so {@code prune} deleted
+	 * its budget every frame, {@code beginFrame} recreated it at the never-measured fallback, and
+	 * being forever unseen it was force-admitted and charged ~30 us in pass 1 on EVERY frame.
+	 * Five of those exceed the exit threshold on their own: degradation that can never end, on
+	 * behalf of scenes that never render.
+	 *
+	 * Charging them zero would not have helped — {@code prune} destroys the entry before the next
+	 * frame could read it. Only agreeing on the population fixes it, which is the same move
+	 * {@code wouldEvaluate} makes for the render guard: remove the possibility of disagreement
+	 * rather than test for its absence.
+	 *
+	 * A field, not a local, so the per-frame roll allocates nothing.
+	 */
+	private final List<String> walk = new ArrayList<String>();
 	private final FramebufferPass pass = new FramebufferPass();
 	/**
 	 * Whether {@link #pass} is open this pre-pass. Not a duplicate of the pass's own {@code
@@ -145,6 +167,22 @@ public final class SceneRenderer {
 	 * The pre-pass: prune dead GL state, upload pending texture bytes under the frame
 	 * budget, then render every used-and-dirty (or never-rendered) scene.
 	 */
+	/**
+	 * The frame's pre-pass: everything OpenGPU draws happens under here.
+	 *
+	 * SPLIT IN TWO AT THE FBO GATE, 2026-08-22, and the reason is that the split is the whole
+	 * difference between this file being testable and not. The gate below is a CALL-time check
+	 * ({@code OpenGlHelper.isFramebufferEnabled()}), not a classloading one: this class has no
+	 * static initialiser, and the suite already constructs Minecraft-typed objects headlessly
+	 * ({@code InputRouterTest} allocates an {@code EntityPlayerMP} to route against). So the only
+	 * thing that stopped a JVM test driving the per-frame orchestration was this one early return,
+	 * which fires headlessly and skips the entire body.
+	 *
+	 * The commit that landed ANIM-16's budget said the wiring "needs GL and Forge to classload"
+	 * and therefore could not be covered. That was wrong, and it cost an unnoticed bug: the
+	 * budget was fed a different population than the loop walked. {@link #prePassSupported} is
+	 * package-private so a test can drive it directly with no framebuffer.
+	 */
 	public void prePass(MirrorClient mirrors, Set<String> usedScenes) {
 		if (!FramebufferPass.isSupported()) {
 			if (!fboUnsupportedLogged) {
@@ -161,6 +199,40 @@ public final class SceneRenderer {
 			notifyPlayerOnce();
 			return;
 		}
+		prePassSupported(mirrors, usedScenes);
+	}
+
+	/**
+	 * The pre-pass proper, with framebuffer support already established.
+	 *
+	 * Package-private and free of any GL call on the paths a scene with no canvas node takes, so
+	 * a headless test can drive the per-frame orchestration: the budget's roll, the population it
+	 * is given, per-scene state creation and pruning.
+	 */
+	/**
+	 * The scenes a frame will actually walk: those marked used that still have a mirror.
+	 *
+	 * STATIC AND PACKAGE-PRIVATE SO IT CAN BE TESTED, because this is where a real bug lived and
+	 * the enclosing class cannot be instantiated in a JVM test — {@code new SceneRenderer()}
+	 * constructs a {@link FramebufferPass}, whose buffers come from LWJGL's {@code BufferUtils},
+	 * which is not on the test runtime classpath. (The class itself loads fine; it has no static
+	 * initialiser. It is the CONSTRUCTOR that cannot run, which is a narrower obstacle than the
+	 * "needs GL and Forge to classload" this file used to claim, and a different one.)
+	 *
+	 * The bug: the budget was rolled over raw {@code usedScenes} while the loop walked only the
+	 * mirrored subset, so a scene marked used with no mirror was charged to the budget forever
+	 * without ever being able to discharge. Both now read this one answer.
+	 */
+	static void resolveWalk(MirrorClient mirrors, Set<String> usedScenes, List<String> out) {
+		out.clear();
+		for (String sceneId : usedScenes) {
+			if (mirrors.hasMirror(sceneId)) {
+				out.add(sceneId);
+			}
+		}
+	}
+
+	void prePassSupported(MirrorClient mirrors, Set<String> usedScenes) {
 		pruneDeadScenes(mirrors);
 		// THE ANIMATOR BUDGET ROLLS HERE, and this is the only point in the client that is both
 		// once-per-frame and aware of every scene -- prePass has exactly one caller, behind
@@ -169,8 +241,10 @@ public final class SceneRenderer {
 		// fixed before anything asks: AnimatorOverlay consults the policy twice per scene (the
 		// render guard's walk and the evaluation loop) and a disagreement between the two freezes
 		// the scene outright.
+		// THE POPULATION, resolved once, before either consumer sees it. See the `walk` field.
+		resolveWalk(mirrors, usedScenes, walk);
 		animatorBudget.prune(scenes.keySet());
-		animatorBudget.beginFrame(usedScenes);
+		animatorBudget.beginFrame(walk);
 		long budget = UPLOAD_BUDGET_PER_FRAME;
 		long rendersBefore = RenderStats.sceneRenders;
 		// ONE FramebufferPass around every scene, opened lazily by renderIfNeeded and closed
@@ -183,10 +257,10 @@ public final class SceneRenderer {
 		// all. Opening eagerly here would charge every idle frame ~21 state reads to keep a
 		// framebuffer bound that nothing draws into.
 		try {
-			for (String sceneId : usedScenes) {
-				if (!mirrors.hasMirror(sceneId)) {
-					continue;
-				}
+			// `walk` is already mirror-filtered, so the guard that used to stand here is gone
+			// rather than duplicated — leaving it would let the two populations drift apart again
+			// the next time one of them changed.
+			for (String sceneId : walk) {
 				SceneMirror mirror = mirrors.mirror(sceneId);
 				SceneGl gl = scenes.get(sceneId);
 				if (gl == null) {
@@ -457,9 +531,12 @@ public final class SceneRenderer {
 		// is correct, and it is where most of the saving is -- declining the VM while still
 		// re-rendering the scene every frame would forfeit the GL cost, which is the larger half.
 		//
-		// IDENTICAL TODAY. `wouldEvaluate` answers exactly what `hasAttachedAnimator()` answered
-		// while EVALUATE_ALWAYS is the only policy, dangling and broken attachments included.
-		// This is the seam, not a behaviour change.
+		// NO LONGER IDENTICAL, as of the budget landing on 2026-08-22. This used to say the term
+		// answered exactly what `hasAttachedAnimator()` answered, which was true only while
+		// EVALUATE_ALWAYS was the sole policy. A scene the budget declines to admit now holds
+		// every node, so `wouldEvaluate` answers FALSE for a scene that plainly has animators
+		// attached -- which is the entire point, because that is what lets this conjunct skip the
+		// scene's fixed cost and its GL re-render together.
 		//
 		// STILL INLINE, for the reason stated two comments up: hoisting it to a local would
 		// evaluate the walk eagerly on every frame and make the short-circuit decorative. It also

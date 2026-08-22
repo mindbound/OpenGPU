@@ -79,9 +79,10 @@ import opengpu.v2.scene.SceneState;
  *
  * <h2>What this class deliberately does not do</h2>
  *
- * It does not decide WHICH nodes to hold. {@link HoldPolicy} is the seam ANIM-16's client-global
- * budget will drive; the only policy wired into production is {@link #EVALUATE_ALWAYS}, so as
- * shipped nothing is ever held and the mechanism above is exercised by tests alone.
+ * It does not decide WHICH nodes to hold. {@link HoldPolicy} is the seam, and since 2026-08-22
+ * {@code AnimatorBudget} drives it: a scene the budget declines to admit holds every node.
+ * {@link #EVALUATE_ALWAYS} is now the fallback for an overlay with no policy installed, not the
+ * shipped behaviour.
  *
  * It does not touch GL and it does not read the renderer — the renderer reads IT, at
  * {@code Canvas2dRenderer.readTransform} (via {@link #overlayTransform}) and {@code beginNode}
@@ -237,12 +238,16 @@ final class AnimatorOverlay {
 	/**
 	 * Which nodes may skip their program this frame — ANIM-16's degradation seam.
 	 *
-	 * <b>INERT IN PRODUCTION AS SHIPPED.</b> The only policy wired into PRODUCTION is
-	 * {@link #EVALUATE_ALWAYS}, so nothing holds and behaviour is unchanged; the budget that will
-	 * answer {@code true} needs the per-node cost constant, which is still unmeasured
-	 * (FIELD-TEST-ANIM16). This increment lands the mechanism the budget will steer, and the tests
-	 * drive the policy directly rather than waiting for it — a seam with a stub is checkable, a
-	 * comment saying "the budget goes here" is not.
+	 * <b>LIVE SINCE 2026-08-22.</b> {@code AnimatorBudget} installs a per-scene policy at
+	 * {@code SceneGl} creation, so this can and does answer {@code true} on an overloaded client.
+	 * It was inert when the seam landed in increments 3–4 — the budget it steers needed a per-node
+	 * cost constant that had not been measured yet — and that fact was written here in terms
+	 * ("INERT IN PRODUCTION AS SHIPPED") which stopped being true the moment increment 5 wired the
+	 * budget.
+	 *
+	 * <b>The contract has not changed and still binds:</b> whatever answers this must give the
+	 * SAME answer for a node throughout one frame. It is asked from two places per frame — the
+	 * render guard's walk and the evaluation loop — and a disagreement freezes the scene outright.
 	 */
 	interface HoldPolicy {
 		/** True to reuse {@code nodeId}'s previous output instead of running its program. */

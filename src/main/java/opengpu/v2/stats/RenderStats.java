@@ -142,11 +142,17 @@ public final class RenderStats {
 	 * Stage C ids, which the evaluator stores nothing for) is counted here and recomposes nothing,
 	 * because what this measures is work DECLINED, not work done.
 	 *
-	 * READS ZERO IN EVERY BUILD SO FAR, and that is not a defect to chase: the only hold policy
-	 * wired into PRODUCTION is {@code AnimatorOverlay.EVALUATE_ALWAYS}. It exists now so that when
-	 * ANIM-16's budget starts declining work, the amount declined is visible on the same footing
-	 * as the work done — a budget whose effect can only be inferred from a frame-time change is a
-	 * budget nobody can tell apart from a stutter.
+	 * LIVE SINCE 2026-08-22. It read zero in every build up to increment 5, when
+	 * {@code AnimatorBudget} became the wired hold policy; before that the only policy anywhere in
+	 * production was {@code AnimatorOverlay.EVALUATE_ALWAYS} and nothing could ever be held. That
+	 * sentence stood in this javadoc after the budget landed, which would have told anyone reading
+	 * the instrument that a zero here is expected — on the very counter ANIM-16's field test has
+	 * to read.
+	 *
+	 * A zero now means the budget never engaged, which is the normal state for a client that is
+	 * not overloaded and a FINDING for one that is. It exists so the amount of declined work is
+	 * visible on the same footing as the work done: a budget whose effect can only be inferred
+	 * from a frame-time change is a budget nobody can tell apart from a stutter.
 	 *
 	 * <b>It is also the correction term for the per-node instrument.</b>
 	 * {@code animatorNanos / animatorNodesEvaluated} charges a frame's whole overlay cost to the
