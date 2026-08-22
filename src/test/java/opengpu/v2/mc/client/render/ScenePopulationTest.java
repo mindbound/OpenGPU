@@ -123,11 +123,14 @@ public class ScenePopulationTest {
 		AnimatorBudget budget = new AnimatorBudget();
 		Set<String> withGhosts = used("real", "g0", "g1", "g2", "g3", "g4", "g5");
 
-		// Drive it into degradation with genuine load on the one real scene.
+		// Drive it into degradation with SUSTAINED genuine load on the one real scene -- the
+		// entry is debounced (two consecutive over-threshold frames), so one spike is a hitch.
 		frame(mirrors, budget, withGhosts);
 		budget.charge("real", 300_000L);
 		frame(mirrors, budget, withGhosts);
-		assertTrue("300 us of real load engages it", budget.degrading());
+		budget.charge("real", 300_000L);
+		frame(mirrors, budget, withGhosts);
+		assertTrue("300 us of sustained real load engages it", budget.degrading());
 
 		// The real scene becomes cheap. Nothing else has any claim on the budget.
 		for (int f = 0; f < AnimatorBudget.MAX_HOLD_FRAMES + 3; f++) {
@@ -163,6 +166,9 @@ public class ScenePopulationTest {
 
 		// THE OLD WIRING: prune keyed on the scenes that get GL state (the mirrored ones), but
 		// the roll given every scene marked used.
+		budget.prune(new HashSet<String>(mirrored));
+		budget.beginFrame(withGhosts);
+		budget.charge("real", 300_000L);
 		budget.prune(new HashSet<String>(mirrored));
 		budget.beginFrame(withGhosts);
 		budget.charge("real", 300_000L);

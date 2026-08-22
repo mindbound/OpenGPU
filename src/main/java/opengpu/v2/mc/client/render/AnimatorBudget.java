@@ -85,6 +85,21 @@ final class AnimatorBudget {
 	static final long EXIT_NANOS = 125_000L;
 
 	/**
+	 * Consecutive over-threshold frames required to enter degradation.
+	 *
+	 * Two, because the two failure shapes separate perfectly at that number: a genuine overload
+	 * is over on EVERY frame (field-measured: 8 scenes engaged the budget on 100% of frames
+	 * across every window), while a wall-clock hitch — alt-tab, GC — is a single frame. One
+	 * frame of delayed entry under a real overload costs one frame of unthrottled spend, which
+	 * is the overload's own cost, once; a spurious engagement cost ~7 frames of holding a healthy
+	 * scene every time the window lost focus (observed 2026-08-22).
+	 *
+	 * Higher values buy nothing: back-to-back hitches are rare, self-heal through the staleness
+	 * bound even when they do slip through, and each unit here delays response to real overload.
+	 */
+	static final int ENTER_STREAK_FRAMES = 2;
+
+	/**
 	 * A scene may be held for at most this many consecutive frames before it is admitted whatever
 	 * the budget says.
 	 *
@@ -155,6 +170,8 @@ final class AnimatorBudget {
 	private final List<SceneBudget> present = new ArrayList<SceneBudget>();
 
 	private boolean degrading;
+	/** Consecutive frames of over-threshold spend while NOT degrading; see the entry debounce. */
+	private int overStreak;
 	private long lastFrameSpend;
 	private long lastFrameDemand;
 	private int admittedLastFrame;
@@ -220,10 +237,36 @@ final class AnimatorBudget {
 		// because that is ground truth for "we are over". Exit reads what the scenes WOULD cost
 		// at full rate, because measured spend collapses the moment holding starts and would
 		// release us instantly into the same overload.
+		//
+		// ENTRY IS DEBOUNCED: the spend must exceed the threshold on ENTER_STREAK_FRAMES
+		// CONSECUTIVE frames. A genuine overload sustains -- the field test's 8-scene arms were
+		// over threshold on every frame of every window -- while a wall-clock hitch is isolated
+		// by nature. Without this, one alt-tab or GC pause inside the timed animator window both
+		// tripped entry AND poisoned the hitched scene's full-rate estimate, and the budget spent
+		// the next ~7 frames holding a 20 us scene it believed cost 2.4 ms (observed in the wild,
+		// 2026-08-22; the staleness bound recovered it, but the engagement was spurious).
+		//
+		// THE DEBOUNCE ALSO HEALS THE ESTIMATE in the observed failure shape: on the frame after
+		// an isolated spike the budget is not yet degrading, so the scene is admitted normally,
+		// re-measured at its real cost, and the poisoned estimate is overwritten before demand is
+		// ever consulted -- demand only matters while degrading. That trace assumes the scene is
+		// still visible and the budget disengaged; the two paths outside it are real but bounded
+		// by the forced-admission machinery, not by the debounce: a spike charged to an ADMITTED
+		// scene while already degrading inflates demand until rotation or the staleness bound
+		// re-admits and re-measures it (at most MAX_HOLD_FRAMES frames of delayed exit), and a
+		// spike on a scene's LAST VISIBLE frame survives in its estimate until the scene returns
+		// to view, where the return is itself a forced admission -- one frame of inflated demand.
+		// Clamping estimates instead would cover those two paths too, but it makes the recorded
+		// numbers lie and interacts with the rotation's cost-vs-remaining test; frames-bounded
+		// staleness was judged the cheaper defect.
 		if (!degrading) {
-			degrading = spend > ENTER_NANOS;
+			overStreak = spend > ENTER_NANOS ? overStreak + 1 : 0;
+			if (overStreak >= ENTER_STREAK_FRAMES) {
+				degrading = true;
+			}
 		} else {
 			degrading = demand >= EXIT_NANOS;
+			overStreak = 0;
 		}
 
 		if (!degrading) {

@@ -23,6 +23,22 @@ public class AnimatorBudgetTest {
 
 	private static final List<String> ONE = Arrays.asList("a");
 
+	/**
+	 * Enter degradation the sustained way: over-threshold spend on ENTER_STREAK_FRAMES
+	 * consecutive rolls. One overspend frame no longer engages — that is the hitch debounce,
+	 * pinned by its own tests below — so every test whose subject is what happens AFTER entry
+	 * goes through here.
+	 */
+	private static void engage(AnimatorBudget b, List<String> ids, long nanosEach) {
+		for (int i = 0; i < AnimatorBudget.ENTER_STREAK_FRAMES; i++) {
+			frame(b, ids, nanosEach);
+		}
+		b.beginFrame(ids);
+		for (String id : ids) {
+			b.charge(id, nanosEach);
+		}
+	}
+
 	/** Drive one frame: roll, then charge every scene the given cost. */
 	private static void frame(AnimatorBudget b, List<String> ids, long nanosEach) {
 		b.beginFrame(ids);
@@ -60,14 +76,125 @@ public class AnimatorBudgetTest {
 	 * until it has been paid for.
 	 */
 	@Test
-	public void degradationEntersOnlyAfterAFrameActuallyOverspends() {
+	public void degradationEntersOnlyAfterSustainedOverspend() {
 		AnimatorBudget b = new AnimatorBudget();
 		b.beginFrame(ONE);
 		assertFalse("nothing measured yet", b.degrading());
-		b.charge("a", 300_000L);                 // over ENTER, but only observable next roll
+		b.charge("a", 300_000L);
 
 		b.beginFrame(ONE);
-		assertTrue("the overspend is now in hand", b.degrading());
+		assertFalse("ONE overspend frame is a hitch until proven otherwise -- the debounce",
+				b.degrading());
+		b.charge("a", 300_000L);
+
+		b.beginFrame(ONE);
+		assertTrue("the second consecutive overspend is an overload", b.degrading());
+	}
+
+	/**
+	 * THE HITCH CASE, observed in the wild 2026-08-22: one alt-tab put ~2.4 ms into the timed
+	 * window of a ~20 us scene and the budget spent ~7 frames holding a healthy scene. A single
+	 * spike must not engage -- and the spiked ESTIMATE must heal by itself, because the frame
+	 * after the spike is not degrading, so the scene is admitted and re-measured before demand
+	 * is ever consulted. Both properties in one trace, numbers from the real incident.
+	 */
+	@Test
+	public void aSingleHitchFrameNeitherEngagesNorPoisonsTheEstimate() {
+		AnimatorBudget b = new AnimatorBudget();
+		frame(b, ONE, 20_000L);                  // healthy baseline, estimate = 20 us
+		b.beginFrame(ONE);
+		b.charge("a", 2_400_000L);               // the alt-tab, verbatim
+
+		b.beginFrame(ONE);
+		assertFalse("a lone 2.4 ms frame is a hitch, not an overload", b.degrading());
+		b.charge("a", 20_000L);                  // admitted normally -> re-measured
+
+		b.beginFrame(ONE);
+		assertFalse(b.degrading());
+		assertEquals("the estimate healed on the very next admitted frame; 2400000 here means"
+				+ " the spike stuck and the scene would be held as oversize on any future"
+				+ " engagement", 20_000L, b.lastFrameDemand());
+	}
+
+	/** An isolated spike must not accumulate: over, normal, over, normal... never engages. */
+	@Test
+	public void alternatingSpikesNeverEngage() {
+		AnimatorBudget b = new AnimatorBudget();
+		frame(b, ONE, 20_000L);
+		for (int i = 0; i < 10; i++) {
+			frame(b, ONE, (i % 2 == 0) ? 2_400_000L : 20_000L);
+			assertFalse("cycle " + i + ": the streak must reset on every under-threshold frame",
+					b.degrading());
+		}
+	}
+
+	/**
+	 * BACK-TO-BACK hitch-magnitude frames MUST engage -- the debounce is a streak counter, not a
+	 * magnitude filter. This is the test that separates the shipped design from the rejected
+	 * alternative (discarding/clamping outlier charges): a clamp suppresses these frames and
+	 * never engages, which for a genuinely 3 ms scene means unbounded frame cost with a green
+	 * suite. Every other hitch test uses isolated spikes a clamp would also suppress, so without
+	 * this one the two implementations are indistinguishable.
+	 */
+	@Test
+	public void twoConsecutiveHitchMagnitudeFramesEngage() {
+		AnimatorBudget b = new AnimatorBudget();
+		frame(b, ONE, 20_000L);
+		frame(b, ONE, 2_400_000L);
+		frame(b, ONE, 2_400_000L);
+		b.beginFrame(ONE);
+		assertTrue("sustained hitch-magnitude spend IS an overload, whatever its size",
+				b.degrading());
+	}
+
+	/**
+	 * After a RELEASE, the streak must start from zero: one hitch immediately after leaving
+	 * degradation must not re-engage. Without an explicit reset in the degrading branch the
+	 * streak would still hold its entry value, and the first post-release spike would jump it
+	 * past the threshold -- turning the debounce into a one-shot that only works before the
+	 * budget's first engagement.
+	 */
+	@Test
+	public void aHitchRightAfterReleaseDoesNotReengage() {
+		AnimatorBudget b = new AnimatorBudget();
+		engage(b, ONE, 300_000L);
+		assertTrue(b.degrading());
+
+		// EXACTLY MAX_HOLD_FRAMES cheap frames, so the roll below is the RELEASING roll and the
+		// spike lands on the release frame itself. The panel proved the first version of this
+		// test useless: with two extra loop iterations the release happened inside the loop, the
+		// ordinary under-threshold reset zeroed a stale streak before the spike arrived, and the
+		// mutant this test exists to kill (the degrading-branch reset deleted) survived the whole
+		// suite while the javadoc claimed otherwise. The defect that mutant reintroduces is a
+		// hitch charged during the releasing frame re-engaging off the stale entry streak.
+		for (int i = 0; i < AnimatorBudget.MAX_HOLD_FRAMES; i++) {
+			frame(b, ONE, 20_000L);
+		}
+		b.beginFrame(ONE);
+		assertFalse("this roll is the release", b.degrading());
+		b.charge("a", 2_400_000L);               // the hitch lands ON the releasing frame
+
+		b.beginFrame(ONE);
+		assertFalse("a single post-release spike is still just a hitch; degrading here means the"
+				+ " entry streak survived degradation and the spike re-engaged off stale state",
+				b.degrading());
+	}
+
+	/** A spike while ALREADY degrading changes nothing -- entry state machinery is entry-only. */
+	@Test
+	public void aSpikeDuringDegradationIsIrrelevant() {
+		AnimatorBudget b = new AnimatorBudget();
+		engage(b, ONE, 300_000L);
+		assertTrue(b.degrading());
+		frame(b, ONE, 2_400_000L);
+		// The extra roll is the test. frame() rolls BEFORE charging, so without this the spike
+		// would sit uncharged-into-any-decision and the assertion would read state computed
+		// before the spike existed -- the panel showed a mutant that exits degradation on any
+		// observed spike passing the one-roll version verbatim. This roll makes the degrading
+		// branch actually process a 2.4 ms spend.
+		b.beginFrame(ONE);
+		assertTrue("still degrading; demand governs exit, and a spike is not demand",
+				b.degrading());
 	}
 
 	/**
@@ -78,16 +205,37 @@ public class AnimatorBudgetTest {
 	@Test
 	public void theThresholdsAreExclusiveAtTheBoundary() {
 		AnimatorBudget atEnter = new AnimatorBudget();
+		frame(atEnter, ONE, AnimatorBudget.ENTER_NANOS);
+		frame(atEnter, ONE, AnimatorBudget.ENTER_NANOS);
 		atEnter.beginFrame(ONE);
-		atEnter.charge("a", AnimatorBudget.ENTER_NANOS);
-		atEnter.beginFrame(ONE);
-		assertFalse("exactly at ENTER must not degrade", atEnter.degrading());
+		assertFalse("exactly at ENTER must not degrade, however sustained", atEnter.degrading());
 
 		AnimatorBudget over = new AnimatorBudget();
+		frame(over, ONE, AnimatorBudget.ENTER_NANOS + 1);
+		frame(over, ONE, AnimatorBudget.ENTER_NANOS + 1);
 		over.beginFrame(ONE);
-		over.charge("a", AnimatorBudget.ENTER_NANOS + 1);
-		over.beginFrame(ONE);
-		assertTrue("one nanosecond over must", over.degrading());
+		assertTrue("one nanosecond over, sustained past the debounce, must", over.degrading());
+
+		// THE EXIT SIDE, which this test's javadoc always claimed and never drove: demand of
+		// exactly EXIT_NANOS stays degrading (the comparison is >=), one below releases. The
+		// admitted pass re-measures the estimate, so charging an admitted frame sets demand.
+		AnimatorBudget atExit = new AnimatorBudget();
+		engage(atExit, ONE, 300_000L);
+		assertTrue(atExit.degrading());
+		frame(atExit, ONE, AnimatorBudget.EXIT_NANOS);      // admitted or forced: re-measured
+		for (int i = 0; i < AnimatorBudget.MAX_HOLD_FRAMES + 2; i++) {
+			frame(atExit, ONE, AnimatorBudget.EXIT_NANOS);
+		}
+		atExit.beginFrame(ONE);
+		assertTrue("demand exactly at EXIT must not release", atExit.degrading());
+
+		AnimatorBudget under = new AnimatorBudget();
+		engage(under, ONE, 300_000L);
+		for (int i = 0; i < AnimatorBudget.MAX_HOLD_FRAMES + 2; i++) {
+			frame(under, ONE, AnimatorBudget.EXIT_NANOS - 1);
+		}
+		under.beginFrame(ONE);
+		assertFalse("one nanosecond under EXIT must release", under.degrading());
 	}
 
 	/**
@@ -102,9 +250,7 @@ public class AnimatorBudgetTest {
 	@Test
 	public void exitReadsDemandNotSpendSoHoldingCannotReleaseItself() {
 		AnimatorBudget b = new AnimatorBudget();
-		b.beginFrame(ONE);
-		b.charge("a", 300_000L);
-		b.beginFrame(ONE);
+		engage(b, ONE, 300_000L);
 		assertTrue(b.degrading());
 
 		// Held frames are cheap; the periodic forced admission still costs the real 300 us,
@@ -123,9 +269,7 @@ public class AnimatorBudgetTest {
 	@Test
 	public void degradationLeavesWhenRealDemandFalls() {
 		AnimatorBudget b = new AnimatorBudget();
-		b.beginFrame(ONE);
-		b.charge("a", 300_000L);
-		b.beginFrame(ONE);
+		engage(b, ONE, 300_000L);
 		assertTrue(b.degrading());
 
 		// An admitted (forced, at the staleness bound) pass re-measures the scene as cheap.
@@ -151,7 +295,7 @@ public class AnimatorBudgetTest {
 	public void anUnadmittedSceneHoldsEveryNodeAndAnAdmittedOneHoldsNone() {
 		AnimatorBudget b = new AnimatorBudget();
 		List<String> many = ids(20);
-		frame(b, many, 30_000L);                 // 600 us total: far over
+		engage(b, many, 30_000L);                // 600 us total: far over, sustained
 		b.beginFrame(many);
 		assertTrue(b.degrading());
 
@@ -184,8 +328,11 @@ public class AnimatorBudgetTest {
 	public void theAnswerIsStableAcrossRepeatedCallsInOneFrame() {
 		AnimatorBudget b = new AnimatorBudget();
 		List<String> many = ids(20);
-		frame(b, many, 30_000L);
+		engage(b, many, 30_000L);
 		b.beginFrame(many);
+		assertTrue("the stability property must be tested in the DEGRADING state, where answers"
+				+ " differ per scene -- without engagement every answer is false and stability"
+				+ " is vacuous", b.degrading());
 
 		for (String id : many) {
 			AnimatorBudget.SceneBudget p = b.policyFor(id);
@@ -209,7 +356,7 @@ public class AnimatorBudgetTest {
 	public void everySceneRunsWithinTheStalenessBoundUnderImpossibleLoad() {
 		AnimatorBudget b = new AnimatorBudget();
 		List<String> many = ids(40);
-		frame(b, many, 30_000L);
+		engage(b, many, 30_000L);
 		b.beginFrame(many);
 		assertTrue(b.degrading());
 
@@ -327,13 +474,15 @@ public class AnimatorBudgetTest {
 		AnimatorBudget b = new AnimatorBudget();
 		List<String> all = Arrays.asList("real", "p0", "p1", "p2", "p3", "p4");
 
-		b.beginFrame(all);
-		b.charge("real", 300_000L);
-		for (int i = 0; i < 5; i++) {
-			b.charge("p" + i, 0L);               // reached the renderer, did no animator work
+		for (int r = 0; r < AnimatorBudget.ENTER_STREAK_FRAMES; r++) {
+			b.beginFrame(all);
+			b.charge("real", 300_000L);
+			for (int i = 0; i < 5; i++) {
+				b.charge("p" + i, 0L);           // reached the renderer, did no animator work
+			}
 		}
 		b.beginFrame(all);
-		assertTrue("300 us of real load engages it", b.degrading());
+		assertTrue("300 us of sustained real load engages it", b.degrading());
 
 		// The real scene's animators are detached; it now costs almost nothing.
 		for (int f = 0; f < AnimatorBudget.MAX_HOLD_FRAMES + 3; f++) {
@@ -360,7 +509,7 @@ public class AnimatorBudgetTest {
 	public void aSceneReturningToViewIsAdmittedNotHeld() {
 		AnimatorBudget b = new AnimatorBudget();
 		List<String> many = ids(20);
-		frame(b, many, 30_000L);
+		engage(b, many, 30_000L);
 		b.beginFrame(many);
 		assertTrue(b.degrading());
 
@@ -402,7 +551,7 @@ public class AnimatorBudgetTest {
 	public void aHeldPassDoesNotOverwriteTheFullRateEstimate() {
 		AnimatorBudget b = new AnimatorBudget();
 		List<String> many = ids(20);
-		frame(b, many, 30_000L);
+		engage(b, many, 30_000L);
 		b.beginFrame(many);
 		assertTrue(b.degrading());
 
@@ -467,7 +616,7 @@ public class AnimatorBudgetTest {
 	public void aNewSceneIsAdmittedOnItsFirstFrame() {
 		AnimatorBudget b = new AnimatorBudget();
 		List<String> many = ids(20);
-		frame(b, many, 30_000L);
+		engage(b, many, 30_000L);
 		b.beginFrame(many);
 		assertTrue(b.degrading());
 
