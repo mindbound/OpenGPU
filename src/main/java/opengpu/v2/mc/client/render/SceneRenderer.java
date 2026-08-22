@@ -552,14 +552,21 @@ public final class SceneRenderer {
 			// animator work on an otherwise-settled scene -- no extra walk, no extra branch on
 			// any other path.
 			//
-			// WHY IT IS WORTH COUNTING. Holding a node declines only that node's own evaluation.
-			// The fixed per-evaluation cost and the scene's GL re-render -- the terms actually
-			// worth having -- are declined only when the short-circuit above fires, which needs
-			// every node held AND these four conjuncts. Nobody knows what fraction of a real
-			// animated scene's frames satisfy them; one taking 20 Hz server batches may be dirty
-			// or interpolating for most of its life, in which case the budget's headline lever
-			// does not exist in the workload it was built for. Against RenderStats'
+			// WHY IT IS WORTH COUNTING. Holding a node declines that node's own evaluation on
+			// EVERY frame -- that part needs no help from this counter. What needs the short
+			// circuit above is the fixed per-evaluation cost and the scene's GL re-render, and
+			// that needs every node held AND these four conjuncts. Nobody knows what fraction of
+			// a real animated scene's frames satisfy them; one taking 20 Hz server batches may be
+			// dirty or interpolating for most of its life. Against RenderStats'
 			// animatorEvaluations this gives that fraction directly.
+			//
+			// A LOW READING IS NOT A VERDICT ON THE BUDGET, and an earlier version of this
+			// comment implied it was ("the budget's headline lever does not exist"). The
+			// per-node term is ~74% of a real scene's animator cost (7 nodes, 77 ops, ~34 of
+			// ~46 us) and is reclaimed whatever this ratio says. What a low reading means is
+			// narrower: the GL re-render stays. The design is only in question when this is near
+			// zero AND the scenes run cheap programs, because only then is there nothing worth
+			// declining at all.
 			//
 			// UNDERCOUNTS ONCE DEGRADATION IS ACTIVE, deliberately and in the safe direction: a
 			// settled scene with every node held returns at the line above and is counted in
