@@ -41,11 +41,36 @@ public class MessageCodecTest {
 
 	@Test
 	public void heartbeatRoundTrips() throws Exception {
-		byte[] data = MessageCodec.encodeHeartbeat(new MessageCodec.Heartbeat("scene-a", 9, 41));
+		byte[] data = MessageCodec.encodeHeartbeat(new MessageCodec.Heartbeat("scene-a", 9, 41, 7777L));
 		MessageCodec.Heartbeat hb = MessageCodec.decodeHeartbeat(data);
 		assertEquals("scene-a", hb.sceneId);
 		assertEquals(9, hb.epoch);
 		assertEquals(41, hb.seq);
+		// ANIM-13(b). Distinct from every other value in this fixture on purpose: seq and tick
+		// are adjacent on the wire and both integral, so equal values would let a decoder that
+		// read them in the wrong order pass.
+		assertEquals(7777L, hb.serverTick);
+	}
+
+	/**
+	 * The tick is a LONG on the wire, and a tick space outlives an int.
+	 *
+	 * A world at 20 tps passes Integer.MAX_VALUE after about three and a half years of
+	 * uptime-equivalent ticks, and `getTotalWorldTime` counts from world creation rather than
+	 * from server start — so a long-lived save reaches it. A narrowing bug would be invisible
+	 * for years and then wrap the clock estimate.
+	 */
+	@Test
+	public void theHeartbeatTickSurvivesValuesNoIntCouldHold() throws Exception {
+		long huge = 5_000_000_000L;
+		byte[] data = MessageCodec.encodeHeartbeat(
+				new MessageCodec.Heartbeat("s", 1, 1, huge));
+		assertEquals(huge, MessageCodec.decodeHeartbeat(data).serverTick);
+
+		byte[] negative = MessageCodec.encodeHeartbeat(
+				new MessageCodec.Heartbeat("s", 1, 1, -3L));
+		assertEquals("a negative tick is meaningless but must round-trip rather than corrupt"
+				+ " the frame after it", -3L, MessageCodec.decodeHeartbeat(negative).serverTick);
 	}
 
 	@Test
@@ -95,7 +120,7 @@ public class MessageCodecTest {
 
 	@Test
 	public void epochZeroHeartbeatIsRejected() {
-		byte[] data = MessageCodec.encodeHeartbeat(new MessageCodec.Heartbeat("s", 1, 1));
+		byte[] data = MessageCodec.encodeHeartbeat(new MessageCodec.Heartbeat("s", 1, 1, 3L));
 		// Epoch int after [short version][UTF "s"]: offsets 5..8.
 		for (int i = 5; i <= 8; i++) {
 			data[i] = 0;
@@ -110,7 +135,7 @@ public class MessageCodecTest {
 
 	@Test
 	public void trailingDataIsRejected() {
-		byte[] data = MessageCodec.encodeHeartbeat(new MessageCodec.Heartbeat("s", 1, 1));
+		byte[] data = MessageCodec.encodeHeartbeat(new MessageCodec.Heartbeat("s", 1, 1, 3L));
 		byte[] extended = java.util.Arrays.copyOf(data, data.length + 3);
 		try {
 			MessageCodec.decodeHeartbeat(extended);

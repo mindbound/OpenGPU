@@ -48,7 +48,12 @@ public class ProtocolVersionTest {
 	 * the epoch. None touched the op table, so only this constant moves. The gap is also what lets
 	 * SnapshotCodec list v4 through v7 as readable — a bump that HAD changed an arity could not.
 	 */
-	private static final short VERSION_THAT_DEFINES_IT = 8;
+	// 8 -> 9 added ANIM-13(b)'s server tick to the HEARTBEAT — a transient message, so unlike
+	// every bump before it this one touched no persisted record and no op table: v8's snapshot
+	// layout IS v9's, which is why v8 could join LAYOUT_COMPATIBLE_PERSISTED_VERSIONS unchanged
+	// It still owed a v8 golden fixture: an unchanged layout does not excuse one, because what
+	// needs pinning is that the v9 reader ACCEPTS an 8. See PersistedVersionMigrationTest.
+	private static final short VERSION_THAT_DEFINES_IT = 9;
 
 	@Test
 	public void versionAndOpTableMoveTogether() {

@@ -198,7 +198,7 @@ public final class SnapshotCodec {
 	 * TE saves before its scene is initialised. A world can therefore carry a v3 structure
 	 * through any number of v4 sessions.
 	 */
-	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4, 5, 6, 7 };
+	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4, 5, 6, 7, 8 };
 
 	/**
 	 * Legality of a decoded parent, answered identically on both paths — and answered DIFFERENTLY

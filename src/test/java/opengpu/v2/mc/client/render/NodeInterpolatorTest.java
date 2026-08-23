@@ -35,6 +35,8 @@ public class NodeInterpolatorTest {
 	/** Arrivals are paced exactly one tick apart, so the clock offset is a constant. */
 	private static final long T0 = 1000L;      // first server tick
 	private static final long N0 = 7_000_000L; // arbitrary local nanos at that arrival
+	/** ServerTimeline.RESET_THRESHOLD_NANOS in ms; private there, mirrored for readability. */
+	private static final long RESET_THRESHOLD_MS = 500L;
 
 	private static final Set<Integer> NONE = Collections.<Integer>emptySet();
 
@@ -158,6 +160,148 @@ public class NodeInterpolatorTest {
 		}
 		assertEquals("a stable stream must not let the estimate drift",
 				offsetProbe, clock.serverNanos(N0) - N0);
+	}
+
+	/**
+	 * ANIM-13(b), THE REGRESSION -- and an honest statement of what the fix does and does not buy.
+	 *
+	 * A scene that sends no batches must still have its clock corrected. The drift is real
+	 * arithmetic: the estimate tracks {@code serverTick * TICK - nowNanos}, so a server below
+	 * 20 tps makes that quantity fall at {@code (1 - tps/20)} of wall time. An animator scene is
+	 * silent BY DESIGN -- that is the whole point of animators -- so this is the ordinary case.
+	 *
+	 * PACED AT THE PRODUCTION CADENCE, and that matters more than it looks. A first version of
+	 * this test fed one heartbeat per wall second and asserted the fed arm "must never re-base".
+	 * It passed, and it was wrong twice over: production sends a heartbeat every
+	 * {@code V2ServerRuntime.HEARTBEAT_INTERVAL_TICKS} = 40 idle ticks (~2.1 s at 19 tps), and at
+	 * that spacing the fix does NOT eliminate re-basing. The steady-state lag of an EMA tracking
+	 * a ramp is {@code d * (1 - ALPHA) / ALPHA}; with ALPHA = 0.125 that is SEVEN times the
+	 * per-sample drift, and ~105 ms of drift per heartbeat gives ~737 ms -- past the 500 ms
+	 * threshold. A panel caught the substituted constant; the property below is the one that
+	 * survives at the real cadence.
+	 *
+	 * WHAT THE FIX ACTUALLY BUYS: the error is BOUNDED instead of unbounded. Un-fed, the estimate
+	 * is wrong by the whole accumulated deficit and the eventual correction is that entire jump --
+	 * it grows without limit with the length of the silence. Fed, the error cannot exceed the
+	 * re-base threshold before a correction lands, so the worst jump is bounded by a constant no
+	 * matter how long the scene stays quiet. That is the difference between an animator stepping
+	 * back three seconds and one stepping back half of one.
+	 */
+	@Test
+	public void aSilentSceneBoundsItsClockErrorInsteadOfLettingItGrow() {
+		final long heartbeatTicks = 40L;             // V2ServerRuntime.HEARTBEAT_INTERVAL_TICKS
+		final long silenceSeconds = 60L;
+		final long wall = silenceSeconds * 1000L * MS;
+		final long ticksElapsed = silenceSeconds * 19L;               // 19 tps
+		final long wallPerHeartbeat = heartbeatTicks * 1000L * MS / 19L;
+
+		// THE CONTROL -- the old behaviour. Nothing corrects the estimate for a minute, so the
+		// batch that ends the silence carries the entire accumulated deficit in one step.
+		ServerTimeline starved = new ServerTimeline();
+		starved.onBatch(T0, N0);
+		long starvedBefore = starved.serverNanos(N0);
+		assertTrue("a minute of silence at 19 tps must re-base",
+				starved.onBatch(T0 + ticksElapsed, N0 + wall));
+		long starvedJump = Math.abs(starved.serverNanos(N0) - starvedBefore);
+
+		// THE FIX -- heartbeats at the production spacing across the same minute.
+		ServerTimeline fed = new ServerTimeline();
+		fed.onBatch(T0, N0);
+		long beats = wall / wallPerHeartbeat;
+		for (long b = 1; b <= beats; b++) {
+			fed.onBatch(T0 + b * heartbeatTicks, N0 + b * wallPerHeartbeat);
+		}
+		long fedBefore = fed.serverNanos(N0);
+		fed.onBatch(T0 + ticksElapsed, N0 + wall);
+		long fedJump = Math.abs(fed.serverNanos(N0) - fedBefore);
+
+		assertTrue("the un-fed estimate must be wrong by the whole minute of deficit -- 60 s at"
+				+ " 19 tps loses 3 s of tick-time: " + starvedJump / MS + " ms",
+				starvedJump > 2500L * MS);
+		assertTrue("the fed estimate worst correction must stay bounded by the re-base threshold"
+				+ " rather than growing with the silence: " + fedJump / MS + " ms",
+				fedJump < RESET_THRESHOLD_MS * MS);
+		assertTrue("and it must be dramatically smaller than the un-fed one, or feeding bought"
+				+ " nothing: fed=" + fedJump / MS + " ms starved=" + starvedJump / MS + " ms",
+				fedJump * 4 < starvedJump);
+	}
+
+	/**
+	 * The honest other half of the arithmetic above, asserted rather than left in prose: at the
+	 * PRODUCTION cadence a sustained tps deficit still re-bases, because the steady-state lag of
+	 * the EMA (~737 ms at 19 tps) is larger than the 500 ms threshold.
+	 *
+	 * Recorded as a test so nobody re-derives the claim that heartbeats eliminate re-basing. If
+	 * that is ever wanted, the knobs are ALPHA and HEARTBEAT_INTERVAL_TICKS, and this test is
+	 * where such a change would announce itself.
+	 */
+	@Test
+	public void atProductionCadenceASustainedTpsDeficitStillRebases() {
+		final long heartbeatTicks = 40L;
+		final long wallPerHeartbeat = heartbeatTicks * 1000L * MS / 19L;
+
+		ServerTimeline clock = new ServerTimeline();
+		clock.onBatch(T0, N0);
+		boolean rebasedAtLeastOnce = false;
+		for (long b = 1; b <= 30; b++) {
+			rebasedAtLeastOnce |= clock.onBatch(T0 + b * heartbeatTicks, N0 + b * wallPerHeartbeat);
+		}
+		assertTrue("a persistent 19 tps deficit out-runs an ALPHA=0.125 EMA sampled every ~2.1 s,"
+				+ " so feeding bounds the error without removing the re-base",
+				rebasedAtLeastOnce);
+	}
+
+	/**
+	 * WHY THE RENDERER FEEDS ON CHANGE ONLY -- the trap the naive version of this fix falls into.
+	 *
+	 * The mirror holds its newest tick as a LEVEL, so a renderer that fed it every frame would
+	 * push the SAME tick against an ever-later nowNanos, and each sample would read as the
+	 * server having fallen further behind. This drives the estimate down without bound: the fix
+	 * would manufacture a worse drift than the free-run it removes, silently, because nothing
+	 * throws and the picture merely slides.
+	 *
+	 * Pinned here rather than at the renderer because SceneRenderer allocates through LWJGL
+	 * BufferUtils in its constructor, which is not on the test runtime classpath (the limit
+	 * ScenePopulationTest records) -- so this documents the hazard the de-duplicator in
+	 * SceneRenderer.SceneGl.fedTick exists to prevent, and fails if anyone decides the same tick
+	 * is harmless to re-feed.
+	 */
+	@Test
+	public void refeedingOneTickWouldDragTheEstimateDownwards() {
+		ServerTimeline clock = new ServerTimeline();
+		clock.onBatch(T0, N0);
+		long offsetProbe = clock.serverNanos(N0) - N0;
+
+		for (long f = 1; f <= 60; f++) {
+			clock.onBatch(T0, N0 + f * 16L * MS);        // the same tick, one frame later each time
+		}
+
+		assertTrue("re-feeding one tick must be shown to move the estimate, or the de-duplicator"
+				+ " in SceneRenderer is guarding nothing",
+				clock.serverNanos(N0) - N0 < offsetProbe);
+	}
+
+	/**
+	 * THE WIRING ITSELF: {@code observeTick} must actually reach the clock.
+	 *
+	 * The panel found both new client-side methods covered only by prose -- every timeline test
+	 * drove {@code ServerTimeline} directly, so emptying {@code observeTick} body left the whole
+	 * correction channel gone with a green suite. This drives the real {@code NodeInterpolator},
+	 * which needs no GL context.
+	 */
+	@Test
+	public void observeTickFeedsTheClockRatherThanBeingDeadWiring() {
+		NodeInterpolator interp = new NodeInterpolator();
+		SceneNode node = new SceneNode(1, V2Wire.NODE_SPRITE, 0, 0);
+		interp.capture(stateWith(node), T0, N0, NONE);
+		long before = interp.renderInstant(N0);
+
+		// A tick 40 ahead arriving 40 ticks of wall time later is a clean sample; the estimate
+		// must move, which it can only do if observeTick reaches the timeline at all.
+		interp.observeTick(T0 + 40L, N0 + 40L * TICK + 200L * MS);
+
+		assertTrue("observeTick must move the render clock, or the ANIM-13(b) channel is dead wiring",
+				interp.renderInstant(N0) != before);
 	}
 
 	@Test

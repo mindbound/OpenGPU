@@ -33,6 +33,10 @@ public final class SceneMirror {
 	private int knownEpoch;
 	private int lastSeq;
 	private long lastServerTick;
+	/** Newest tick from any message; see lastObservedTick(). Never the keyframe x-axis. */
+	private long lastObservedTick;
+	/** Paired with lastObservedTick because tick 0 is a legal reading; the sessionTickOffset idiom. */
+	private boolean observedTickKnown;
 	/** serverTick - worldTime, captured at snapshot time; see applySnapshot. */
 	private long sessionTickOffset;
 	private boolean sessionTickOffsetKnown;
@@ -61,6 +65,30 @@ public final class SceneMirror {
 
 	public long lastServerTick() {
 		return lastServerTick;
+	}
+
+	/**
+	 * The newest server tick this mirror has been told about, from a batch OR a heartbeat.
+	 *
+	 * DELIBERATELY SEPARATE FROM {@link #lastServerTick()}, which means "the tick the last
+	 * APPLIED BATCH was sealed on" and is the x-axis {@code NodeInterpolator} lays keyframes
+	 * against. Letting a heartbeat advance that field would have been the one-line version of
+	 * this change and would have silently moved the interpolation x-axis past the state it
+	 * describes — keyframes would be dated by a tick no batch delivered. Two meanings, two
+	 * fields: this one is a CLOCK reading and feeds nothing but the timeline estimate.
+	 */
+	public long lastObservedTick() {
+		return lastObservedTick;
+	}
+
+	/** False until a batch, snapshot or healthy heartbeat has supplied one. */
+	public boolean hasObservedTick() {
+		return observedTickKnown;
+	}
+
+	private void observeTickInternal(long serverTick) {
+		lastObservedTick = serverTick;
+		observedTickKnown = true;
 	}
 
 	public boolean needsResync() {
@@ -114,6 +142,11 @@ public final class SceneMirror {
 		lastSeq = 0;
 		needsResync = false;
 		dirty = true;
+		// The clock reading goes with the incarnation that produced it. Keeping it would let the
+		// renderer feed ServerTimeline one sample from the OLD tick space before the snapshot
+		// re-primes -- a backward sample, which is the exact re-base this change exists to stop.
+		observedTickKnown = false;
+		lastObservedTick = 0L;
 	}
 
 	/** @return true when the batch was applied cleanly. */
@@ -156,6 +189,7 @@ public final class SceneMirror {
 		}
 		lastSeq = batch.seq;
 		lastServerTick = batch.serverTick;
+		observeTickInternal(batch.serverTick);
 		if (clean) {
 			dirty = true;
 		}
@@ -187,6 +221,31 @@ public final class SceneMirror {
 		} else if (delta < 0) {
 			hardReset();
 			needsResync = true;
+		}
+	}
+
+	/**
+	 * A heartbeat: {@link #observeSeq} plus ANIM-13(b)'s clock reading.
+	 *
+	 * The tick is recorded ONLY on the healthy path — the same path on which this method leaves
+	 * seq unadvanced and the mirror clean. Every abnormal outcome must NOT feed the clock, and
+	 * they fail differently: an epoch mismatch means the tick belongs to a DIFFERENT INCARNATION
+	 * whose tick space is unrelated to ours, and a seq gap or a backward seq means we are about
+	 * to resync, after which the snapshot supplies the authoritative stamp anyway. Feeding
+	 * either would hand {@code ServerTimeline} a sample from a timeline that is not the one it
+	 * is estimating — precisely the "a tick going BACKWARDS is a different incarnation" case its
+	 * own re-base arm exists to survive, arriving through a door that bypasses the epoch reset.
+	 *
+	 * Kept as a sibling of {@code observeSeq} rather than replacing it: the seq contract is
+	 * load-bearing for gap detection and is exercised by tests that predate this, and adding a
+	 * parameter to it would have made every one of those call sites assert something about a
+	 * clock they do not care about.
+	 */
+	public void observeHeartbeat(int epoch, int serverSeq, long serverTick) {
+		boolean healthyBefore = !needsResync;
+		observeSeq(epoch, serverSeq);
+		if (healthyBefore && !needsResync) {
+			observeTickInternal(serverTick);
 		}
 	}
 
@@ -270,6 +329,7 @@ public final class SceneMirror {
 		state = fresh;
 		lastSeq = snapshot.seq;
 		lastServerTick = snapshot.serverTick;
+		observeTickInternal(snapshot.serverTick);
 		// THE ANIMATOR CLOCK'S DOMAIN OFFSET, captured HERE and nowhere else, because a snapshot
 		// is the only payload carrying both halves of the pair at one instant: its header's
 		// serverTick and its state's worldTimeAnchor were stamped from the same server tick.

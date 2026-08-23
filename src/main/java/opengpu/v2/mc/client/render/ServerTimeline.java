@@ -81,6 +81,14 @@ final class ServerTimeline {
 	 * @return true if the timeline discontinuously re-based, meaning callers holding
 	 *         server-time-stamped state must SNAP rather than interpolate across the seam.
 	 */
+	/**
+	 * NAME IS NARROWER THAN THE CONTRACT as of ANIM-13(b), 2026-08-22. This observes a
+	 * {@code (serverTick, arrival instant)} sample; a batch is now only one of the two messages
+	 * that carry one — {@code NodeInterpolator.observeTick} feeds it from heartbeats so that a
+	 * network-silent scene's estimate cannot free-run. Kept as {@code onBatch} because renaming
+	 * churns eight test call sites inside a protocol increment; the honest name would be
+	 * {@code observeServerTick} and a later cleanup should take it.
+	 */
 	boolean onBatch(long serverTick, long nowNanos) {
 		long sample = serverTick * TICK_NANOS - nowNanos;
 		if (!primed) {

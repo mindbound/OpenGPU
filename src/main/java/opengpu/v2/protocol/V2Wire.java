@@ -34,7 +34,32 @@ public final class V2Wire {
 	 * version number, disagree about the op table, and an old client decodes the new op's
 	 * argument as some other op's payload. See ProtocolVersionTest.
 	 */
-	public static final short PROTOCOL_VERSION = 8;
+	/*
+	 * Bumped 8 -> 9 on 2026-08-22 for ANIM-13(b): the heartbeat carries the server tick.
+	 *
+	 * THE CHEAPEST SHAPE A BUMP CAN HAVE, and worth naming as the counter-example to 5 and 8
+	 * above. It touches neither the op table nor any PERSISTED record: the heartbeat is a
+	 * transient message that no save ever contains. So v8 joins
+	 * LAYOUT_COMPATIBLE_PERSISTED_VERSIONS unchanged — its layout IS v9's layout — and this bump
+	 * differs from 7 -> 8, which moved the node record.
+	 *
+	 * IT STILL OWED A GOLDEN FIXTURE, and the first draft of this comment claimed it did not.
+	 * The scoping reasoned that an unchanged layout has nothing to pin; the migration guardian
+	 * refused the bump and was right. What a v8 fixture proves is not that the layout survived
+	 * -- it did not move -- but that the v9 READER still ACCEPTS an 8, which is the entire risk
+	 * of a bump like this one: forget to whitelist the outgoing version and every existing world
+	 * answers by losing its scenes on first chunk load. See
+	 * PersistedVersionMigrationTest.aV8StructureStillDecodesAfterTheHeartbeatGainedATick.
+	 *
+	 * Why it was spent at all: an animator scene is network-silent by design, and until now the
+	 * only message such a scene received carried seq alone. ServerTimeline is fed only from an
+	 * applied batch, so a silent scene's clock estimate froze at its last batch and free-ran on
+	 * wall time; when a batch finally arrived past the 500 ms re-base threshold the timeline
+	 * snapped and `time` stepped BACKWARD, which for a pure function of time means every
+	 * animator on that scene pops with nothing to interpolate. One long on a message already
+	 * being sent removes the free-run outright.
+	 */
+	public static final short PROTOCOL_VERSION = 9;
 
 	// Delta type ids
 	public static final byte DELTA_NODE_CREATE = 1;

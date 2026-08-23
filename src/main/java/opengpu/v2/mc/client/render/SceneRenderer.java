@@ -74,6 +74,18 @@ public final class SceneRenderer {
 		final AnimatorOverlay overlay = new AnimatorOverlay();
 		/** Last mirror epoch this cache saw; a change means a new timeline, so snap. */
 		int knownEpoch;
+		/**
+		 * The last server tick handed to the interpolator's clock — ANIM-13(b)'s de-duplicator.
+		 *
+		 * Load-bearing, not bookkeeping. The mirror holds its newest tick as a LEVEL, so feeding
+		 * it every frame would push the same tick in against an ever-later {@code nowNanos},
+		 * and each sample would read as the server falling further behind — the EMA would drag
+		 * the offset down continuously. That is a worse drift than the free-run this change
+		 * removes, and it is invisible unless you look for it: nothing throws, the picture just
+		 * slides. Feeding strictly on CHANGE is what makes the fix a fix.
+		 */
+		long fedTick;
+		boolean fedTickKnown;
 		final Map<Integer, TexEntry> textures = new HashMap<Integer, TexEntry>();
 	}
 
@@ -484,6 +496,10 @@ public final class SceneRenderer {
 			// rather than interpolated across. DESIGN: "Resync always snaps."
 			gl.knownEpoch = mirror.knownEpoch();
 			gl.interp.reset();
+			// The de-duplicator belongs to the timeline it guards: a tick from the old
+			// incarnation must not suppress the first feed of the new one, which is how the
+			// re-primed estimate would keep a stale offset.
+			gl.fedTickKnown = false;
 			// The overlay's VM cache leans on "program ids are never reused", which holds only
 			// within one incarnation -- a new epoch restarts the id space, so the new epoch's
 			// program 1 can be different code under a cached id. See AnimatorOverlay.reset.
@@ -491,6 +507,18 @@ public final class SceneRenderer {
 		}
 		if (mirror.isDirty()) {
 			gl.interp.capture(mirror.state(), mirror.lastServerTick(), now, mirror.teleportedNodes());
+			// capture() fed the clock with this tick; record it so the arm below does not feed
+			// the same one again from the mirror's level.
+			gl.fedTick = mirror.lastServerTick();
+			gl.fedTickKnown = true;
+		} else if (mirror.hasObservedTick()
+				&& (!gl.fedTickKnown || mirror.lastObservedTick() != gl.fedTick)) {
+			// ANIM-13(b): a tick that arrived on a heartbeat rather than a batch. Only reachable
+			// on a scene with no state changes, which is exactly the scene class animators exist
+			// for and the one whose clock previously had no correction channel at all.
+			gl.interp.observeTick(mirror.lastObservedTick(), now);
+			gl.fedTick = mirror.lastObservedTick();
+			gl.fedTickKnown = true;
 		}
 		// Re-render while anything is still mid-flight, not only when a batch arrived — that
 		// is the whole point, since batches land at 20 Hz and we draw at 60+. A settled scene

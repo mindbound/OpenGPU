@@ -131,7 +131,9 @@ public final class MirrorClient {
 				MessageCodec.Heartbeat hb = MessageCodec.decodeHeartbeat(payload);
 				SceneMirror mirror = mirror(hb.sceneId);
 				int epochBefore = mirror.knownEpoch();
-				mirror.observeSeq(hb.epoch, hb.seq);
+				// observeHeartbeat, not observeSeq: identical seq/epoch handling, plus
+				// ANIM-13(b)'s clock reading recorded only if that handling came out healthy.
+				mirror.observeHeartbeat(hb.epoch, hb.seq, hb.serverTick);
 				noteEpochTransition(hb.sceneId, epochBefore, mirror);
 				break;
 			}

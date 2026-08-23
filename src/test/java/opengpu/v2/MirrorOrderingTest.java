@@ -33,6 +33,87 @@ public class MirrorOrderingTest {
 		return new SceneBatch(SCENE, epoch, seq, seq * 10L, list);
 	}
 
+	// ------------------------------------------------------------------
+	// ANIM-13(b): the heartbeat's clock reading
+
+	/**
+	 * A healthy heartbeat records the tick and disturbs NOTHING else.
+	 *
+	 * Four separate assertions because the invariant has four halves and they fail
+	 * independently: advancing seq would swallow a lost batch, marking dirty would make a silent
+	 * scene re-render forever, moving lastServerTick would re-date the interpolator's keyframes
+	 * against a tick no batch delivered, and not recording the tick leaves the defect in place.
+	 */
+	@Test
+	public void aHealthyHeartbeatRecordsTheTickAndTouchesNothingElse() {
+		SceneMirror mirror = new SceneMirror(SCENE);
+		assertTrue(mirror.applyBatch(batch(1, new Delta.NodeCreate(1, V2Wire.NODE_GROUP, 0))));
+		mirror.clearDirty();
+		long batchTick = mirror.lastServerTick();
+
+		mirror.observeHeartbeat(EPOCH, 1, batchTick + 40L);
+
+		assertEquals("seq must not advance -- that is what would swallow a lost batch",
+				1, mirror.lastSeq());
+		assertFalse("a heartbeat is not state; marking dirty would re-render a silent scene"
+				+ " every frame forever", mirror.isDirty());
+		assertEquals("the keyframe x-axis belongs to applied batches only",
+				batchTick, mirror.lastServerTick());
+		assertTrue(mirror.hasObservedTick());
+		assertEquals("and the clock reading IS recorded, or the free-run stays",
+				batchTick + 40L, mirror.lastObservedTick());
+	}
+
+	/**
+	 * A heartbeat from ANOTHER incarnation must not feed the clock.
+	 *
+	 * Its tick space is unrelated to ours -- a restored or recreated scene counts from its own
+	 * origin -- so the sample would be arbitrary. It would also arrive through a door that
+	 * bypasses the renderer's epoch reset, which is the one place the estimate is supposed to be
+	 * dropped rather than averaged across.
+	 */
+	@Test
+	public void aHeartbeatFromAnotherEpochDoesNotFeedTheClock() {
+		SceneMirror mirror = new SceneMirror(SCENE);
+		assertTrue(mirror.applyBatch(batch(1, new Delta.NodeCreate(1, V2Wire.NODE_GROUP, 0))));
+		long known = mirror.lastObservedTick();
+
+		mirror.observeHeartbeat(EPOCH + 1, 1, 999_999L);
+
+		assertTrue("an epoch mismatch still demands a resync", mirror.needsResync());
+		assertFalse("and the hard reset must forget the old incarnation's reading",
+				mirror.hasObservedTick());
+		assertTrue("so nothing reads 999999 as this timeline's clock",
+				mirror.lastObservedTick() != 999_999L || known == 999_999L);
+	}
+
+	/**
+	 * A heartbeat announcing a seq we never received is a GAP: resync follows, and the tick that
+	 * rode in with it must not be trusted either, because the snapshot that heals the gap
+	 * carries the authoritative stamp anyway.
+	 */
+	@Test
+	public void aHeartbeatThatDetectsAGapDoesNotFeedTheClock() {
+		SceneMirror mirror = new SceneMirror(SCENE);
+		assertTrue(mirror.applyBatch(batch(1, new Delta.NodeCreate(1, V2Wire.NODE_GROUP, 0))));
+		long beforeTick = mirror.lastObservedTick();
+
+		mirror.observeHeartbeat(EPOCH, 5, 4242L);          // server is ahead: batches 2..5 lost
+
+		assertTrue("a seq ahead of us is a gap", mirror.needsResync());
+		assertEquals("the gap's tick must not be recorded", beforeTick, mirror.lastObservedTick());
+	}
+
+	/**
+	 * A mirror that has seen nothing has no clock reading, and says so rather than reporting 0 --
+	 * tick 0 is a legal reading, so the flag is the only way to tell "start of the world" from
+	 * "never told". The renderer feeds the timeline off this flag.
+	 */
+	@Test
+	public void aFreshMirrorHasNoObservedTick() {
+		assertFalse(new SceneMirror(SCENE).hasObservedTick());
+	}
+
 	@Test
 	public void inOrderBatchesApply() {
 		SceneMirror mirror = new SceneMirror(SCENE);

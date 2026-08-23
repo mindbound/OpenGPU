@@ -111,6 +111,24 @@ final class NodeInterpolator {
 		}
 	}
 
+	/**
+	 * Feed the clock estimate a tick that arrived WITHOUT a batch — ANIM-13(b).
+	 *
+	 * The sample {@code ServerTimeline} wants is "the server said tick T, we saw it at wall
+	 * instant N", and a heartbeat supplies exactly that; nothing about the estimate cares which
+	 * message type carried it. What it must NOT do is touch keyframes: there is no new state, so
+	 * {@code capture}'s track walk would re-stamp every node against a tick no batch delivered
+	 * and freeze the interpolation it exists to drive.
+	 *
+	 * Why this exists at all: the timeline was fed only from {@code capture}, so a scene that
+	 * sends no batches — an animator scene, by design — never corrected its estimate, free-ran
+	 * on wall time, and hard re-based when a batch finally landed, stepping `time` backward
+	 * under every animator on it.
+	 */
+	void observeTick(long serverTick, long nowNanos) {
+		timeline.onBatch(serverTick, nowNanos);
+	}
+
 	/** Discard the clock estimate and settle every node. For an epoch change or hard resync. */
 	void reset() {
 		timeline.reset();

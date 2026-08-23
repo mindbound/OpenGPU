@@ -113,11 +113,23 @@ public final class MessageCodec {
 		public final String sceneId;
 		public final int epoch;
 		public final int seq;
+		/**
+		 * The server tick this heartbeat was sent on — ANIM-13(b), added at PROTOCOL_VERSION 9.
+		 *
+		 * It exists so the ONE message type a network-silent scene receives carries the one
+		 * field {@code time} needs. It is emphatically NOT a seq: it does not order anything, it
+		 * cannot detect a gap, and observing it must not advance seq or mark a mirror dirty —
+		 * the "a heartbeat is never an apply-able batch" invariant is what stops an empty batch
+		 * from advancing a lagging mirror past a lost one, and this field is designed around it
+		 * rather than through it. See {@code SceneMirror.observeHeartbeat}.
+		 */
+		public final long serverTick;
 
-		public Heartbeat(String sceneId, int epoch, int seq) {
+		public Heartbeat(String sceneId, int epoch, int seq, long serverTick) {
 			this.sceneId = sceneId;
 			this.epoch = epoch;
 			this.seq = seq;
+			this.serverTick = serverTick;
 		}
 	}
 
@@ -201,6 +213,7 @@ public final class MessageCodec {
 			out.writeUTF(hb.sceneId);
 			out.writeInt(hb.epoch);
 			out.writeInt(hb.seq);
+			out.writeLong(hb.serverTick);
 		} catch (IOException e) {
 			throw new RuntimeException(e);
 		}
@@ -214,7 +227,12 @@ public final class MessageCodec {
 			int epoch = in.readInt();
 			if (epoch == 0)
 				throw new CodecException("Epoch 0 is reserved");
-			Heartbeat hb = new Heartbeat(sceneId, epoch, in.readInt());
+			// Read in wire order into locals: the constructor's argument order is source order,
+			// not evaluation order the reader can see, and nesting two reads inside a call is
+			// how a field-order bug becomes invisible in review.
+			int seq = in.readInt();
+			long serverTick = in.readLong();
+			Heartbeat hb = new Heartbeat(sceneId, epoch, seq, serverTick);
 			expectEnd(in);
 			return hb;
 		} catch (IOException e) {

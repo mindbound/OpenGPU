@@ -890,9 +890,15 @@ public class PersistedVersionMigrationTest {
 	 * The values are chosen so each 32-bit HALF differs from the other: a decoder reading the long
 	 * as two ints in the wrong order, or reading the int and long in the wrong order, produces a
 	 * different number rather than the same one.
+	 *
+	 * RENAMED 2026-08-22 at the 8 -> 9 bump. It builds from the LIVE {@code PROTOCOL_VERSION}, so
+	 * it tests whatever the current record is and stopped being about v8 the moment the constant
+	 * moved -- exactly the drift the literal-pinning rule exists to prevent. The v8 obligation is
+	 * discharged by {@code aV8StructureStillDecodesAfterTheHeartbeatGainedATick} below, which
+	 * pins its literal.
 	 */
 	@Test
-	public void theV8NodeRecordAndTailSurviveWithValuesNoSwapCouldFake() throws Exception {
+	public void theCurrentNodeRecordAndTailSurviveWithValuesNoSwapCouldFake() throws Exception {
 		final long stamp = 0x0000000100000002L;   // halves differ: 1 and 2
 		final long epoch = 0x0000000300000004L;
 		final long anchor = 0x0000000500000006L;
@@ -911,6 +917,66 @@ public class PersistedVersionMigrationTest {
 		assertEquals("the epoch is its own field", epoch, decoded.state.creationWorldTime);
 		assertEquals("and the anchor is its own field, distinct from the epoch",
 				anchor, decoded.state.worldTimeAnchor);
+	}
+
+	/**
+	 * A v8 structure, pinned to the LITERAL 8 — what every world saved between the 7 → 8 and
+	 * 8 → 9 bumps holds on disk.
+	 */
+	private static byte[] v8Structure() throws IOException {
+		final long stamp = 0x0000000700000009L;
+		final int canvasId = 1;
+		StructureWriter w = new StructureWriter((short) 8, "gpu-addr", EPOCH, 7, 900L, 2, 3);
+		w.resources(1).canvasWithContent(canvasId, 64, 32, 16);
+		w.nodes(2)
+				.nodeV8(1, V2Wire.NODE_CANVAS, canvasId, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L)
+				.nodeV8(2, V2Wire.NODE_GROUP, 0, 1.5, -2.5, 3, 0x80FF00FF, 1, 31, stamp);
+		w.programsV6(5, 1);
+		w.creationWorldTimeV7(4242L);
+		w.worldTimeAnchorV8(0x0000000500000006L);
+		return w.done();
+	}
+
+	/**
+	 * THE 8 → 9 BUMP'S OBLIGATION, discharged: a v8 save must still load after the heartbeat
+	 * gained ANIM-13(b)'s server tick.
+	 *
+	 * THE EASIEST OBLIGATION IN THIS FILE, AND THE ONE MOST LIKELY TO BE SKIPPED FOR THAT REASON.
+	 * The 8 → 9 bump touched a TRANSIENT message and no persisted record at all, so v8's layout
+	 * IS v9's layout and this fixture differs from a current one only in its version short. The
+	 * scoping note for this increment said "no new golden fixture needed" on exactly that
+	 * reasoning, and the guardian refused it — correctly. What needs proving is not that the
+	 * layout survived (it did not change) but that the v9 READER still ACCEPTS an 8: the whole
+	 * risk of this bump lives in the version gate, where forgetting to whitelist 8 answers every
+	 * existing world by deleting its scenes on first chunk load. A fixture that cost ten minutes
+	 * covers a failure that costs a save.
+	 *
+	 * Driven through restore as well as the codec because those are different policies:
+	 * {@code restoreOrFresh} turns a CodecException into deletion of the stored bodies, so a
+	 * codec-only pass would not see the expensive half of the failure.
+	 */
+	@Test
+	public void aV8StructureStillDecodesAfterTheHeartbeatGainedATick() throws Exception {
+		byte[] structure = v8Structure();
+
+		SceneSnapshot decoded = SnapshotCodec.decodePersisted(structure);
+		assertEquals("a v8 scene restores its nodes", 2, decoded.state.nodes.size());
+		assertEquals("and its programs", 1, decoded.state.programs.size());
+		assertEquals("the scene epoch is read at its own offset", 4242L,
+				decoded.state.creationWorldTime);
+		assertEquals("and the v8 anchor with it", 0x0000000500000006L,
+				decoded.state.worldTimeAnchor);
+		SceneNode two = decoded.state.nodes.get(Integer.valueOf(2));
+		assertEquals("node 2's parent came through", 1, two.parent);
+		assertEquals("node 2's animator came through", 31, two.animator);
+		assertEquals("and its attach stamp survived whole, in the right word order",
+				0x0000000700000009L, two.attachedWorldTime);
+
+		ScenePersistence.RestoreResult result = ScenePersistence.restore(structure, store);
+		assertEquals("restore agrees with the codec rather than deleting the scene",
+				2, result.scene.state().nodes.size());
+		assertEquals("and keeps the attachment", 31,
+				result.scene.state().nodes.get(Integer.valueOf(2)).animator);
 	}
 
 	/**
@@ -1047,7 +1113,7 @@ public class PersistedVersionMigrationTest {
 				result.scene.state().programs.isEmpty());
 	}
 
-	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 8;
+	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 9;
 
 	@Test
 	public void aProtocolBumpMustDecideWhatHappensToTheOutgoingFormat() {

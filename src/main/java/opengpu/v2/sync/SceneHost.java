@@ -317,8 +317,11 @@ public final class SceneHost {
 	}
 
 	private byte[] heartbeatEnvelope() {
-		byte[] payload = MessageCodec.encodeHeartbeat(
-				new MessageCodec.Heartbeat(scene.sceneId, scene.epoch(), scene.currentSeq()));
+		// lastTick, not a fresh read: it is the tick pump() was called with, so the stamp names
+		// the tick this heartbeat belongs to rather than whenever the envelope happened to be
+		// built. ANIM-13(b) — this is the field a network-silent scene's clock estimate lives on.
+		byte[] payload = MessageCodec.encodeHeartbeat(new MessageCodec.Heartbeat(
+				scene.sceneId, scene.epoch(), scene.currentSeq(), lastTick));
 		return MessageCodec.envelope(MessageCodec.MSG_HEARTBEAT, payload);
 	}
 

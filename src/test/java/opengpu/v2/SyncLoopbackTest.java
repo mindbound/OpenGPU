@@ -264,6 +264,47 @@ public class SyncLoopbackTest {
 		assertEquals(afterSubscribe + 3, sent[0]);
 	}
 
+	/**
+	 * ANIM-13(b) SERVER SIDE: the heartbeat {@code SceneHost} actually emits must carry the tick
+	 * it was sent on.
+	 *
+	 * THE ONE LINE JOINING THREE COVERED HALVES. The codec round-trips the field, the mirror
+	 * records it, the timeline consumes it — and a mutation sweep found the producer unguarded:
+	 * replacing the stamp with a constant {@code 0L} left the whole suite green while nulling the
+	 * server half of the feature. Not merely inert, either — tick 0 makes
+	 * {@code sample = -nowNanos}, which drives the estimate to server-time-zero and re-bases on
+	 * every following batch, a bigger pop than the free-run this change exists to remove. Every
+	 * other heartbeat in this suite is hand-constructed, so nothing read one the host produced.
+	 */
+	@Test
+	public void theHeartbeatTheHostEmitsCarriesTheTickItWasSentOn() throws Exception {
+		final List<byte[]> sent = new ArrayList<byte[]>();
+		ServerScene scene = new ServerScene(SCENE);
+		SceneHost host = new SceneHost(scene, new SceneTransport() {
+			@Override
+			public void sendToWatcher(String watcherKey, byte[] envelope) {
+				sent.add(envelope);
+			}
+		}, HEARTBEAT_INTERVAL, SNAPSHOT_MIN_INTERVAL, BODIES_PER_TICK);
+		host.subscribe("p1");
+		sent.clear();                       // the subscribe probe is not the tick under test
+
+		final long base = 123_456L;
+		for (long t = 1; t <= HEARTBEAT_INTERVAL; t++) {
+			host.tick(base + t);            // idle ticks: nothing staged, so a heartbeat falls due
+		}
+
+		MessageCodec.Heartbeat hb = null;
+		for (byte[] envelope : sent) {
+			if (MessageCodec.kindOf(envelope) == MessageCodec.MSG_HEARTBEAT) {
+				hb = MessageCodec.decodeHeartbeat(MessageCodec.payloadOf(envelope));
+			}
+		}
+		assertTrue("an idle scene with a watcher must emit a heartbeat at all", hb != null);
+		assertEquals("and it must carry the tick it was sent on — a constant here is the mutation"
+				+ " that survived the sweep", base + HEARTBEAT_INTERVAL, hb.serverTick);
+	}
+
 	@Test
 	public void resyncRequestsAreRateLimited() throws Exception {
 		Harness h = new Harness();
@@ -393,7 +434,7 @@ public class SyncLoopbackTest {
 		}, RESYNC_RETRY, 3, 8);
 		// A straggler heartbeat resurrects a mirror nobody will ever answer.
 		byte[] heartbeat = MessageCodec.envelope(MessageCodec.MSG_HEARTBEAT,
-				MessageCodec.encodeHeartbeat(new MessageCodec.Heartbeat("ghost", 5, 42)));
+				MessageCodec.encodeHeartbeat(new MessageCodec.Heartbeat("ghost", 5, 42, 99L)));
 		client.onMessage(heartbeat);
 		assertTrue(client.hasMirror("ghost"));
 		for (long t = 1; t <= 40; t++) {
