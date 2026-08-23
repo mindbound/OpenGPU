@@ -69,15 +69,19 @@ public final class OcslWire {
 	/**
 	 * Reserved for the post-Stage-D Data Card.
 	 *
-	 * CLOSED, NOT UNKNOWN — this comment used to say "no decoder support; refused as unknown",
-	 * and both halves were false: {@link #isKnownStage} deliberately includes this id, so a
-	 * stage-7 blob DECODES, and the refusal is {@code IrValidator}'s {@code !SurfaceTable.isOpen}
-	 * arm, exactly as for the vertex stage. The distinction is load-bearing twice over. It is
+	 * CLOSED, NOT UNKNOWN — and the refusal is the DECODER's, by name. {@link #isKnownStage}
+	 * deliberately includes this id so the message can say "reserved" rather than lying about
+	 * unknownness, but {@code IrCodec.decode} then refuses it explicitly, before any validator
+	 * runs. An earlier version of this paragraph said a stage-7 blob DECODES and that the refusal
+	 * was {@code IrValidator}'s {@code !SurfaceTable.isOpen} arm; both halves were false, and the
+	 * second one matters — a DECODER rejection is format identity, so opening this stage is not
+	 * the one-line validator act that opened the animator. {@code SurfaceTable} counts the gates:
+	 * four for compute, and its note says "Count the sites, do not reuse this number". The distinction is load-bearing twice over. It is
 	 * what keeps a reserved stage's refusal message able to say "reserved" rather than lying
 	 * about unknownness (the guarantee {@code aReservedRefusalIsDistinctFromAnUnknownStage}
 	 * pins), and it is what makes opening the stage later a VALIDATOR change under the
-	 * monotonicity rule rather than a format change — the same one-line act that opened the
-	 * animator on 2026-08-13. Because createProgram validates before storing, no blob can
+	 * monotonicity rule rather than a format change — though that too would be a four-site edit,
+	 * not the one-line act this paragraph claimed opened the animator until 2026-08-23. Because createProgram validates before storing, no blob can
 	 * persist under this stage while it is closed, which is what protects the future compute
 	 * surface's acceptance rules from being frozen by accident.
 	 */
@@ -183,7 +187,12 @@ public final class OcslWire {
 	 * not cosmetic: three of the four acceptance programs build their result with
 	 * `vec4(vec3, float)` as ONE charged instruction, so without an opcode for it the builder must
 	 * lower to three swizzles plus a CONS4 and every one of those programs charges 3 more than the
-	 * committed count. The Stage B exit check reproduces 23/101/21/96 byte-for-byte; it would have
+	 * committed count. The Stage B exit check reproduces 22/101/21/96 as STRUCTURAL-OP charges —
+	 * not bytes. Three of the four carry a prologue on the BUILDER route (plasma 24, blur 102,
+	 * domains 97 — OcslBuilderTest); two carry one in AcceptanceProgramsTest's hand-encoded
+	 * IR, and this sentence said "two of the four" flatly until 2026-08-23. Plasma read 23 until the 2026-08-12 broadcast re-opening removed a
+	 * builder-inserted SPLAT; AcceptanceProgramsTest records the change in four places, and
+	 * OcslBuilderTest holds the builder-route counts and every execution. Without the composite constructors it would have
 	 * failed on three of four, and the arity is unrecoverable from the wire (operand count is a
 	 * property of the opcode, with no per-op count field), so no validator could have repaired it.
 	 */
@@ -228,7 +237,7 @@ public final class OcslWire {
 
 	// ---------------------------------------------------------------- caps
 	// Structural caps the DECODER enforces, so a malformed or hostile blob dies before any
-	// allocation proportional to a number it supplied. Semantic caps (the ~256 op cap, the fetch
+	// allocation proportional to a number it supplied. Semantic caps (the per-stage op cap, the fetch
 	// cap, uniform components) belong to the validator and are deliberately not here: they are
 	// raiseable under the monotonicity rule, and these are not the same kind of number.
 
@@ -242,7 +251,12 @@ public final class OcslWire {
 	 * than its own size. A 6-op blob reading {@code FOR 65535 / FOR 65535 / ADD / ENDFOR / ENDFOR
 	 * / OUT} is otherwise perfectly valid and denotes 4.29e9 executed instructions.
 	 *
-	 * These are DELIBERATELY far above the validator's unroll-product cap (256, frozen). They are
+	 * These are DELIBERATELY far above the validator's unroll-product cap
+	 * ({@code IrValidator.MAX_UNROLL_PRODUCT}, deliberately not quoted here as the operative
+	 * number, only recounted as history: it moved 256 -> 1024 on
+	 * 2026-08-21 in lockstep with the ceiling, and this sentence still read "(256, frozen)" on
+	 * 2026-08-23 — a number copied into prose drifts, and "frozen" was wrong about a cap that is
+	 * pinned to a moving one). They are
 	 * not that cap and must not be confused with it: this bounds what can be *described*, the
 	 * validator bounds what is *accepted*, and only the latter is raiseable under the monotonicity
 	 * rule.

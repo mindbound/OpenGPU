@@ -226,6 +226,19 @@ public final class StatsOverlay {
 						RenderStats.animatorRegistersMax,
 						opengpu.v2.ocsl.SurfaceTable.MAX_REGISTERS));
 			}
+			// THE UNIFORM GAP, and the only line here that is not about a cap. A program can
+			// declare uniforms, validate, persist and attach, and then read 0.0 on every
+			// evaluation forever, because the per-attachment uniform table is designed and not
+			// implemented. Nothing fails, so nothing else on this overlay would ever show it.
+			//
+			// CONDITIONAL, so a session that never touches uniforms carries no line: an
+			// always-present "uniforms 0" would spend a row of a crowded overlay on a gap the
+			// reader has not met, and readers learn to skip rows that are always zero.
+			if (RenderStats.animatorProgramsWithUniforms > 0) {
+				lines.add(String.format(
+						"    !! %d program(s) declare uniforms -- nothing binds them, they read 0.0",
+						RenderStats.animatorProgramsWithUniforms));
+			}
 			// THE PER-NODE LINE — the measurement ANIM-16's budget calibrates against, and the
 			// reason it is here rather than derived on paper: until this shipped, every per-node
 			// figure was a scene total divided by a node count read off a Lua script. Two cost

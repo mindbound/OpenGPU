@@ -45,11 +45,15 @@ public final class OcslGoldenGenerator {
 		out.append("# and is ignored by the parser.\n");
 		out.append("#\n");
 		out.append("# NOT COVERED HERE, and each for a stated reason:\n");
-		out.append("#   sample()  -- the CPU VM has no texture at this layer, so there is nothing\n");
-		out.append("#                to freeze yet. Bilinear + clamp-to-edge + no mipmaps is\n");
-		out.append("#                pinned in DESIGN and owes vectors when the sampler lands.\n");
-		out.append("#   whole-program pixel values -- any program with a fetch would freeze the\n");
-		out.append("#                sampler stub's zero rather than its own arithmetic.\n");
+		// sample() USED to be excluded here, on the grounds that the CPU VM had no texture.
+		// It has one, and the 24 sample: rows below are its output -- the exclusion outlived
+		// its reason and was still being re-emitted on every regeneration until 2026-08-23.
+		out.append("#   whole-program pixel values -- a pixel from a program with a fetch depends on\n");
+		out.append("#                the texture the HOST bound, which is not part of the language.\n");
+		out.append("#                (The reason recorded here until 2026-08-23 was the sampler being a\n");
+		out.append("#                stub returning zero. It is not: OcslMath.sample does real bilinear\n");
+		out.append("#                work, pinned by the 24 sample: rows below, and an UNBOUND slot\n");
+		out.append("#                reading 0 is frozen rule S5, not a stub.)\n");
 		out.append("#   atan2(0,0) on the GPU -- the CPU value is pinned below at 0 per amendment\n");
 		out.append("#                1, but GLSL leaves atan(0,0) implementation-defined, so this\n");
 		out.append("#                row is excluded from the Stage D cross-backend comparison\n");

@@ -10,11 +10,12 @@
 # and is ignored by the parser.
 #
 # NOT COVERED HERE, and each for a stated reason:
-#   sample()  -- the CPU VM has no texture at this layer, so there is nothing
-#                to freeze yet. Bilinear + clamp-to-edge + no mipmaps is
-#                pinned in DESIGN and owes vectors when the sampler lands.
-#   whole-program pixel values -- any program with a fetch would freeze the
-#                sampler stub's zero rather than its own arithmetic.
+#   whole-program pixel values -- a pixel from a program with a fetch depends on
+#                the texture the HOST bound, which is not part of the language.
+#                (The reason recorded here until 2026-08-23 was the sampler being a
+#                stub returning zero. It is not: OcslMath.sample does real bilinear
+#                work, pinned by the 24 sample: rows below, and an UNBOUND slot
+#                reading 0 is frozen rule S5, not a stub.)
 #   atan2(0,0) on the GPU -- the CPU value is pinned below at 0 per amendment
 #                1, but GLSL leaves atan(0,0) implementation-defined, so this
 #                row is excluded from the Stage D cross-backend comparison

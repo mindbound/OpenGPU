@@ -93,10 +93,18 @@ public final class IrValidator {
 				// nanoseconds outright. Two cost models fit the field data and differ 16x at
 				// this cap — see FIELD-TEST-ANIM16.md, which is the measurement that separates
 				// them. The cap below is not in question; what follows from it is.
-				// An at-cap node is ~236 us ≈ 1.4% of a 60 Hz frame; 36x the
+				// An at-cap node is ~43 us ≈ 0.26% of a 60 Hz frame (FIELD-TEST-ANIM16 measured it;
+				// the 0.46 us/op model above gave ~236 us, 5.5x over, and that figure stood
+				// here until 2026-08-23 while AnimatorBudget already used the corrected one).
+				// The op-count ratio is unaffected: still 36x the
 				// largest real program. Conservative on purpose: monotonicity makes every raise
 				// a one-way door, and ANIM-16's client-global budget — the aggregate bound the
-				// design calls "the real bound" — still has no number.
+				// design calls "the real bound" — is the client render layer's AnimatorBudget.ENTER_NANOS
+				// (package-private there, so this is a prose pointer, not a resolvable
+				// reference) (250 us of measured
+				// animator spend per client frame), shipped 2026-08-22 and field-validated. This
+				// comment said "still has no number" until 2026-08-23, having been written the day
+				// before the budget landed.
 				return 512;
 			default:
 				// 256 for the pixel family (and the still-closed vertex/compute): PLAN's own

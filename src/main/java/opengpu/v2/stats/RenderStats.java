@@ -158,6 +158,30 @@ public final class RenderStats {
 	public static int animatorRegistersMax;
 
 	/**
+	 * Animator programs that DECLARE at least one uniform — every one of which reads 0.0.
+	 *
+	 * Not a performance counter. The other columns here answer "which cap will a real program
+	 * hit first"; this one answers "is anybody walking into the uniform gap", and it exists
+	 * because that gap is otherwise SILENT. A program may declare a uniform, validate, encode,
+	 * persist and attach, and then evaluate against a zero-initialised frame forever: nothing in
+	 * {@code src/main} binds a register at or above {@code SurfaceTable.UNIFORM_BASE}, because the
+	 * per-attachment uniform table is designed (DESIGN, "uniform sets by name per attachment")
+	 * and not implemented. There is no failure to observe — the frame is simply zero.
+	 *
+	 * DECLARES, not READS, and the distinction is deliberate rather than sloppy. The number this
+	 * counts is {@code IrValidator.Validated.uniformComponents}, which the validator takes from
+	 * the blob's DECLARATION; it does not track which uniforms an op actually reads. A program
+	 * that declares a uniform and never reads it is counted here and suffers nothing. Reporting
+	 * "reads" would be the stronger claim and this counter cannot support it.
+	 *
+	 * It also doubles as the "have we said this yet" latch for the one log line
+	 * ({@code AnimatorOverlay} warns on the 0 → 1 transition), which is why there is no second
+	 * piece of state to keep in step: {@link #reset()} clears the count and the latch together,
+	 * because they are the same field.
+	 */
+	public static long animatorProgramsWithUniforms;
+
+	/**
 	 * NODES for which a VM actually ran — not scenes, not frames, and not attachments.
 	 *
 	 * The unit is named out loud because this class has already paid for the alternative once
@@ -242,8 +266,11 @@ public final class RenderStats {
 	 * @param structuralOps    the post-unroll charge, the number the stage cap is enforced on
 	 * @param frameWidth       the laid-out frame in FLOATS, against {@code MAX_FRAME_WIDTH}
 	 * @param declaredRegisters the blob's register count, against {@code MAX_REGISTERS}
+	 * @param uniformComponents the blob's DECLARED uniform count — see
+	 *        {@link #animatorProgramsWithUniforms}, which this only increments when it is > 0
 	 */
-	public static void onAnimatorCompile(int structuralOps, int frameWidth, int declaredRegisters) {
+	public static void onAnimatorCompile(int structuralOps, int frameWidth, int declaredRegisters,
+			int uniformComponents) {
 		animatorProgramsCompiled++;
 		animatorChargeTotal += structuralOps;
 		if (structuralOps > animatorChargeMax) {
@@ -256,6 +283,9 @@ public final class RenderStats {
 		animatorRegistersTotal += declaredRegisters;
 		if (declaredRegisters > animatorRegistersMax) {
 			animatorRegistersMax = declaredRegisters;
+		}
+		if (uniformComponents > 0) {
+			animatorProgramsWithUniforms++;
 		}
 	}
 
@@ -339,6 +369,7 @@ public final class RenderStats {
 		animatorFrameWidthMax = 0;
 		animatorRegistersTotal = 0;
 		animatorRegistersMax = 0;
+		animatorProgramsWithUniforms = 0;
 		animatorNodesEvaluated = 0;
 		animatorNodesHeld = 0;
 		animatorScenePassesSettled = 0;

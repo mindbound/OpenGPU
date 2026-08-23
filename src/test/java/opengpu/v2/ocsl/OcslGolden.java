@@ -291,8 +291,10 @@ final class OcslGolden {
 	 *
 	 * The texture CONTENT is not in the file: it is generated from the dimensions by
 	 * {@link #testTexture}, so a vector file of a few hundred lines does not have to carry kilobytes of pixels to
-	 * pin a filtering rule. The generator is deliberately non-separable in x and y and coprime in
-	 * its strides, so a transposed lookup or a swapped tap changes the answer.
+	 * pin a filtering rule. The generator uses distinct coprime strides in x and y, so a
+	 * transposed lookup or a swapped tap changes the answer. (It is separable; this sentence
+	 * said "deliberately non-separable" until 2026-08-23, describing a term the code has never
+	 * had -- see {@link #testTexture}.)
 	 */
 	private static void sampleCases(List<Case> c) {
 		// Texel centres of a 2x2: each returns its own texel exactly under the half-texel rule and
@@ -342,14 +344,27 @@ final class OcslGolden {
 
 	/**
 	 * A deterministic texture for the sampling vectors:
-	 * {@code (x*37 + y*61 + x*y*13 + c*17) & 0xFF}.
+	 * {@code (x*37 + y*61 + c*17) & 0xFF}. SEPARABLE in x and y, deliberately so as of
+	 * 2026-08-23, and the reason is worth reading before anyone "fixes" it again.
 	 *
-	 * The {@code x*y} term is what makes this NON-SEPARABLE, and the first version did not have it:
-	 * {@code x*37 + y*61} is a sum of a function of x and a function of y, which is the definition
-	 * of separable, so the javadoc claiming otherwise was false. The mutations that claim exists to
-	 * justify -- a transposed lookup, a diagonal tap swap -- happened to be caught anyway by the
-	 * {@code & 0xFF} wrap, so it was a wrong rationale rather than a live gap. Fixed so the reason
-	 * and the behaviour agree.
+	 * THIS JAVADOC PREVIOUSLY DESCRIBED A DIFFERENT RULE FROM THE CODE. It wrote the term
+	 * {@code x*y*13} into the formula, called that term "what makes this NON-SEPARABLE", and
+	 * signed off with "Fixed so the reason and the behaviour agree" -- while the loop below has
+	 * only ever computed {@code x*37 + y*61 + ch*17}. The fix was described and never applied,
+	 * which is worse than the original wrong rationale: a reader checking the claim finds a
+	 * formula, not a discrepancy.
+	 *
+	 * Corrected in the direction of the CODE, because the code is not the defective part. What
+	 * non-separability was reaching for is delivered by the strides being DISTINCT and COPRIME,
+	 * and for the two mutations the claim named this is checkable by hand: a transposed lookup
+	 * reads {@code 61x + 37y} instead of {@code 37x + 61y} (differs whenever x != y), and a
+	 * diagonal tap swap exchanges taps differing by {@code 61 - 37 = 24}. Adding the {@code x*y}
+	 * term instead would move all 24 {@code sample:} rows of the golden file, which is a real
+	 * change to a frozen artifact and needs a reason better than making an old sentence true.
+	 *
+	 * Scope of that check, stated because the gap is the point: it is algebra on the two named
+	 * mutations, not an enumeration. Nothing in this repo mechanically enumerates tap
+	 * permutations -- see the term-order note below, which has the same shape.
 	 */
 	static byte[] testTexture(int width, int height) {
 		byte[] px = new byte[width * height * 4];

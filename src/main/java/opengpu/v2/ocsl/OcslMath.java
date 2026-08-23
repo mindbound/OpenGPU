@@ -334,9 +334,20 @@ public final strictfp class OcslMath {
 	 * constraint alone would force it.
 	 *
 	 * <p><b>S4, the accumulation</b> — every tap is converted {@code b/255.0} in double, the four
-	 * products are summed in double, and the result narrows to float32 exactly once. The term order
-	 * is part of the pin: float addition is not associative, so a reordered sum is a different
-	 * frozen value and would move every golden vector.
+	 * products are summed in double, and the result narrows to float32 exactly once. The term order is part of the pin — but NOT for the reason
+	 * this comment gave until 2026-08-23, which DESIGN had already withdrawn by name. The sum
+	 * accumulates in DOUBLE, so a reordering is visible only where the double-rounding error
+	 * straddles a float32 boundary — of order 1e-7 of random uv. MEASURED, because the figure
+	 * that stood here on 2026-08-23 was 1.3e-5 and was wrong by ~250x: two independently
+	 * written harnesses saw 5 hits in 90 million uv on the golden 4x3 (5.6e-8, and an
+	 * order-of-magnitude estimate on 5 events, not a rate to quote to two digits) and 0 in 10
+	 * million on the 2x2. That is why all 23 non-identity permutations reproduced every vector
+	 * in the first cut of the golden file; two uv were then searched for specifically to hit
+	 * it, and between them they separate 18 of the 23, leaving 5 orderings the file still
+	 * cannot see. "Float addition is not associative" was the withdrawn reason, and a pin
+	 * whose stated reason does not apply is a pin nothing HAD enforced — which is precisely
+	 * why those two rows were searched for. Nothing re-runs this measurement; see the
+	 * standing note in OcslGolden about the missing term-order harness.
 	 *
 	 * <p>Clamp-to-edge is applied per axis AFTER the floor, so a tap outside the image takes the
 	 * edge texel while the weights are unaffected. Index clamping happens in double before the

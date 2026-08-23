@@ -185,7 +185,7 @@ public class StatsTest {
 		RenderStats.onUpload(4321);
 		RenderStats.onTextureDeferred();
 		RenderStats.onAnimatorEvaluate(555L);
-		RenderStats.onAnimatorCompile(42, 96, 24);   // charge, frame floats, registers
+		RenderStats.onAnimatorCompile(42, 96, 24, 3);   // charge, frame, registers, uniforms
 		RenderStats.passOpens++;
 		RenderStats.passNanos += 17L;
 		// Driven directly, like passOpens/passNanos: this one only increments inside

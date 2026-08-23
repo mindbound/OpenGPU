@@ -65,6 +65,41 @@ public final class OcslDiagnostics {
 	}
 
 	/**
+	 * A program declared uniforms that nothing can bind — the SILENT half of the uniform gap.
+	 *
+	 * <h2>Why this is a diagnostic and not a refusal</h2>
+	 *
+	 * Uniforms are a designed surface: {@code OcslIngress} specifies a replicated per-attachment
+	 * table, and DESIGN promises "uniform sets by name per attachment". The set-call half is not
+	 * built, so a declared uniform reads 0.0 on every evaluation, forever, with nothing said. The
+	 * tempting fix — have the validator refuse such programs — is wrong twice over: it is a
+	 * TIGHTENING, so it would reject blobs already persisted in a save, and it would have to be
+	 * deleted the day the table lands. A line of text has neither cost. It also carries no format
+	 * impact and no acceptance change, which is the property that makes it safe to ship now.
+	 *
+	 * <h2>Stateless, unlike {@link Reporter}</h2>
+	 *
+	 * No dedup table and no rate cap here, because this one is not per-node and not per-frame:
+	 * the caller emits it on the 0 → 1 transition of
+	 * {@code RenderStats.animatorProgramsWithUniforms}, so it is once per client session and the
+	 * running total lives on the F3 animator line. Putting a second latch in this class would
+	 * mean two pieces of state that must be reset together and will eventually not be.
+	 *
+	 * @param programId     the scene's program id, so the author can find the blob
+	 * @param uniformCount  the DECLARED count. Declared rather than read: the validator counts
+	 *        declarations and does not track which uniforms an op reads, so "declares" is the
+	 *        strongest true statement available here.
+	 */
+	public static void uniformsWithNothingToBindThem(int programId, int uniformCount) {
+		warn("animator program " + programId + " declares " + uniformCount + " uniform"
+				+ (uniformCount == 1 ? "" : "s") + " and nothing can bind one yet, so"
+				+ " every read of them evaluates to 0.0. This is a KNOWN GAP in OpenGPU -- the\n"
+				+ "  per-attachment uniform table is designed and not implemented -- and NOT a\n"
+				+ "  fault in the program. Further such programs are counted on the F3 animator\n"
+				+ "  line rather than logged here.");
+	}
+
+	/**
 	 * The per-client dedup and rate state. One instance per client runtime; NOT thread-safe by
 	 * contract, because it is touched from the render thread only and a lock there would cost more
 	 * than the diagnostic is worth.

@@ -321,9 +321,12 @@ public final class OcslTables {
 		line(out, "# The set-call may reject-and-retain because the uniform table is REPLICATED and the");
 		line(out, "# retained value is then identical on every client. The executor may NOT: a frame is");
 		line(out, "# per-client, so a retained value there is binding history -- the cross-frame state");
-		line(out, "# ANIM-9(a) removed. No host-facing setUniform exists YET -- the surface is open at");
-		line(out, "# the IR level but nothing in the running mod creates or attaches a program, so");
-		line(out, "# that row is a stated gap rather than an omission.");
+		line(out, "# ANIM-9(a) removed. No host-facing setUniform exists YET -- and the reason given");
+		line(out, "# here until 2026-08-23 was false: it said nothing in the running mod creates or");
+		line(out, "# attaches a program. TileEntityGpu2 has both createProgram and setAnimator, so a");
+		line(out, "# player CAN declare a uniform and attach the program; it then evaluates against a");
+		line(out, "# zero frame with no refusal and no diagnostic. That row is a stated gap rather");
+		line(out, "# than an omission, but it is a REACHABLE one.");
 		line(out, "");
 
 		// ANIM-9. Beside the composition rule because that is where a reader goes looking for it,

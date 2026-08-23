@@ -187,9 +187,12 @@ uniformSetCall not-implemented
 # The set-call may reject-and-retain because the uniform table is REPLICATED and the
 # retained value is then identical on every client. The executor may NOT: a frame is
 # per-client, so a retained value there is binding history -- the cross-frame state
-# ANIM-9(a) removed. No host-facing setUniform exists YET -- the surface is open at
-# the IR level but nothing in the running mod creates or attaches a program, so
-# that row is a stated gap rather than an omission.
+# ANIM-9(a) removed. No host-facing setUniform exists YET -- and the reason given
+# here until 2026-08-23 was false: it said nothing in the running mod creates or
+# attaches a program. TileEntityGpu2 has both createProgram and setAnimator, so a
+# player CAN declare a uniform and attach the program; it then evaluates against a
+# zero frame with no refusal and no diagnostic. That row is a stated gap rather
+# than an omission, but it is a REACHABLE one.
 
 [write-boundary] name value
 # What happens to a value on its way out. A non-finite animator output is

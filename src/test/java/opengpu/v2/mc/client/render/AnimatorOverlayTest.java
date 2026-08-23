@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import org.junit.After;
 import org.junit.Test;
 
 import opengpu.v2.ocsl.Expr;
@@ -2142,5 +2143,145 @@ public class AnimatorOverlayTest {
 		assertTrue("the new program owns y", overlay.of(1).wrote(OcslWire.PROP_ANIM_Y));
 		assertFalse("and the old program's claim on x must not survive the reused entry",
 				overlay.of(1).wrote(OcslWire.PROP_ANIM_X));
+	}
+
+	// ---------------------------------------------------------------- the uniform gap
+
+	/**
+	 * Captures what the OCSL surface reports, so the diagnostic can be asserted rather than
+	 * eyeballed in a build log.
+	 */
+	private static final class Capture implements opengpu.v2.ocsl.OcslDiagnostics.Sink {
+		final java.util.List<String> lines = new java.util.ArrayList<String>();
+
+		@Override
+		public void warn(String message) {
+			lines.add(message);
+		}
+	}
+
+	/**
+	 * ALWAYS restores, even for the tests that never installed a sink.
+	 *
+	 * The suite runs in one JVM with no {@code forkEvery}, and the sink is a static: a capture
+	 * left installed by a failing test would swallow every later class's diagnostics silently.
+	 * {@code OcslDiagnostics.setSink(null)} restores the stderr default rather than muting.
+	 */
+	@After
+	public void restoreDiagnosticsSink() {
+		opengpu.v2.ocsl.OcslDiagnostics.setSink(null);
+	}
+
+	/** An animator program that DECLARES a uniform — which nothing can bind, so it reads 0.0. */
+	private static byte[] uniformProgram(String uniformName) throws Exception {
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		b.out(OcslWire.PROP_ANIM_X, b.uniform(uniformName));
+		return IrCodec.encode(b.build());
+	}
+
+	private static int declaredUniforms(byte[] blob) throws Exception {
+		return IrValidator.validate(IrCodec.decode(blob, IrCodec.Source.TRANSIENT))
+				.uniformComponents;
+	}
+
+	/**
+	 * THE COUNTER DISCRIMINATES, and the fixtures are asserted to differ before it is read.
+	 *
+	 * This is the shape the frame/register columns got wrong on their first attempt: both of THAT
+	 * test's fixtures happened to measure identically, so {@code Math.max} could not tell them
+	 * apart and the assertion held no matter what the code did. Here the two blobs are checked to
+	 * declare 0 and 1 uniforms BEFORE the overlay runs, so a green result means the condition
+	 * looked at {@code uniformComponents} — the two failure directions are called out by name in
+	 * the message, because "1" is equally far from "counted everything" and "counted nothing".
+	 */
+	@Test
+	public void theUniformCounterCountsDeclaringProgramsAndOnlyThose() throws Exception {
+		opengpu.v2.stats.RenderStats.reset();
+		byte[] plain = program(OcslWire.PROP_ANIM_X, 5.0f);
+		byte[] declaring = uniformProgram("speed");
+		assertEquals("fixture check: the plain program must declare no uniforms, or this test"
+				+ " cannot distinguish anything", 0, declaredUniforms(plain));
+		assertEquals("fixture check: the other must declare exactly one", 1,
+				declaredUniforms(declaring));
+
+		SceneState s = sceneWith(info(1, plain), info(2, declaring));
+		SceneNode a = node(s, 1, 0);
+		a.animator = 1;
+		a.attachedWorldTime = 100L;
+		SceneNode b = node(s, 2, 0);
+		b.animator = 2;
+		b.attachedWorldTime = 100L;
+		new AnimatorOverlay().evaluate(s, instant(200), OFFSET, true);
+
+		assertEquals("both programs must have compiled, or the counter is reading a smaller"
+				+ " population than it appears to", 2,
+				opengpu.v2.stats.RenderStats.animatorProgramsCompiled);
+		assertEquals("only the declaring program counts: 2 means the guard ignores"
+				+ " uniformComponents and counts every compile, 0 means it never fires", 1L,
+				opengpu.v2.stats.RenderStats.animatorProgramsWithUniforms);
+	}
+
+	/**
+	 * THE LINE IS SAID ONCE; THE COUNTER KEEPS COUNTING. That split is the whole design.
+	 *
+	 * A log line per program would repeat what the F3 line already totals, and a scene carrying
+	 * several uniform programs would pay for it on every load. So the counter's 0 → 1 transition
+	 * is the latch. The two assertions below are what separate the three plausible mutants:
+	 * warn-every-time gives 2 lines, warn-never gives 0, and a latch that also stopped the
+	 * COUNTER — the tempting simplification — gives a total of 1 instead of 2.
+	 */
+	@Test
+	public void theUniformGapIsAnnouncedOnceHoweverManyProgramsDeclareOne() throws Exception {
+		opengpu.v2.stats.RenderStats.reset();
+		Capture c = new Capture();
+		opengpu.v2.ocsl.OcslDiagnostics.setSink(c);
+
+		byte[] first = uniformProgram("speed");
+		byte[] second = uniformProgram("phase");
+		SceneState s = sceneWith(info(1, first), info(2, second));
+		SceneNode a = node(s, 1, 0);
+		a.animator = 1;
+		a.attachedWorldTime = 100L;
+		SceneNode b = node(s, 2, 0);
+		b.animator = 2;
+		b.attachedWorldTime = 100L;
+		new AnimatorOverlay().evaluate(s, instant(200), OFFSET, true);
+
+		assertEquals("exactly one line for two declaring programs: " + c.lines, 1, c.lines.size());
+		assertEquals("and the COUNTER still saw both — a latch that gated the count as well as"
+				+ " the line would make the overlay under-report the gap it exists to show", 2L,
+				opengpu.v2.stats.RenderStats.animatorProgramsWithUniforms);
+
+		String line = c.lines.get(0);
+		assertTrue("the line must say what happens, not merely that something did: " + line,
+				line.contains("0.0"));
+		assertTrue("and must not read as a fault in the player's program: " + line,
+				line.contains("KNOWN GAP"));
+	}
+
+	/**
+	 * SILENCE IS THE DEFAULT, and it is worth a test because the failure mode is invisible.
+	 *
+	 * If this diagnostic fired for programs with no uniforms, nothing would break and no test
+	 * that only ever builds uniform programs would notice — the overlay would just grow a line
+	 * every session and the log a message, and both would be wrong about the same thing.
+	 */
+	@Test
+	public void aSessionThatNeverDeclaresAUniformSaysNothingAndCountsNothing() throws Exception {
+		opengpu.v2.stats.RenderStats.reset();
+		Capture c = new Capture();
+		opengpu.v2.ocsl.OcslDiagnostics.setSink(c);
+
+		SceneState s = sceneWith(info(1, program(OcslWire.PROP_ANIM_X, 5.0f)));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 1;
+		n.attachedWorldTime = 100L;
+		new AnimatorOverlay().evaluate(s, instant(200), OFFSET, true);
+
+		assertEquals("the program compiled, so the counter had its chance", 1,
+				opengpu.v2.stats.RenderStats.animatorProgramsCompiled);
+		assertEquals("and counted nothing", 0L,
+				opengpu.v2.stats.RenderStats.animatorProgramsWithUniforms);
+		assertTrue("and said nothing: " + c.lines, c.lines.isEmpty());
 	}
 }

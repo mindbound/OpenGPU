@@ -618,8 +618,25 @@ final class AnimatorOverlay {
 			// does not tell you which limit it will reach first. `validated` already carries the
 			// frame — the validator lays it out to enforce MAX_FRAME_WIDTH — so this costs a
 			// field read, not a second pass.
+			// THE UNIFORM GAP, said out loud once per client session. A declared uniform reads
+			// 0.0 forever because nothing binds one; that is silent, and silence is the defect.
+			// A refusal was considered and rejected -- uniforms are a designed surface, so
+			// refusing them would reject already-persisted blobs and be undone the day the
+			// per-attachment table lands. See OcslDiagnostics.uniformsWithNothingToBindThem.
+			//
+			// READ BEFORE THE RECORD, deliberately, and the ordering is the whole mechanism:
+			// the counter IS the latch, so there is no second "have we warned" flag to keep in
+			// step with it and RenderStats.reset clears both by clearing one. Same discipline
+			// as OcslDiagnostics.Reporter, whose rate check also precedes its record, and for
+			// the same reason -- recording first would consume the very state being tested.
+			boolean firstWithUniforms = validated.uniformComponents > 0
+					&& opengpu.v2.stats.RenderStats.animatorProgramsWithUniforms == 0L;
 			opengpu.v2.stats.RenderStats.onAnimatorCompile((int) validated.structuralOps,
-					validated.frameWidth, program.declaredRegisters);
+					validated.frameWidth, program.declaredRegisters, validated.uniformComponents);
+			if (firstWithUniforms) {
+				opengpu.v2.ocsl.OcslDiagnostics.uniformsWithNothingToBindThem(
+						programId, validated.uniformComponents);
+			}
 			OcslVm vm = new OcslVm(validated);
 			int[] written = program.outProperties();
 			boolean[] absolute = new boolean[written.length];
