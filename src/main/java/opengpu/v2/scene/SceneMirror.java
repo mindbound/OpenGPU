@@ -37,6 +37,19 @@ public final class SceneMirror {
 	private long lastObservedTick;
 	/** Paired with lastObservedTick because tick 0 is a legal reading; the sessionTickOffset idiom. */
 	private boolean observedTickKnown;
+	/**
+	 * When {@link #lastObservedTick} ARRIVED, in {@code System.nanoTime()} units.
+	 *
+	 * THE SAMPLE IS A PAIR OR IT IS NOTHING. {@code ServerTimeline} estimates
+	 * {@code serverTime - wallTime} as {@code tick * TICK_NANOS - arrival}; that quantity is
+	 * TIME-INVARIANT, so a correctly-paired sample stays correct however much later it is read.
+	 * Pairing the tick with the READER's clock instead makes the estimate wrong by exactly the
+	 * delay between arrival and reading, and the renderer's feed is gated on the scene being
+	 * WALKED -- so looking away from a screen and back was worth up to a whole heartbeat interval
+	 * of spurious backward correction, and a batch that landed while the scene was unwatched was
+	 * worth the entire look-away (dirty persists until a render clears it).
+	 */
+	private long lastObservedAtNanos;
 	/** serverTick - worldTime, captured at snapshot time; see applySnapshot. */
 	private long sessionTickOffset;
 	private boolean sessionTickOffsetKnown;
@@ -86,8 +99,18 @@ public final class SceneMirror {
 		return observedTickKnown;
 	}
 
-	private void observeTickInternal(long serverTick) {
+	/**
+	 * The instant {@link #lastObservedTick} arrived — the other half of the clock sample.
+	 *
+	 * Meaningless unless {@link #hasObservedTick()}; read them together or not at all.
+	 */
+	public long lastObservedAtNanos() {
+		return lastObservedAtNanos;
+	}
+
+	private void observeTickInternal(long serverTick, long atNanos) {
 		lastObservedTick = serverTick;
+		lastObservedAtNanos = atNanos;
 		observedTickKnown = true;
 	}
 
@@ -147,10 +170,21 @@ public final class SceneMirror {
 		// re-primes -- a backward sample, which is the exact re-base this change exists to stop.
 		observedTickKnown = false;
 		lastObservedTick = 0L;
+		lastObservedAtNanos = 0L;
 	}
 
-	/** @return true when the batch was applied cleanly. */
+	/**
+	 * @return true when the batch was applied cleanly.
+	 *
+	 * Stamps arrival with {@code System.nanoTime()} READ HERE, which is the arrival instant
+	 * because {@code MirrorClient} applies a frame as it drains it. The explicit-stamp overload
+	 * exists so a test can pair deliberately rather than racing a real clock.
+	 */
 	public boolean applyBatch(SceneBatch batch) {
+		return applyBatch(batch, System.nanoTime());
+	}
+
+	public boolean applyBatch(SceneBatch batch, long atNanos) {
 		if (!sceneId.equals(batch.sceneId))
 			return false;
 		adoptEpoch(batch.epoch);
@@ -189,7 +223,7 @@ public final class SceneMirror {
 		}
 		lastSeq = batch.seq;
 		lastServerTick = batch.serverTick;
-		observeTickInternal(batch.serverTick);
+		observeTickInternal(batch.serverTick, atNanos);
 		if (clean) {
 			dirty = true;
 		}
@@ -242,10 +276,14 @@ public final class SceneMirror {
 	 * clock they do not care about.
 	 */
 	public void observeHeartbeat(int epoch, int serverSeq, long serverTick) {
+		observeHeartbeat(epoch, serverSeq, serverTick, System.nanoTime());
+	}
+
+	public void observeHeartbeat(int epoch, int serverSeq, long serverTick, long atNanos) {
 		boolean healthyBefore = !needsResync;
 		observeSeq(epoch, serverSeq);
 		if (healthyBefore && !needsResync) {
-			observeTickInternal(serverTick);
+			observeTickInternal(serverTick, atNanos);
 		}
 	}
 
@@ -302,6 +340,10 @@ public final class SceneMirror {
 	 * incarnation's seq may legitimately be behind the old one's).
 	 */
 	public void applySnapshot(SceneSnapshot snapshot) {
+		applySnapshot(snapshot, System.nanoTime());
+	}
+
+	public void applySnapshot(SceneSnapshot snapshot, long atNanos) {
 		if (!sceneId.equals(snapshot.sceneId))
 			return;
 		boolean sameEpoch = knownEpoch == snapshot.epoch;
@@ -329,7 +371,7 @@ public final class SceneMirror {
 		state = fresh;
 		lastSeq = snapshot.seq;
 		lastServerTick = snapshot.serverTick;
-		observeTickInternal(snapshot.serverTick);
+		observeTickInternal(snapshot.serverTick, atNanos);
 		// THE ANIMATOR CLOCK'S DOMAIN OFFSET, captured HERE and nowhere else, because a snapshot
 		// is the only payload carrying both halves of the pair at one instant: its header's
 		// serverTick and its state's worldTimeAnchor were stamped from the same server tick.

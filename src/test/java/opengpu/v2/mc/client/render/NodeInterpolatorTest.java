@@ -304,6 +304,52 @@ public class NodeInterpolatorTest {
 				interp.renderInstant(N0) != before);
 	}
 
+	/**
+	 * THE PAIRING IS TIME-INVARIANT, AND THAT IS THE WHOLE POINT OF STAMPING ARRIVAL.
+	 *
+	 * The estimate is {@code tick * TICK - arrival}, an estimate of (server time − wall time).
+	 * That quantity does not decay, so a correctly-paired sample read five seconds late must give
+	 * the SAME offset as one read immediately. This test asserts exactly that, and its control arm
+	 * asserts the converse: pairing the same tick with the READER's clock instead is wrong by the
+	 * whole delay and trips a re-base.
+	 *
+	 * The defect this pins was reachable by looking away from a screen and back. The renderer's
+	 * feed is gated on the scene being WALKED, while inbound frames are drained every tick
+	 * regardless — so the mirror held a fresh tick that the renderer read up to a heartbeat
+	 * interval later (~2 s), and paired it with `now`. Worse on the batch arm: `dirty` survives
+	 * until a render clears it, so a batch that landed while the scene was unwatched could be
+	 * paired with a clock reading an entire look-away later.
+	 */
+	@Test
+	public void aSampleReadLateIsStillCorrectWhenPairedWithItsArrival() {
+		final long arrival = N0 + 10 * TICK;
+		final long tick = T0 + 10;
+		final long lateRead = arrival + 5000L * MS;      // read five seconds after it landed
+
+		ServerTimeline prompt = new ServerTimeline();
+		prompt.onBatch(T0, N0);
+		prompt.onBatch(tick, arrival);
+
+		ServerTimeline late = new ServerTimeline();
+		late.onBatch(T0, N0);
+		assertFalse("a correctly paired sample must not re-base merely for being read late",
+				late.onBatch(tick, arrival));       // same PAIR, consumed at lateRead
+
+		assertEquals("arrival-paired samples are time-invariant: reading late must not move the"
+				+ " estimate at all", prompt.serverNanos(N0), late.serverNanos(N0));
+		// And the estimate is still right when queried at the late instant.
+		assertEquals(prompt.serverNanos(lateRead), late.serverNanos(lateRead));
+
+		// THE CONTROL — the old behaviour. Same tick, but paired with the reader's clock.
+		ServerTimeline mispaired = new ServerTimeline();
+		mispaired.onBatch(T0, N0);
+		assertTrue("pairing a 5 s old tick with `now` must re-base — this is the defect, and if it"
+				+ " ever stops re-basing this test has lost its subject",
+				mispaired.onBatch(tick, lateRead));
+		assertTrue("and the mispaired estimate must land far from the correct one",
+				Math.abs(mispaired.serverNanos(N0) - prompt.serverNanos(N0)) > 4000L * MS);
+	}
+
 	@Test
 	public void aBackwardTickOrAHugeJumpRebases() {
 		ServerTimeline clock = new ServerTimeline();

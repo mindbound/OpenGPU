@@ -114,6 +114,45 @@ public class MirrorOrderingTest {
 		assertFalse(new SceneMirror(SCENE).hasObservedTick());
 	}
 
+	/**
+	 * The mirror records WHEN a tick arrived, not merely which tick it was.
+	 *
+	 * Both halves of the clock sample come from here, and a reader that takes the tick from the
+	 * mirror and the instant from its own clock reintroduces the exact defect this field exists to
+	 * remove. Asserted on every path that sets a tick, because the renderer reads the pair without
+	 * caring which message produced it.
+	 */
+	@Test
+	public void everyPathThatRecordsATickAlsoRecordsWhenItArrived() {
+		SceneMirror mirror = new SceneMirror(SCENE);
+
+		mirror.applyBatch(batch(1, new Delta.NodeCreate(1, V2Wire.NODE_GROUP, 0)), 777L);
+		assertTrue(mirror.hasObservedTick());
+		assertEquals("a batch stamps its arrival", 777L, mirror.lastObservedAtNanos());
+
+		mirror.clearDirty();
+		mirror.observeHeartbeat(EPOCH, 1, mirror.lastServerTick() + 40L, 4242L);
+		assertEquals("and so does a heartbeat", 4242L, mirror.lastObservedAtNanos());
+		assertEquals("paired with the tick it arrived with",
+				mirror.lastServerTick() + 40L, mirror.lastObservedTick());
+	}
+
+	/**
+	 * A heartbeat the mirror REFUSES must not leave its arrival stamp behind either — otherwise
+	 * the next reader pairs a surviving tick with a foreign instant.
+	 */
+	@Test
+	public void aRefusedHeartbeatLeavesNoArrivalStamp() {
+		SceneMirror mirror = new SceneMirror(SCENE);
+		mirror.applyBatch(batch(1, new Delta.NodeCreate(1, V2Wire.NODE_GROUP, 0)), 100L);
+
+		mirror.observeHeartbeat(EPOCH + 1, 1, 999L, 555L);   // wrong incarnation
+
+		assertTrue(mirror.needsResync());
+		assertFalse("the hard reset drops the reading", mirror.hasObservedTick());
+		assertEquals("and the stamp with it", 0L, mirror.lastObservedAtNanos());
+	}
+
 	@Test
 	public void inOrderBatchesApply() {
 		SceneMirror mirror = new SceneMirror(SCENE);

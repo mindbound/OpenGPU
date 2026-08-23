@@ -12,7 +12,11 @@ import java.util.Set;
 
 import org.junit.Test;
 
+import opengpu.v2.protocol.Delta;
+import opengpu.v2.protocol.SceneBatch;
+import opengpu.v2.protocol.V2Wire;
 import opengpu.v2.sync.ClientTransport;
+import opengpu.v2.scene.SceneMirror;
 import opengpu.v2.sync.MirrorClient;
 
 /**
@@ -234,6 +238,100 @@ public class ScenePopulationTest {
 		SceneRenderer.resolveWalk(mirrors, used("a"), walk);
 
 		assertEquals("three frames must not leave three copies", 1, walk.size());
+	}
+
+	// ---------------------------------------------------------------- the clock seams
+
+	/**
+	 * THE PAIRING, PINNED AT THE SEAM THE RENDERER ACTUALLY CALLS.
+	 *
+	 * A mutation sweep found the two feed call sites completely uncovered: reverting either of
+	 * them to pair the tick with {@code now} survived the whole suite, because
+	 * {@code SceneRenderer} cannot be constructed here (its constructor allocates through LWJGL's
+	 * BufferUtils — the limitation this class already records above). Extracting the two feeds as
+	 * static seams, exactly as {@code resolveWalk} was extracted, is what makes them reachable.
+	 *
+	 * The test drives a REAL mirror and a REAL interpolator: observe a tick at arrival A, then
+	 * feed it long after A, and require the resulting clock to match a feed performed at A. A
+	 * seam that reached for the current instant instead cannot satisfy that.
+	 */
+	@Test
+	public void feedClockFromPairsTheTickWithItsArrivalNotWithTheReadInstant() {
+		final long arrival = 5_000_000_000L;
+		final long tick = 400L;
+
+		MirrorClient mirrors = new MirrorClient(SILENT, 20);
+		SceneMirror mirror = mirrors.mirror("s");
+		mirror.observeHeartbeat(1, 0, tick, arrival);
+
+		NodeInterpolator viaSeam = new NodeInterpolator();
+		SceneRenderer.feedClockFrom(viaSeam, mirror);
+
+		NodeInterpolator paired = new NodeInterpolator();
+		paired.observeTick(tick, arrival);
+
+		assertEquals("the seam must feed the ARRIVAL instant the mirror recorded",
+				paired.renderInstant(arrival), viaSeam.renderInstant(arrival));
+
+		// The control: what pairing with the read instant would have produced. Distinct by
+		// seconds, so this cannot pass by coincidence.
+		NodeInterpolator mispaired = new NodeInterpolator();
+		mispaired.observeTick(tick, arrival + 5_000_000_000L);
+		assertTrue("and must NOT match what pairing with `now` would give",
+				mispaired.renderInstant(arrival) != viaSeam.renderInstant(arrival));
+	}
+
+	/**
+	 * THE BATCH SEAM PAIRS WITH ARRIVAL TOO — and this is the arm with the worse exposure.
+	 *
+	 * A heartbeat is at most one interval stale, but {@code dirty} survives until a render clears
+	 * it, so a batch that landed while the scene was unwatched can be paired with a clock reading
+	 * an entire look-away later. Left uncovered when the sibling seam was first tested: the sweep
+	 * killed the heartbeat mutation and this one survived, which is why it exists.
+	 */
+	@Test
+	public void captureFromPairsTheBatchTickWithItsArrivalNotWithTheReadInstant() {
+		final long arrival = 9_000_000_000L;
+		final long lateRead = arrival + 5_000_000_000L;
+
+		MirrorClient mirrors = new MirrorClient(SILENT, 20);
+		SceneMirror mirror = mirrors.mirror("s");
+		List<Delta> deltas = new ArrayList<Delta>();
+		deltas.add(new Delta.NodeCreate(1, V2Wire.NODE_GROUP, 0));
+		assertTrue(mirror.applyBatch(new SceneBatch("s", 1, 1, 400L, deltas), arrival));
+
+		NodeInterpolator viaSeam = new NodeInterpolator();
+		SceneRenderer.captureFrom(viaSeam, mirror);
+
+		NodeInterpolator paired = new NodeInterpolator();
+		paired.capture(mirror.state(), mirror.lastServerTick(), arrival, mirror.teleportedNodes());
+
+		assertEquals("the seam must spend the ARRIVAL instant on the clock",
+				paired.renderInstant(lateRead), viaSeam.renderInstant(lateRead));
+
+		NodeInterpolator mispaired = new NodeInterpolator();
+		mispaired.capture(mirror.state(), mirror.lastServerTick(), lateRead,
+				mirror.teleportedNodes());
+		assertTrue("and must NOT match what pairing with the read instant would give",
+				mispaired.renderInstant(lateRead) != viaSeam.renderInstant(lateRead));
+	}
+
+	/** The de-duplicator: a sample is owed once, and re-reading the same level owes nothing. */
+	@Test
+	public void shouldFeedClockIsTrueOncePerDistinctTick() {
+		MirrorClient mirrors = new MirrorClient(SILENT, 20);
+		SceneMirror mirror = mirrors.mirror("s");
+
+		assertFalse("nothing observed yet: nothing to feed",
+				SceneRenderer.shouldFeedClock(mirror, 0L, false));
+
+		mirror.observeHeartbeat(1, 0, 400L, 1_000L);
+		assertTrue("a first sample is owed", SceneRenderer.shouldFeedClock(mirror, 0L, false));
+		assertFalse("the SAME tick is not owed again — re-feeding a level drags the estimate",
+				SceneRenderer.shouldFeedClock(mirror, 400L, true));
+
+		mirror.observeHeartbeat(1, 0, 440L, 3_000L);
+		assertTrue("a newer tick is owed", SceneRenderer.shouldFeedClock(mirror, 400L, true));
 	}
 
 	/** No scenes at all must not throw, and must leave the budget disengaged. */

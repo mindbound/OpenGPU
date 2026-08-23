@@ -235,6 +235,46 @@ public final class SceneRenderer {
 	 * mirrored subset, so a scene marked used with no mirror was charged to the budget forever
 	 * without ever being able to discharge. Both now read this one answer.
 	 */
+	/**
+	 * Fold a freshly applied batch in, pairing its tick with the instant it ARRIVED.
+	 *
+	 * EXTRACTED SO IT CAN BE TESTED — the same move {@link #resolveWalk} makes, for the same
+	 * reason: this class's constructor allocates through LWJGL's {@code BufferUtils}, which is
+	 * not on the test runtime classpath, so anything left inline here is unreachable from the
+	 * suite. That is not a hypothetical. A mutation sweep reverted this very call to pair with
+	 * {@code now} and it survived the ENTIRE suite while the mirror-side tests stayed green.
+	 *
+	 * {@code capture} spends its instant argument solely on the clock estimate; the track walk
+	 * never reads it. And {@code dirty} survives until a render clears it, so a batch that landed
+	 * while this scene was unwatched can be arbitrarily old by the time we get here — pairing it
+	 * with {@code now} was worth the whole look-away in one re-base.
+	 */
+	static void captureFrom(NodeInterpolator interp, SceneMirror mirror) {
+		interp.capture(mirror.state(), mirror.lastServerTick(),
+				mirror.lastObservedAtNanos(), mirror.teleportedNodes());
+	}
+
+	/**
+	 * ANIM-13(b): feed a tick that arrived on a HEARTBEAT rather than a batch, again paired with
+	 * its arrival. Only reachable on a scene with no state changes — which is exactly the scene
+	 * class animators exist for, and the one whose clock had no correction channel at all before.
+	 */
+	static void feedClockFrom(NodeInterpolator interp, SceneMirror mirror) {
+		interp.observeTick(mirror.lastObservedTick(), mirror.lastObservedAtNanos());
+	}
+
+	/**
+	 * Whether this frame owes the clock a sample: one exists, and it is not the one already fed.
+	 *
+	 * ON CHANGE ONLY, and that is load-bearing. The mirror holds its newest tick as a LEVEL, so
+	 * feeding every frame would push the same tick against an ever-later instant and drag the
+	 * estimate down without bound — a worse drift than the free-run ANIM-13(b) removes, and a
+	 * silent one.
+	 */
+	static boolean shouldFeedClock(SceneMirror mirror, long fedTick, boolean fedTickKnown) {
+		return mirror.hasObservedTick() && (!fedTickKnown || mirror.lastObservedTick() != fedTick);
+	}
+
 	static void resolveWalk(MirrorClient mirrors, Set<String> usedScenes, List<String> out) {
 		out.clear();
 		for (String sceneId : usedScenes) {
@@ -506,17 +546,13 @@ public final class SceneRenderer {
 			gl.overlay.reset();
 		}
 		if (mirror.isDirty()) {
-			gl.interp.capture(mirror.state(), mirror.lastServerTick(), now, mirror.teleportedNodes());
-			// capture() fed the clock with this tick; record it so the arm below does not feed
+			captureFrom(gl.interp, mirror);
+			// captureFrom fed the clock with this tick; record it so the arm below does not feed
 			// the same one again from the mirror's level.
 			gl.fedTick = mirror.lastServerTick();
 			gl.fedTickKnown = true;
-		} else if (mirror.hasObservedTick()
-				&& (!gl.fedTickKnown || mirror.lastObservedTick() != gl.fedTick)) {
-			// ANIM-13(b): a tick that arrived on a heartbeat rather than a batch. Only reachable
-			// on a scene with no state changes, which is exactly the scene class animators exist
-			// for and the one whose clock previously had no correction channel at all.
-			gl.interp.observeTick(mirror.lastObservedTick(), now);
+		} else if (shouldFeedClock(mirror, gl.fedTick, gl.fedTickKnown)) {
+			feedClockFrom(gl.interp, mirror);
 			gl.fedTick = mirror.lastObservedTick();
 			gl.fedTickKnown = true;
 		}
