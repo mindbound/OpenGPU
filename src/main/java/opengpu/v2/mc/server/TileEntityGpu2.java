@@ -58,7 +58,7 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	public static final int PUSH_DEPTH_CAP = 16;
 	/**
 	 * The Lua-facing API generation, reported by {@link #getVersion}. Bump it in the SAME change
-	 * that adds a callback.
+	 * that adds a callback OR a discoverable {@code getLimits()} key.
 	 *
 	 * Deliberately neither {@code PROTOCOL_VERSION} nor the mod version, because the three answer
 	 * different questions — and this codebase has already paid once for one number serving several
@@ -100,8 +100,27 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 * that added them, which is the only discipline that has ever worked here.
 	 *
 	 * Level 7 (2026-08-19, Phase 3.2) adds setAnimator. Same edit, same reason.
+	 *
+	 * Level 8 (2026-08-24) adds the OCSL SEMANTIC caps to getLimits — animatorOps,
+	 * animatorFetches, programRegisters, programFrameFloats, programUnrollProduct,
+	 * programUniforms. It adds no callback, and it bumps anyway: a program that wants to refuse
+	 * locally before submitting must be able to tell "this server does not publish that key"
+	 * from "that key was removed", and {@code api} is the only field that answers it. A key is a
+	 * feature.
+	 *
+	 * AND THE FIFTH MISS NOW HAS SOMETHING OTHER THAN A JAVADOC WATCHING — not the fourth: this
+	 * pin was written in the same edit as this bump, so it has caught nothing yet, and levels 6
+	 * and 7 were bumped correctly with only the javadoc. The paragraph above diagnosed itself
+	 * accurately ("a warning in a javadoc is not a control") and then stayed the only control
+	 * for three more levels.
+	 * {@code ApiSurfacePinTest} is the control: it pins the Lua-visible callback surface and the
+	 * getLimits key list AGAINST THIS NUMBER, so adding either without moving it is red. It
+	 * REFLECTS for the callbacks — a probe on 2026-08-24 loaded this class and saw all 68
+	 * annotations, refuting the "no JVM test can load it" claim this comment carried for one
+	 * draft — and reads the source as text only for the getLimits keys, because instantiating
+	 * the tile entity to invoke it throws.
 	 */
-	public static final int API_LEVEL = 7;
+	public static final int API_LEVEL = 8;
 	/** Server-side VRAM budget in bytes (textures w*h*4 + canvas command capacity estimate). */
 	public static final long VRAM_BUDGET_BYTES = 16L * 1024 * 1024;
 	/** Budget estimate per canvas command slot (id + args worst case, serialized). */
@@ -2218,7 +2237,7 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 *
 	 * Static constants only, so no lock and no scene required.
 	 */
-	@Callback(direct = true, doc = "function():table -- Structural caps, in bytes unless noted: submitBytes (per canvasSubmit call), submitBytesPerTick (per scene per tick), commandCap (commands per canvas), textChars (per drawText), writeBytes (per writeRegion call), writeBytesPerTick, textureDim (pixels), standingCommandBytes (whole scene), programBytes (all OCSL programs on this scene), programBlobBytes (one program). Chunk by submitBytes, pace by submitBytesPerTick.")
+	@Callback(direct = true, doc = "function():table -- Structural caps, in bytes unless noted: submitBytes (per canvasSubmit call), submitBytesPerTick (per scene per tick), commandCap (commands per canvas), textChars (per drawText), writeBytes (per writeRegion call), writeBytesPerTick, textureDim (pixels), standingCommandBytes (whole scene), programBytes (all OCSL programs on this scene), programBlobBytes (one program). OCSL semantic caps, counts not bytes: animatorOps, animatorFetches (0 -- the animator has no sampler), programRegisters, programFrameFloats, programUnrollProduct, programUniforms. Chunk by submitBytes, pace by submitBytesPerTick.")
 	public Object[] getLimits(Context context, Arguments args) throws Exception {
 		java.util.Map<String, Object> out = new java.util.LinkedHashMap<String, Object>();
 		out.put("submitBytes", Integer.valueOf(V2Wire.MAX_SUBMIT_BYTES));
@@ -2234,6 +2253,36 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 		// whole scene's table, and a library that inferred either from the other would be wrong.
 		out.put("programBytes", Integer.valueOf(ServerScene.MAX_PROGRAM_BYTES));
 		out.put("programBlobBytes", Integer.valueOf(opengpu.v2.ocsl.OcslWire.MAX_BLOB_BYTES));
+
+		// THE SEMANTIC CAPS (2026-08-24). Until now this published no OCSL semantic cap, so an
+		// OC-side compiler wanting to refuse a program before submitting it had to hardcode
+		// 512/0/1024/2048/1024/64 — the exact duplicated-wire-constant hazard this callback
+		// exists to prevent, and the one the shipped Lua library already fell into once with
+		// MAX_SUBMIT_BYTES. Every value below is READ from the constant that enforces it.
+		//
+		// THE PREFIX CARRIES A MEANING. `animator*` is STAGE-SCOPED: it would be a different
+		// number at another stage, and publishing it unprefixed would be a lie the moment a
+		// second stage is attachable. `program*` is universal — the same at every stage.
+		// This is not hypothetical for fetches: maxFetches is 16 for the pixel family and
+		// ZERO for the animator, because the animator has no sampler and no texture register
+		// set, so a flat "maxFetches: 16" would be wrong for the only stage anyone can attach.
+		out.put("animatorOps", Integer.valueOf(
+				opengpu.v2.ocsl.IrValidator.maxStructuralOps(opengpu.v2.ocsl.OcslWire.STAGE_ANIMATOR)));
+		out.put("animatorFetches", Integer.valueOf(
+				opengpu.v2.ocsl.IrValidator.maxFetches(opengpu.v2.ocsl.OcslWire.STAGE_ANIMATOR)));
+		out.put("programRegisters", Integer.valueOf(opengpu.v2.ocsl.SurfaceTable.MAX_REGISTERS));
+		out.put("programFrameFloats",
+				Integer.valueOf(opengpu.v2.ocsl.SurfaceTable.MAX_FRAME_WIDTH));
+		out.put("programUnrollProduct",
+				Integer.valueOf(opengpu.v2.ocsl.IrValidator.MAX_UNROLL_PRODUCT));
+		out.put("programUniforms", Integer.valueOf(opengpu.v2.ocsl.SurfaceTable.MAX_UNIFORMS));
+		// UNIFORM COMPONENTS ARE DELIBERATELY ABSENT, on the same principle as the per-BATCH
+		// submit bound above: a number whose only possible use is to be misread is worse than
+		// no number. MAX_UNIFORM_COMPONENTS is 64 and so is MAX_UNIFORMS, but they coincide in
+		// v1 BY ACCIDENT of the type system — v1 uniforms are float-typed, so components equal
+		// slots and the slot cap always refuses first, making the component cap unreachable.
+		// IrValidator records that an earlier draft published 1024 here and was "wrong twice
+		// over". Publish it when typed uniforms make the two diverge, not before.
 		return new Object[] { out };
 	}
 

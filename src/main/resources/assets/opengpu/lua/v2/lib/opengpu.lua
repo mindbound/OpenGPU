@@ -1166,7 +1166,14 @@ function opengpu.bind(address, opts)
       lim = {}
       for k, v in pairs(FALLBACK_LIMITS) do lim[k] = v end
       for k, v in pairs(fetched) do
-        if type(v) == "number" and v > 0 then lim[k] = math.floor(v) end
+        -- `>= 0`, NOT `> 0`. The strict form was constant-true until 2026-08-24, when the
+      -- server began publishing `animatorFetches = 0` -- the one cap whose entire
+      -- argument IS that it is zero, because the animator has no sampler. Under `> 0`
+      -- this library dropped it, so `limits().animatorFetches` read nil against an
+      -- api-8 server AND against an api-7 one: indistinguishable, which collapses the
+      -- very distinction the level-8 bump exists to make. A key that is legitimately
+      -- zero is not a missing key.
+      if type(v) == "number" and v >= 0 then lim[k] = math.floor(v) end
       end
     end
   end
