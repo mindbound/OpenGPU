@@ -618,7 +618,10 @@ final class AnimatorOverlay {
 			// does not tell you which limit it will reach first. `validated` already carries the
 			// frame — the validator lays it out to enforce MAX_FRAME_WIDTH — so this costs a
 			// field read, not a second pass.
-			// THE UNIFORM GAP, said out loud once per client session. A declared uniform reads
+			// THE UNIFORM GAP, said out loud once per COUNTER WINDOW -- StatsOverlay's
+			// SHIFT+toggle calls RenderStats.reset(), which re-arms this. It said "once per
+			// client session" when it shipped, which was false on a keypress that ships.
+			// A declared uniform reads
 			// 0.0 forever because nothing binds one; that is silent, and silence is the defect.
 			// A refusal was considered and rejected -- uniforms are a designed surface, so
 			// refusing them would reject already-persisted blobs and be undone the day the

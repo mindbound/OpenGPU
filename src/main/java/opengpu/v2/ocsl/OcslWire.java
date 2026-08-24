@@ -76,12 +76,14 @@ public final class OcslWire {
 	 * was {@code IrValidator}'s {@code !SurfaceTable.isOpen} arm; both halves were false, and the
 	 * second one matters — a DECODER rejection is format identity, so opening this stage is not
 	 * the one-line validator act that opened the animator. {@code SurfaceTable} counts the gates:
-	 * four for compute, and its note says "Count the sites, do not reuse this number". The distinction is load-bearing twice over. It is
+	 * four for compute, and its note says "Count the sites, do not reuse this number". The
+	 * distinction is load-bearing twice over. It is
 	 * what keeps a reserved stage's refusal message able to say "reserved" rather than lying
 	 * about unknownness (the guarantee {@code aReservedRefusalIsDistinctFromAnUnknownStage}
 	 * pins), and it is what makes opening the stage later a VALIDATOR change under the
 	 * monotonicity rule rather than a format change — though that too would be a four-site edit,
-	 * not the one-line act this paragraph claimed opened the animator until 2026-08-23. Because createProgram validates before storing, no blob can
+	 * not the one-line act this paragraph claimed until `67b3bf8` (2026-08-24). Because
+	 * createProgram validates before storing, no blob can
 	 * persist under this stage while it is closed, which is what protects the future compute
 	 * surface's acceptance rules from being frozen by accident.
 	 */
@@ -190,9 +192,11 @@ public final class OcslWire {
 	 * committed count. The Stage B exit check reproduces 22/101/21/96 as STRUCTURAL-OP charges —
 	 * not bytes. Three of the four carry a prologue on the BUILDER route (plasma 24, blur 102,
 	 * domains 97 — OcslBuilderTest); two carry one in AcceptanceProgramsTest's hand-encoded
-	 * IR, and this sentence said "two of the four" flatly until 2026-08-23. Plasma read 23 until the 2026-08-12 broadcast re-opening removed a
+	 * IR, and this sentence said "two of the four" flatly until `67b3bf8` (2026-08-24).
+	 * Plasma read 23 until the 2026-08-12 broadcast re-opening removed a
 	 * builder-inserted SPLAT; AcceptanceProgramsTest records the change in four places, and
-	 * OcslBuilderTest holds the builder-route counts and every execution. Without the composite constructors it would have
+	 * OcslBuilderTest holds the builder-route counts and every execution. Without the composite
+	 * constructors it would have
 	 * failed on three of four, and the arity is unrecoverable from the wire (operand count is a
 	 * property of the opcode, with no per-op count field), so no validator could have repaired it.
 	 */

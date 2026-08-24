@@ -221,8 +221,12 @@ public class StatsTest {
 			}
 			counters.add(f);
 		}
+		// 29 as of 2026-08-24, and the floor is the COUNT, not a comfortable fraction of it: at
+		// 15 it had gone slack by 2x, so fourteen counters could have been deleted before the
+		// guard that exists to catch a drop would fire. Raise this in the same edit that adds a
+		// counter -- that is the whole obligation, and it is cheap only while it is exact.
 		assertTrue("reflection found " + counters.size() + " counters; if this dropped, the sweep"
-				+ " is covering less than it claims", counters.size() >= 15);
+				+ " is covering less than it claims", counters.size() >= 29);
 		for (java.lang.reflect.Field f : counters) {
 			f.setAccessible(true);
 			assertTrue("precondition: " + f.getName() + " must be non-zero BEFORE reset, or its"

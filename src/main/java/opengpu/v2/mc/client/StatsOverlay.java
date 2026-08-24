@@ -226,7 +226,9 @@ public final class StatsOverlay {
 						RenderStats.animatorRegistersMax,
 						opengpu.v2.ocsl.SurfaceTable.MAX_REGISTERS));
 			}
-			// THE UNIFORM GAP, and the only line here that is not about a cap. A program can
+			// THE UNIFORM GAP, and the only row here that reports a GAP rather than a cost or
+			// a cap -- it said "not about a cap" when it shipped, which the per-node, settled-
+			// pass and budget rows twenty lines below already falsify. A program can
 			// declare uniforms, validate, persist and attach, and then read 0.0 on every
 			// evaluation forever, because the per-attachment uniform table is designed and not
 			// implemented. Nothing fails, so nothing else on this overlay would ever show it.
@@ -236,7 +238,7 @@ public final class StatsOverlay {
 			// reader has not met, and readers learn to skip rows that are always zero.
 			if (RenderStats.animatorProgramsWithUniforms > 0) {
 				lines.add(String.format(
-						"    !! %d program(s) declare uniforms -- nothing binds them, they read 0.0",
+						"    !! %d compile(s) declared uniforms -- nothing binds them, they read 0.0",
 						RenderStats.animatorProgramsWithUniforms));
 			}
 			// THE PER-NODE LINE — the measurement ANIM-16's budget calibrates against, and the

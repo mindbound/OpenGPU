@@ -158,7 +158,10 @@ public final class RenderStats {
 	public static int animatorRegistersMax;
 
 	/**
-	 * Animator programs that DECLARE at least one uniform — every one of which reads 0.0.
+	 * Animator program COMPILES that DECLARED at least one uniform — every such uniform reads
+	 * 0.0. COMPILES, on the sibling counters' convention: {@code onAnimatorCompile} runs on a
+	 * {@code vms} cache miss, and an epoch change or a world rejoin recompiles, so five portal
+	 * hops read 5 in a world holding one program.
 	 *
 	 * Not a performance counter. The other columns here answer "which cap will a real program
 	 * hit first"; this one answers "is anybody walking into the uniform gap", and it exists

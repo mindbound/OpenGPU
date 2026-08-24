@@ -50,10 +50,16 @@ package opengpu.v2.ocsl;
  *
  * <b>That obligation no longer has an expiry condition, and this sentence used to imply one.</b>
  * It read "while the surface is shut"; the animator surface OPENED on 2026-08-13 and the set-call
- * did not arrive with it. The live consequence, established by inspection 2026-08-23 (a grep, not a probe): a program may declare a
- * uniform, validate, encode, persist and attach, and then evaluate against a zero-initialised
- * frame forever, with no refusal and no diagnostic — because nothing in {@code src/main} ever
- * binds a register at or above {@code SurfaceTable.UNIFORM_BASE}. The remedy is the set-call
+ * did not arrive with it. The live consequence, established by inspection (a grep, not a
+ * probe) in `67b3bf8` (2026-08-24): a program may declare a uniform, validate, encode, persist
+ * and attach, and then evaluate against a zero-initialised frame forever — because nothing
+ * in {@code src/main} ever binds a register at or above {@code SurfaceTable.UNIFORM_BASE}.
+ *
+ * <b>It is no longer SILENT.</b> A diagnostic shipped in that same commit: a
+ * {@code RenderStats} counter, one row on the stats overlay, and one log line. The value is
+ * still 0.0; only the silence was fixed. The sentence here read "with no refusal and no
+ * diagnostic" as it was committed — the commit that added the diagnostic — which is this
+ * file's own thesis failing inside its own diff. The remedy is the set-call
  * machinery this paragraph describes, not a refusal: uniforms are a designed surface
  * (DESIGN "uniform sets by name per attachment"), so refusing them would be a validator
  * tightening that has to be undone the moment the table lands.

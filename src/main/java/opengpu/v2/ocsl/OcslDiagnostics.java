@@ -81,9 +81,18 @@ public final class OcslDiagnostics {
 	 *
 	 * No dedup table and no rate cap here, because this one is not per-node and not per-frame:
 	 * the caller emits it on the 0 → 1 transition of
-	 * {@code RenderStats.animatorProgramsWithUniforms}, so it is once per client session and the
-	 * running total lives on the F3 animator line. Putting a second latch in this class would
-	 * mean two pieces of state that must be reset together and will eventually not be.
+	 * {@code RenderStats.animatorProgramsWithUniforms}, so it is once per COUNTER WINDOW — NOT
+	 * once per client session, which is what this javadoc claimed when it shipped. The stats
+	 * overlay's SHIFT+toggle calls {@code RenderStats.reset()}, which clears the latch along
+	 * with the count and re-arms this line for the next program compiled after it. That is the
+	 * same window every other row on that overlay reports over, so it is consistent rather than
+	 * anomalous; it is simply not "per session".
+	 *
+	 * Putting a second latch in this class would mean two pieces of state that must be reset
+	 * together and will eventually not be — but note the house has priced that trade the other
+	 * way before, in {@code SceneRenderer}'s two told-flags, whose comment records that reusing
+	 * shared state made "the second failure anywhere in a session silent forever". If a genuine
+	 * once-per-session line is ever wanted, that is the shape, not a reworded comment.
 	 *
 	 * @param programId     the scene's program id, so the author can find the blob
 	 * @param uniformCount  the DECLARED count. Declared rather than read: the validator counts
@@ -95,8 +104,9 @@ public final class OcslDiagnostics {
 				+ (uniformCount == 1 ? "" : "s") + " and nothing can bind one yet, so"
 				+ " every read of them evaluates to 0.0. This is a KNOWN GAP in OpenGPU -- the\n"
 				+ "  per-attachment uniform table is designed and not implemented -- and NOT a\n"
-				+ "  fault in the program. Further such programs are counted on the F3 animator\n"
-				+ "  line rather than logged here.");
+				+ "  fault in the program. Further such programs are counted on the OpenGPU stats\n"
+				+ "  overlay's animator line -- bind \"Toggle render stats overlay\" under\n"
+				+ "  Controls -> OpenGPU -- rather than logged here.");
 	}
 
 	/**

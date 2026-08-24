@@ -2168,14 +2168,36 @@ public class AnimatorOverlayTest {
 	 * {@code OcslDiagnostics.setSink(null)} restores the stderr default rather than muting.
 	 */
 	@After
-	public void restoreDiagnosticsSink() {
+	public void restoreDiagnosticsSinkAndCounters() {
 		opengpu.v2.ocsl.OcslDiagnostics.setSink(null);
+		// AND THE COUNTERS, because the leak is VACUOUS rather than loud: a non-zero
+		// animatorProgramsWithUniforms holds the warn latch CLOSED, so a later test asserting
+		// "no line was emitted" would pass for entirely the wrong reason. Nothing in the repo
+		// is hurt by it today; that is exactly when it is cheap to close.
+		opengpu.v2.stats.RenderStats.reset();
 	}
 
 	/** An animator program that DECLARES a uniform — which nothing can bind, so it reads 0.0. */
 	private static byte[] uniformProgram(String uniformName) throws Exception {
 		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
 		b.out(OcslWire.PROP_ANIM_X, b.uniform(uniformName));
+		return IrCodec.encode(b.build());
+	}
+
+	/**
+	 * TWO uniforms, and the plurality is the point rather than a detail.
+	 *
+	 * Every declaring fixture here declared exactly ONE until 2026-08-24, which made a program
+	 * COUNT and a component SUM produce identical numbers in every test — so the mutant
+	 * {@code animatorProgramsWithUniforms += uniformComponents} survived the whole suite while
+	 * mislabelling a single four-uniform program as "4 compile(s)". The extra arithmetic is
+	 * deliberate too: it pushes the charge off 2 so that substituting the charge for the count
+	 * in the message is visible (asserted below rather than assumed).
+	 */
+	private static byte[] twoUniformProgram() throws Exception {
+		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_ANIMATOR);
+		Expr sum = b.uniform("speed").add(b.uniform("phase"));
+		b.out(OcslWire.PROP_ANIM_X, sum.mul(b.f(2.0f)));
 		return IrCodec.encode(b.build());
 	}
 
@@ -2198,10 +2220,12 @@ public class AnimatorOverlayTest {
 	public void theUniformCounterCountsDeclaringProgramsAndOnlyThose() throws Exception {
 		opengpu.v2.stats.RenderStats.reset();
 		byte[] plain = program(OcslWire.PROP_ANIM_X, 5.0f);
-		byte[] declaring = uniformProgram("speed");
+		byte[] declaring = twoUniformProgram();
 		assertEquals("fixture check: the plain program must declare no uniforms, or this test"
 				+ " cannot distinguish anything", 0, declaredUniforms(plain));
-		assertEquals("fixture check: the other must declare exactly one", 1,
+		// TWO, not one, and that is what separates counting PROGRAMS from summing COMPONENTS.
+		assertEquals("fixture check: the declaring program must declare TWO uniforms, or a"
+				+ " component sum is indistinguishable from a program count", 2,
 				declaredUniforms(declaring));
 
 		SceneState s = sceneWith(info(1, plain), info(2, declaring));
@@ -2216,8 +2240,10 @@ public class AnimatorOverlayTest {
 		assertEquals("both programs must have compiled, or the counter is reading a smaller"
 				+ " population than it appears to", 2,
 				opengpu.v2.stats.RenderStats.animatorProgramsCompiled);
-		assertEquals("only the declaring program counts: 2 means the guard ignores"
-				+ " uniformComponents and counts every compile, 0 means it never fires", 1L,
+		assertEquals("only the declaring program counts, and ONE is the answer for three"
+				+ " different reasons to be wrong: 2 means the guard ignores uniformComponents"
+				+ " and counts every compile OR that it summed the 2 declared components instead"
+				+ " of counting the program, and 0 means it never fires", 1L,
 				opengpu.v2.stats.RenderStats.animatorProgramsWithUniforms);
 	}
 
@@ -2283,5 +2309,54 @@ public class AnimatorOverlayTest {
 		assertEquals("and counted nothing", 0L,
 				opengpu.v2.stats.RenderStats.animatorProgramsWithUniforms);
 		assertTrue("and said nothing: " + c.lines, c.lines.isEmpty());
+	}
+
+	/**
+	 * THE MESSAGE'S DATA IS ASSERTED, not just its boilerplate.
+	 *
+	 * The two assertions this file shipped with — {@code contains("0.0")} and
+	 * {@code contains("KNOWN GAP")} — are both compile-time constants of the message literal, so
+	 * NEITHER argument of {@code uniformsWithNothingToBindThem} participated in any assertion
+	 * anywhere in the repo. Three mutants lived there: substituting {@code frameWidth},
+	 * {@code declaredRegisters} or {@code structuralOps} for the count (all three are in scope on
+	 * the adjacent line), and inverting the plural arm, which had never once executed because no
+	 * fixture ever passed a count other than 1.
+	 *
+	 * ONE program, so the id and the count are unambiguous without depending on node-walk order.
+	 */
+	@Test
+	public void theAnnouncementNamesTheProgramAndHowManyUniformsItDeclares() throws Exception {
+		opengpu.v2.stats.RenderStats.reset();
+		Capture c = new Capture();
+		opengpu.v2.ocsl.OcslDiagnostics.setSink(c);
+
+		byte[] blob = twoUniformProgram();
+		IrValidator.Validated v =
+				IrValidator.validate(IrCodec.decode(blob, IrCodec.Source.TRANSIENT));
+		// THE FIXTURE MUST DISCRIMINATE, and here that means the count must not collide with any
+		// of the three neighbours a mutation could substitute for it. Asserted, because a future
+		// change to the builder could quietly make them equal and this test would keep passing
+		// while testing strictly less.
+		assertEquals("fixture: two declared uniforms", 2, v.uniformComponents);
+		assertTrue("fixture: the frame must not also be 2, or a frameWidth substitution is"
+				+ " invisible: " + v.frameWidth, v.frameWidth != 2);
+		assertTrue("fixture: the register count must not also be 2: "
+				+ v.program().declaredRegisters, v.program().declaredRegisters != 2);
+		assertTrue("fixture: the charge must not also be 2: " + v.structuralOps,
+				v.structuralOps != 2L);
+
+		SceneState s = sceneWith(info(7, blob));
+		SceneNode n = node(s, 1, 0);
+		n.animator = 7;
+		n.attachedWorldTime = 100L;
+		new AnimatorOverlay().evaluate(s, instant(200), OFFSET, true);
+
+		assertEquals("one declaring program, one line: " + c.lines, 1, c.lines.size());
+		String line = c.lines.get(0);
+		assertTrue("the line must name the PROGRAM id, which is the only actionable thing in it"
+				+ " -- the author needs it to find the blob: " + line,
+				line.contains("animator program 7 "));
+		assertTrue("and the DECLARED COUNT, with the plural arm actually exercised: " + line,
+				line.contains("declares 2 uniforms and nothing"));
 	}
 }

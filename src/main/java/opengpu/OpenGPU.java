@@ -102,6 +102,19 @@ public class OpenGPU {
 		// so it reports through a sink rather than reaching for this logger itself. Its default
 		// writes to stderr, so a font problem is never silent even if this line is somehow not
 		// reached; installing the real logger just puts the message where the rest of them are.
+		// The OCSL surface has the same shape and the same reason -- the ocsl package is tested
+		// headless and must stay Minecraft-free -- and until 2026-08-24 nothing installed its
+		// sink at all. Its messages went to raw stderr, unprefixed by the mod log, which is
+		// where a player told to look for a diagnostic will not find them. That mattered the
+		// moment OcslDiagnostics gained a line aimed at a player rather than at a developer
+		// reading a crash: the uniform-gap report.
+		opengpu.v2.ocsl.OcslDiagnostics.setSink(new opengpu.v2.ocsl.OcslDiagnostics.Sink() {
+			@Override
+			public void warn(String message) {
+				logger.warn(message);
+			}
+		});
+
 		opengpu.v2.font.FontDiagnostics.setSink(new opengpu.v2.font.FontDiagnostics.Sink() {
 			@Override
 			public void warn(String message) {

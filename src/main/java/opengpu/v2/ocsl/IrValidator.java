@@ -93,16 +93,17 @@ public final class IrValidator {
 				// nanoseconds outright. Two cost models fit the field data and differ 16x at
 				// this cap — see FIELD-TEST-ANIM16.md, which is the measurement that separates
 				// them. The cap below is not in question; what follows from it is.
-				// An at-cap node is ~43 us ≈ 0.26% of a 60 Hz frame (FIELD-TEST-ANIM16 measured it;
-				// the 0.46 us/op model above gave ~236 us, 5.5x over, and that figure stood
-				// here until 2026-08-23 while AnimatorBudget already used the corrected one).
-				// The op-count ratio is unaffected: still 36x the
+				// An at-cap node is ~38-43 us, ~0.23-0.26% of a 60 Hz frame. FIELD-TEST-ANIM16
+				// reports a RANGE (E + 512 x per-op), and 43 alone is its superseded run-1
+				// model; the final per-op figure gives 38.0. The 0.46 us/op model above gave
+				// ~236 us, 5.5x over, and that figure stood here while AnimatorBudget already
+				// used the corrected one. The op-count ratio is unaffected: still 36x the
 				// largest real program. Conservative on purpose: monotonicity makes every raise
 				// a one-way door, and ANIM-16's client-global budget — the aggregate bound the
-				// design calls "the real bound" — is the client render layer's AnimatorBudget.ENTER_NANOS
-				// (package-private there, so this is a prose pointer, not a resolvable
-				// reference) (250 us of measured
-				// animator spend per client frame), shipped 2026-08-22 and field-validated. This
+				// design calls "the real bound" — is AnimatorBudget.ENTER_NANOS in the client
+				// render layer, 250 us of measured animator spend per client frame, shipped
+				// 2026-08-22 and field-validated. Package-private there, so that is a prose
+				// pointer rather than a resolvable reference. This
 				// comment said "still has no number" until 2026-08-23, having been written the day
 				// before the budget landed.
 				return 512;

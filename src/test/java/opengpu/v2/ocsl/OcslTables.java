@@ -325,8 +325,10 @@ public final class OcslTables {
 		line(out, "# here until 2026-08-23 was false: it said nothing in the running mod creates or");
 		line(out, "# attaches a program. TileEntityGpu2 has both createProgram and setAnimator, so a");
 		line(out, "# player CAN declare a uniform and attach the program; it then evaluates against a");
-		line(out, "# zero frame with no refusal and no diagnostic. That row is a stated gap rather");
-		line(out, "# than an omission, but it is a REACHABLE one.");
+		line(out, "# zero frame with no refusal. A diagnostic shipped in the same commit that");
+		line(out, "# wrote this line (67b3bf8, 2026-08-24): a counter, an overlay row, one log");
+		line(out, "# line -- the VALUE is still 0.0, only the silence was fixed. That row is a");
+		line(out, "# stated gap rather than an omission, but it is a REACHABLE one.");
 		line(out, "");
 
 		// ANIM-9. Beside the composition rule because that is where a reader goes looking for it,

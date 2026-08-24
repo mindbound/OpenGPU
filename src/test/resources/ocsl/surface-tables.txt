@@ -191,8 +191,10 @@ uniformSetCall not-implemented
 # here until 2026-08-23 was false: it said nothing in the running mod creates or
 # attaches a program. TileEntityGpu2 has both createProgram and setAnimator, so a
 # player CAN declare a uniform and attach the program; it then evaluates against a
-# zero frame with no refusal and no diagnostic. That row is a stated gap rather
-# than an omission, but it is a REACHABLE one.
+# zero frame with no refusal. A diagnostic shipped in the same commit that
+# wrote this line (67b3bf8, 2026-08-24): a counter, an overlay row, one log
+# line -- the VALUE is still 0.0, only the silence was fixed. That row is a
+# stated gap rather than an omission, but it is a REACHABLE one.
 
 [write-boundary] name value
 # What happens to a value on its way out. A non-finite animator output is

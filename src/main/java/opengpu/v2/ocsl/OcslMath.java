@@ -334,8 +334,9 @@ public final strictfp class OcslMath {
 	 * constraint alone would force it.
 	 *
 	 * <p><b>S4, the accumulation</b> — every tap is converted {@code b/255.0} in double, the four
-	 * products are summed in double, and the result narrows to float32 exactly once. The term order is part of the pin — but NOT for the reason
-	 * this comment gave until 2026-08-23, which DESIGN had already withdrawn by name. The sum
+	 * products are summed in double, and the result narrows to float32 exactly once. The term
+	 * order is part of the pin — but NOT for the reason this comment gave until `67b3bf8`
+	 * (2026-08-24), which DESIGN had already withdrawn by name. The sum
 	 * accumulates in DOUBLE, so a reordering is visible only where the double-rounding error
 	 * straddles a float32 boundary — of order 1e-7 of random uv. MEASURED, because the figure
 	 * that stood here on 2026-08-23 was 1.3e-5 and was wrong by ~250x: two independently
