@@ -196,11 +196,6 @@ public final class SceneRenderer {
 	 * package-private so a test can drive it directly with no framebuffer.
 	 */
 	public void prePass(MirrorClient mirrors, Set<String> usedScenes) {
-		// C1.0 THROWAWAY (PLAN-STAGE-C): the depth-attachment spike plus FramebufferPass's
-		// requested split-binding watch. Suspends the "settled frame touches no GL state"
-		// guarantee by two tracked glGetIntegers per pre-pass while installed. Delete with
-		// DepthSpike once FIELD-TEST-C10.md is graded.
-		DepthSpike.onPrePass();
 		if (!FramebufferPass.isSupported()) {
 			if (!fboUnsupportedLogged) {
 				fboUnsupportedLogged = true;

@@ -323,10 +323,12 @@ public final class FramebufferPass {
 	 * Does {@code glCheckFramebufferStatus} on THIS context actually report incompleteness, or
 	 * does it answer COMPLETE unconditionally?
 	 *
-	 * Not a paranoid question. Angelica 2.2.x's SDL GPU backend emulates framebuffers and its
-	 * {@code checkFramebufferStatus()} returns {@code GL_FRAMEBUFFER_COMPLETE} for everything;
-	 * Angelica knows this and exposes {@code framebufferCompletenessIsMeaningful()} so Iris can
-	 * opt out. We cannot call that — it does not exist at 2.1.59 and is Angelica-internal — and
+	 * Not a paranoid question. Angelica 2.2.x's SDL GPU backend (opt-in via the
+	 * {@code angelica.sdlgpu.enable} JVM property; verified still opt-in at 2.2.8, the
+	 * runtime's actual version) emulates framebuffers and its {@code checkFramebufferStatus()}
+	 * returns {@code GL_FRAMEBUFFER_COMPLETE} for everything; Angelica knows this and exposes
+	 * {@code framebufferCompletenessIsMeaningful()} so Iris can opt out. We cannot call that —
+	 * it is Angelica-internal (and did not exist before 2.2.x) — and
 	 * our own status call is redirected into the same stub, so without this probe our
 	 * completeness guard below is silently dead code on that backend. See ANGELICA-NOTES
 	 * § 2.2.x survey, finding 1.
