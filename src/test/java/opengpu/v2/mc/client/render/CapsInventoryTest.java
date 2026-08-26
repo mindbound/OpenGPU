@@ -29,8 +29,11 @@ import opengpu.v2.stats.RenderStats;
  *
  * LIVES IN THIS PACKAGE for {@link AnimatorOverlay#SINCE_ATTACH_CAP_SECONDS} and
  * {@link ServerTimeline#INTERPOLATION_DELAY_TICKS}, which are package-private. Forge-bound
- * constants (SceneRenderer's upload budget, TileEntityGpu2's canvas/VRAM caps) cannot load in a
- * JVM test; the doc lists them in a hand-maintained section with file pointers, clearly marked.
+ * classes LOAD in a JVM test (the :dev artifact serves the interfaces — the 2026-08-24 probe,
+ * recorded on ApiSurfacePinTest, refuted the older "cannot load" lore this comment used to
+ * repeat); what fails is INSTANTIATION, so instance- and callback-derived values
+ * (SceneRenderer's upload budget, TileEntityGpu2's canvas/VRAM caps) stay in a hand-maintained
+ * section with file pointers, clearly marked.
  */
 public class CapsInventoryTest {
 
@@ -95,6 +98,14 @@ public class CapsInventoryTest {
 				.append(V2Wire.MAX_SUBMIT_BYTES_PER_BATCH).append(" |\n");
 		s.append("| program bytes per batch | ").append(V2Wire.MAX_PROGRAM_BYTES_PER_BATCH)
 				.append(" |\n");
+		s.append("| mesh ledger `MAX_MESH_BYTES` | ").append(ServerScene.MAX_MESH_BYTES)
+				.append(" |\n");
+		s.append("| mesh vertex / index bytes per mesh | ").append(V2Wire.MAX_MESH_VERTEX_BYTES)
+				.append(" / ").append(V2Wire.MAX_MESH_INDEX_BYTES).append(" |\n");
+		s.append("| mesh bytes per batch | ").append(V2Wire.MAX_MESH_BYTES_PER_BATCH)
+				.append(" |\n");
+		s.append("| uniforms per node `MAX_NODE_UNIFORMS` | ").append(ServerScene.MAX_NODE_UNIFORMS)
+				.append(" |\n");
 		s.append("| standing command bytes | ").append(V2Wire.MAX_STANDING_COMMAND_BYTES)
 				.append(" |\n");
 		s.append("| text chars / texture dim | ").append(V2Wire.MAX_TEXT_CHARS).append(" / ")
@@ -110,7 +121,8 @@ public class CapsInventoryTest {
 		s.append("| time wrap period (ticks) | ").append(OcslTime.PERIOD_TICKS).append(" |\n");
 		s.append("| stall threshold (ns) | ").append(RenderStats.STALL_NANOS).append(" |\n\n");
 
-		s.append("## Forge-bound (hand-maintained — not derivable in a JVM test)\n\n");
+		s.append("## Forge-bound (hand-maintained — classes load in a JVM test but cannot be"
+				+ " instantiated, so instance-derived values are not derivable)\n\n");
 		s.append("- `SceneRenderer.UPLOAD_BUDGET_PER_FRAME` — 2 MiB (see the file)\n");
 		s.append("- `TileEntityGpu2`: canvas command cap, VRAM budget — see the file\n");
 		return s.toString();

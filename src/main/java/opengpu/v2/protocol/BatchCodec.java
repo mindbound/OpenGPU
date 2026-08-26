@@ -13,7 +13,7 @@ import opengpu.v2.scene.CanvasCommand;
 /**
  * Binary codec for {@link SceneBatch}. Wire layout:
  *
- *   [short PROTOCOL_VERSION][UTF sceneId][int seq][long serverTick][int deltaCount]
+ *   [short PROTOCOL_VERSION][UTF sceneId][int epoch][int seq][long serverTick][int deltaCount]
  *   then per delta: [byte typeId][payload]
  *
  * Canvas commands encode as [byte op][double args...][UTF text if OP_DRAW_TEXT].
@@ -48,11 +48,20 @@ public final class BatchCodec {
 	 * Sized to what a batch can legitimately be, NOT to the transport ceiling. The transport
 	 * ceiling exists for resource bodies (up to a 256 MiB texture), and reusing it here would
 	 * let a few KB of deflate claim a quarter-gigabyte per inbound batch — reopening the
-	 * amplification this constant exists to close. One batch is at most a tick's worth of
-	 * deltas: the texture-write payload is capped at 16 KiB, and the largest canvas publish
-	 * this server produces is a few hundred KB, so 4 MiB is generous headroom.
+	 * amplification this constant exists to close.
+	 *
+	 * RAISED 4 -> 8 MiB at the v10 bump, and only a bump can move this: an old jar refuses a
+	 * v10 batch either right here at the size check (before any version read) or at strict
+	 * version equality below — size first, then version — so no pre-raise decoder ever
+	 * services post-raise content. Why it had to move: v10's 15-bit NodeProps makes the widest
+	 * producible delta 129 B, and MAX_DELTAS x 129 = 4,227,072 alone exceeds the old 4 MiB;
+	 * the complete v10 worst case (header + delta product + the write, submit, program and
+	 * mesh per-batch allowances) is 6,160,407 B = 73% of this ceiling — BatchSizeBoundTest
+	 * derives it and pins the &lt;90% headroom rule. 6 MiB would sit at 97% and fail that pin.
+	 * The trade-off deliberately re-accepted at 8 MiB: a crafted compressed inbound can claim
+	 * twice the pre-validation allocation it could before — still bounded, still one batch.
 	 */
-	static final int MAX_INFLATED_BYTES = 4 * 1024 * 1024;
+	static final int MAX_INFLATED_BYTES = 8 * 1024 * 1024;
 
 	public static byte[] encode(SceneBatch batch) {
 		byte[] raw = encodeRaw(batch);
@@ -172,6 +181,27 @@ public final class BatchCodec {
 			out.writeInt(a.nodeId);
 			out.writeInt(a.programId);
 			out.writeLong(a.attachedWorldTime);
+		} else if (d instanceof Delta.MeshCreate) {
+			Delta.MeshCreate m = (Delta.MeshCreate) d;
+			out.writeInt(m.resId);
+			// Both blobs length-prefixed (ProgramCreate's reasoning: nothing in the header
+			// derives their sizes), via the defensive accessors — the arrays are the delta's
+			// identity. Blob-interior bytes are little-endian; this frame stays big-endian.
+			byte[] vertexBytes = m.vertexCopy();
+			byte[] indexBytes = m.indexCopy();
+			out.writeInt(vertexBytes.length);
+			out.write(vertexBytes);
+			out.writeInt(indexBytes.length);
+			out.write(indexBytes);
+		} else if (d instanceof Delta.UniformSet) {
+			Delta.UniformSet u = (Delta.UniformSet) d;
+			out.writeInt(u.nodeId);
+			out.writeUTF(u.name);
+			out.writeByte(u.type);
+			for (double v : u.values) {
+				out.writeDouble(v);
+			}
+			out.writeBoolean(u.immediate);
 		} else if (d instanceof Delta.SceneProp) {
 			Delta.SceneProp s = (Delta.SceneProp) d;
 			out.writeInt(s.propId);
@@ -217,8 +247,9 @@ public final class BatchCodec {
 			ArrayList<Delta> deltas = new ArrayList<Delta>(Math.min(count, 4096));
 				int[] writeBytes = new int[1];
 				int[] programBytes = new int[1];
+				int[] meshBytes = new int[1];
 			for (int i = 0; i < count; i++) {
-					deltas.add(readDelta(in, writeBytes, programBytes));
+					deltas.add(readDelta(in, writeBytes, programBytes, meshBytes));
 			}
 			if (in.read() != -1)
 				throw new CodecException("Trailing data after batch");
@@ -228,7 +259,10 @@ public final class BatchCodec {
 		} catch (IOException e) {
 			throw new CodecException("Malformed batch", e);
 		} catch (IllegalArgumentException e) {
-			// CanvasCommand constructor validation (bad op/arg shape from the wire).
+			// Constructor validation reached from the wire: CanvasCommand (bad op/arg shape) AND
+			// any delta constructor invariant a read arm does not pre-check — at v10 that
+			// includes NodeProps' quat all-or-none rule, whose decode-side enforcement is THIS
+			// conversion. Narrowing this catch needs a pre-check added to the arm first.
 			throw new CodecException("Malformed batch: " + e.getMessage(), e);
 		}
 	}
@@ -283,8 +317,8 @@ public final class BatchCodec {
 	 *                   in this batch; the per-tick aggregate cap is enforced against it so a
 	 *                   batch cannot smuggle unbounded pixel data past the per-call cap.
 	 */
-	private static Delta readDelta(DataInputStream in, int[] writeBytes, int[] programBytes)
-			throws IOException, CodecException {
+	private static Delta readDelta(DataInputStream in, int[] writeBytes, int[] programBytes,
+			int[] meshBytes) throws IOException, CodecException {
 		byte type = in.readByte();
 		switch (type) {
 			case V2Wire.DELTA_NODE_CREATE: {
@@ -317,6 +351,10 @@ public final class BatchCodec {
 				byte resType = in.readByte();
 				if (!V2Wire.isKnownResType(resType))
 					throw new CodecException("Unknown resource type " + resType);
+				// A blob-less mesh record must not be able to come into being on any path; the
+				// apply arm and the pre-v10 persisted loop carry the same refusal.
+				if (resType == V2Wire.RES_MESH)
+					throw new CodecException("Meshes arrive via DELTA_MESH_CREATE, not RES_CREATE");
 				return new Delta.ResourceCreate(resId, resType, in.readInt(),
 						in.readInt(), in.readInt(), in.readLong(), in.readInt());
 			}
@@ -424,6 +462,59 @@ public final class BatchCodec {
 				if (programId == 0 && stamp != 0L)
 					throw new CodecException("A detach must carry a zero stamp, got " + stamp);
 				return new Delta.NodeAttach(nodeId, programId, stamp);
+			}
+			case V2Wire.DELTA_MESH_CREATE: {
+				int resId = in.readInt();
+				// Everything validated BEFORE either allocation (DELTA_TEX_WRITE's rule). Length
+				// bounds come first from the declared ints; the full structural validation runs
+				// on the read bytes because index-range checking needs the actual data.
+				if (resId < 1 || resId == Integer.MAX_VALUE)
+					throw new CodecException("Mesh resource id out of range: " + resId);
+				int vertexLen = in.readInt();
+				if (vertexLen < V2Wire.MESH_VERTEX_STRIDE || vertexLen > V2Wire.MAX_MESH_VERTEX_BYTES)
+					throw new CodecException("Mesh vertex blob length out of range: " + vertexLen);
+				if (vertexLen > in.available())
+					throw new CodecException("Mesh vertex blob exceeds remaining data");
+				byte[] vertexBytes = new byte[vertexLen];
+				in.readFully(vertexBytes);
+				int indexLen = in.readInt();
+				if (indexLen < 3 * V2Wire.MESH_INDEX_BYTES || indexLen > V2Wire.MAX_MESH_INDEX_BYTES)
+					throw new CodecException("Mesh index blob length out of range: " + indexLen);
+				if (indexLen > in.available())
+					throw new CodecException("Mesh index blob exceeds remaining data");
+				// The per-batch aggregate, the ProgramCreate reasoning: count cap x per-blob cap
+				// is what a receiver must allocate, and the product dwarfs the ceiling.
+				meshBytes[0] += vertexLen + indexLen;
+				if (meshBytes[0] > V2Wire.MAX_MESH_BYTES_PER_BATCH)
+					throw new CodecException("Batch mesh payload over the per-batch cap: "
+							+ meshBytes[0]);
+				byte[] indexBytes = new byte[indexLen];
+				in.readFully(indexBytes);
+				try {
+					V2Wire.validateMeshBlobs(vertexBytes, indexBytes);
+				} catch (IllegalArgumentException e) {
+					throw new CodecException("Malformed mesh: " + e.getMessage(), e);
+				}
+				return new Delta.MeshCreate(resId, vertexBytes, indexBytes);
+			}
+			case V2Wire.DELTA_UNIFORM_SET: {
+				int nodeId = in.readInt();
+				String name = in.readUTF();
+				byte utype = in.readByte();
+				// Every shape the constructor refuses is refused HERE first as a CodecException
+				// (the NodeAttach discipline): the inbound drain catches CodecException only.
+				try {
+					opengpu.v2.ocsl.IrStructure.checkName(0, name);
+				} catch (opengpu.v2.ocsl.IrStructure.StructureException e) {
+					throw new CodecException("Uniform name: " + e.getMessage(), e);
+				}
+				if (utype < Delta.UniformSet.TYPE_CLEAR || utype > Delta.UniformSet.TYPE_VEC4)
+					throw new CodecException("Unknown uniform type " + utype);
+				double[] values = new double[utype];
+				for (int i = 0; i < values.length; i++) {
+					values[i] = in.readDouble();
+				}
+				return new Delta.UniformSet(nodeId, name, utype, values, in.readBoolean());
 			}
 			case V2Wire.DELTA_SCENE_PROP: {
 				int propId = in.readInt();

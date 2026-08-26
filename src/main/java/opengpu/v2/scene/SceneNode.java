@@ -19,6 +19,30 @@ public final class SceneNode {
 	/** ARGB. */
 	public int tint = 0xFFFFFFFF;
 
+	// ---- 3D TRS (v10). STORED here from C1.1 but CONSUMED only from C1.3: NodeFold's
+	// TRS_WIDTH stays 5 and NodeInterpolator's FIELDS stays 2D until the renderer widens —
+	// NodeFoldTest pins that trio's obligation. Defaults are the identity transform; the
+	// snapshot gate arms for version < 10 must restore exactly these (sz = 1, qw = 1 — NOT
+	// the 0-default gate pattern, which would collapse every pre-v10 node's scale). ----
+	public double tz = 0;
+	/** Scale-Z, joining {@link #sx}/{@link #sy}; frozen register name "SZ" (id 24). */
+	public double sz = 1;
+	/** rot3d quaternion (identity = 0,0,0,1). Wire order qx,qy,qz,qw — ascending PROP_Q* bits. */
+	public double qx = 0, qy = 0, qz = 0;
+	public double qw = 1;
+
+	/**
+	 * The per-attachment uniform table (v10): name -> values, where the VALUE COUNT IS THE
+	 * TYPE (1 = float .. 4 = vec4) — the wire freezes that equivalence, so no type tag is
+	 * stored. A FIELD HERE, not a side map, for exactly {@link #animator}'s reason: five paths
+	 * remove a node and only two run a NodeFree delta; a field dies with the node on all five.
+	 * Entries SURVIVE detach and ANIM-17's atomic replace — only NodeFree, scene reset and an
+	 * explicit CLEAR remove one. TreeMap so every encode iterates in one deterministic order.
+	 * Arrays stored here are owned by the node (cloned on the way in and out).
+	 */
+	public final java.util.TreeMap<String, double[]> uniforms =
+			new java.util.TreeMap<String, double[]>();
+
 	/**
 	 * Parent node for transform composition, or 0 for none. IMMUTABLE, like {@link #ref} and for
 	 * a sharper reason: there is no PROP_PARENT and no re-parent delta, and there should not be.
@@ -112,8 +136,17 @@ public final class SceneNode {
 		n.z = z;
 		n.visible = visible;
 		n.tint = tint;
+		n.tz = tz;
+		n.sz = sz;
+		n.qx = qx;
+		n.qy = qy;
+		n.qz = qz;
+		n.qw = qw;
 		n.animator = animator;
 		n.attachedWorldTime = attachedWorldTime;
+		for (java.util.Map.Entry<String, double[]> e : uniforms.entrySet()) {
+			n.uniforms.put(e.getKey(), e.getValue().clone());
+		}
 		return n;
 	}
 
@@ -121,10 +154,22 @@ public final class SceneNode {
 		// `animator` is included, and it has to be: this method is what certifies server/mirror
 		// convergence, so leaving it out would let a mirror miss an attach and report agreement
 		// while rendering the node unanimated — the same argument NodeCreate.equals makes for
-		// `parent`, on a field that changes far more often.
-		return id == o.id && type == o.type && ref == o.ref && parent == o.parent
+		// `parent`, on a field that changes far more often. The v10 additions (3D TRS and the
+		// uniform table) are included for the same reason: every replicated field certifies.
+		if (!(id == o.id && type == o.type && ref == o.ref && parent == o.parent
 				&& x == o.x && y == o.y && rot == o.rot && sx == o.sx && sy == o.sy
 				&& z == o.z && visible == o.visible && tint == o.tint
-				&& animator == o.animator && attachedWorldTime == o.attachedWorldTime;
+				&& tz == o.tz && sz == o.sz
+				&& qx == o.qx && qy == o.qy && qz == o.qz && qw == o.qw
+				&& animator == o.animator && attachedWorldTime == o.attachedWorldTime))
+			return false;
+		if (uniforms.size() != o.uniforms.size())
+			return false;
+		for (java.util.Map.Entry<String, double[]> e : uniforms.entrySet()) {
+			double[] other = o.uniforms.get(e.getKey());
+			if (other == null || !java.util.Arrays.equals(e.getValue(), other))
+				return false;
+		}
+		return true;
 	}
 }

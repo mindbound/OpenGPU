@@ -132,6 +132,51 @@ public class LegacyMigrationTest {
 		}
 	}
 
+	/**
+	 * The v10 literal closures: decodeV2 checks resource types against a LITERAL 1..2 and node
+	 * types against a LITERAL 1..3, deliberately diverging from V2Wire's shared predicates —
+	 * which WIDEN as the live format grows (RES_MESH=3, MESH_INSTANCE/CAMERA at v10), while v2
+	 * never wrote anything beyond them, so here a wider type is corruption by definition.
+	 * These two tests are what stops a "cleanup" reverting the literals to the shared
+	 * predicates: with the predicate, both payloads below decode as plain records built from
+	 * bytes that mean something else — the dormant acceptance the closure exists to keep dead.
+	 */
+	@org.junit.Test
+	public void aV2PayloadClaimingAResourceTypeTheEraNeverWroteIsRefused() throws Exception {
+		V2Writer w = new V2Writer("gpu-addr", 0x5EED, 1, 0L, 2, 1);
+		w.resources(1);
+		// A type-3 (v10 MESH) record hand-laid in the v2 texture record's shape.
+		w.out.writeInt(1);
+		w.out.writeByte((byte) 3);
+		w.out.writeInt(4);
+		w.out.writeInt(4);
+		w.out.writeInt(64);
+		w.out.writeLong(0L);
+		w.nodes(0);
+		try {
+			LegacyStructureCodec.decodeV2(w.done());
+			org.junit.Assert.fail("v2 never wrote a type-3 resource; accepting one fabricates"
+					+ " a mesh from bytes that mean something else");
+		} catch (CodecException expected) {
+			org.junit.Assert.assertTrue(expected.getMessage(),
+					expected.getMessage().contains("Unknown resource type"));
+		}
+	}
+
+	@org.junit.Test
+	public void aV2PayloadClaimingANodeTypeTheEraNeverWroteIsRefused() throws Exception {
+		V2Writer w = new V2Writer("gpu-addr", 0x5EED, 1, 0L, 1, 2);
+		w.resources(0);
+		w.nodes(1).node(1, (byte) 4, 0, 0, 0, 0, 0xFFFFFFFF); // 4 = v10 MESH_INSTANCE
+		try {
+			LegacyStructureCodec.decodeV2(w.done());
+			org.junit.Assert.fail("v2 never wrote a type-4 node");
+		} catch (CodecException expected) {
+			org.junit.Assert.assertTrue(expected.getMessage(),
+					expected.getMessage().contains("Unknown node type"));
+		}
+	}
+
 	/** A representative v2 world: one texture, one canvas, a canvas node and a sprite. */
 	private static byte[] sampleV2() throws IOException {
 		V2Writer w = new V2Writer("gpu-addr", 0x5EED, 42, 1234L, 3, 3);

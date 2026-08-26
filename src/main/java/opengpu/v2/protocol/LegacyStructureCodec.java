@@ -59,7 +59,12 @@ public final class LegacyStructureCodec {
 			for (int i = 0; i < resCount; i++) {
 				int id = in.readInt();
 				byte type = in.readByte();
-				if (!V2Wire.isKnownResType(type))
+				// LITERAL 1..2, deliberately diverging from V2Wire.isKnownResType: that predicate
+				// widens as the LIVE format grows (RES_MESH at v10), but v2 never wrote anything
+				// beyond TEXTURE/CANVAS — so here a wider type is corruption by definition, and
+				// riding the shared predicate would make this dormant acceptance go live at every
+				// future widening (the vacuous-bounds class). Same closure on node types below.
+				if (type != V2Wire.RES_TEXTURE && type != V2Wire.RES_CANVAS)
 					throw new CodecException("Unknown resource type " + type);
 				int width = in.readInt();
 				int height = in.readInt();
@@ -98,7 +103,9 @@ public final class LegacyStructureCodec {
 			for (int i = 0; i < nodeCount; i++) {
 				int id = in.readInt();
 				byte type = in.readByte();
-				if (!V2Wire.isKnownNodeType(type))
+				// LITERAL 1..3 — the resource-type closure's reasoning, second mirror.
+				if (type != V2Wire.NODE_CANVAS && type != V2Wire.NODE_SPRITE
+						&& type != V2Wire.NODE_GROUP)
 					throw new CodecException("Unknown node type " + type);
 				int ref = in.readInt();
 				SceneNode node = new SceneNode(id, type, ref);

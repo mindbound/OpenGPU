@@ -234,6 +234,73 @@ public class PersistedVersionMigrationTest {
 			return this;
 		}
 
+		/**
+		 * The v10 node record: everything v8 wrote, then the six 3D TRS doubles in the pinned
+		 * order tz, sz, qx, qy, qz, qw. 122 bytes. A new writer again, per {@link #node}'s
+		 * freeze rule — nodeV8 is the only executable record of what v8 AND v9 worlds hold.
+		 */
+		StructureWriter nodeV10(int id, byte type, int ref, double x, double y, int z, int tint,
+				int parent, int animator, long attachedWorldTime,
+				double tz, double sz, double qx, double qy, double qz, double qw)
+				throws IOException {
+			nodeV8(id, type, ref, x, y, z, tint, parent, animator, attachedWorldTime);
+			out.writeDouble(tz);
+			out.writeDouble(sz);
+			out.writeDouble(qx);
+			out.writeDouble(qy);
+			out.writeDouble(qz);
+			out.writeDouble(qw);
+			return this;
+		}
+
+		/**
+		 * The v10 mesh resource record: the frozen type-3 header convention (width =
+		 * vertexCount, height = 1, sizeBytes = combined length, versions pinned 1/1, hash of
+		 * the concatenation) plus the inline two-blob tail.
+		 */
+		StructureWriter meshV10(int id, byte[] vertexBytes, byte[] indexBytes) throws IOException {
+			out.writeInt(id);
+			out.writeByte(V2Wire.RES_MESH);
+			out.writeInt(vertexBytes.length / V2Wire.MESH_VERTEX_STRIDE);
+			out.writeInt(1);
+			out.writeInt(vertexBytes.length + indexBytes.length);
+			out.writeInt(1);
+			out.writeInt(1);
+			byte[] combined = new byte[vertexBytes.length + indexBytes.length];
+			System.arraycopy(vertexBytes, 0, combined, 0, vertexBytes.length);
+			System.arraycopy(indexBytes, 0, combined, vertexBytes.length, indexBytes.length);
+			out.writeLong(V2Wire.contentHash(combined));
+			out.writeInt(vertexBytes.length);
+			out.write(vertexBytes);
+			out.writeInt(indexBytes.length);
+			out.write(indexBytes);
+			return this;
+		}
+
+		/**
+		 * The v10 uniform tail section header. WRITTEN EVEN WHEN EMPTY — the count int is
+		 * load-bearing for the trailing-data guard (the programsV6 lesson, one bump later).
+		 */
+		StructureWriter uniformSectionV10(int nodeCount) throws IOException {
+			out.writeInt(nodeCount);
+			return this;
+		}
+
+		StructureWriter uniformGroupV10(int nodeId, int entryCount) throws IOException {
+			out.writeInt(nodeId);
+			out.writeInt(entryCount);
+			return this;
+		}
+
+		StructureWriter uniformEntryV10(String name, double... values) throws IOException {
+			out.writeUTF(name);
+			out.writeByte(values.length);
+			for (double v : values) {
+				out.writeDouble(v);
+			}
+			return this;
+		}
+
 		/** The v7 scene tail: the animator epoch, written AFTER the v6 program section. */
 		StructureWriter creationWorldTimeV7(long worldTime) throws IOException {
 			out.writeLong(worldTime);
@@ -310,7 +377,11 @@ public class PersistedVersionMigrationTest {
 		// so it is chosen by version rather than baked in. Everything else — header, resource
 		// record, canvas commands — is identical from v3 up, which is exactly why v3 and v4 are
 		// both readable and why only ONE of them needed a gate.
-		if (version >= 8) {
+		if (version >= 10) {
+			w.nodeV10(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L, 0, 1, 0, 0, 0, 1)
+					.nodeV10(2, V2Wire.NODE_SPRITE, TEX_ID, 3.5, -1.25, 2, 0x80FF00FF, 0, 0, 0L,
+							0, 1, 0, 0, 0, 1);
+		} else if (version >= 8) {
 			w.nodeV8(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L)
 					.nodeV8(2, V2Wire.NODE_SPRITE, TEX_ID, 3.5, -1.25, 2, 0x80FF00FF, 0, 0, 0L);
 		} else if (version >= 7) {
@@ -335,6 +406,11 @@ public class PersistedVersionMigrationTest {
 		}
 		if (version >= 8) {
 			w.worldTimeAnchorV8(0L);
+		}
+		if (version >= 10) {
+			// EVEN WHEN EMPTY — omitting the count int would make every test built from
+			// PROTOCOL_VERSION fail its own precondition at the trailing-data guard.
+			w.uniformSectionV10(0);
 		}
 		return w.done();
 	}
@@ -459,16 +535,17 @@ public class PersistedVersionMigrationTest {
 		// fully masked. Writing 9 first makes node 4's parent PRESENT and unparented, so only the
 		// "must be a lower id" rule can refuse it — the one shape that tells the two apart.
 		w.nodes(7)
-				.nodeV8(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L)   // a legal parent
-				.nodeV8(2, V2Wire.NODE_GROUP, 0, 1, 1, 0, 0xFFFFFFFF, 1, 0, 0L)   // a legal child of it
-				.nodeV8(3, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 3, 0, 0L)   // parents itself
-				.nodeV8(9, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L)   // present, unparented
-				.nodeV8(4, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 9, 0, 0L)   // ...but 9 is above 4
-				.nodeV8(5, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 2, 0, 0L)   // 2 is already a child
-				.nodeV8(10, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7, 0, 0L); // 7 was never written
+				.nodeV10(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L, 0, 1, 0, 0, 0, 1)   // a legal parent
+				.nodeV10(2, V2Wire.NODE_GROUP, 0, 1, 1, 0, 0xFFFFFFFF, 1, 0, 0L, 0, 1, 0, 0, 0, 1)   // a legal child of it
+				.nodeV10(3, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 3, 0, 0L, 0, 1, 0, 0, 0, 1)   // parents itself
+				.nodeV10(9, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L, 0, 1, 0, 0, 0, 1)   // present, unparented
+				.nodeV10(4, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 9, 0, 0L, 0, 1, 0, 0, 0, 1)   // ...but 9 is above 4
+				.nodeV10(5, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 2, 0, 0L, 0, 1, 0, 0, 0, 1)   // 2 is already a child
+				.nodeV10(10, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7, 0, 0L, 0, 1, 0, 0, 0, 1); // 7 was never written
 		w.programsV6(1, 0); // v6 section: this fixture is pinned to PROTOCOL_VERSION
 		w.creationWorldTimeV7(0L); // ...and therefore the v7 tail too
 		w.worldTimeAnchorV8(0L); // ...and the v8 anchor
+		w.uniformSectionV10(0); // ...and the v10 uniform section, even empty
 
 		SceneSnapshot snap = SnapshotCodec.decodePersisted(w.done());
 
@@ -500,11 +577,12 @@ public class PersistedVersionMigrationTest {
 				new StructureWriter(V2Wire.PROTOCOL_VERSION, "gpu-addr", EPOCH, 7, 900L, 1, 3);
 		w.resources(0);
 		w.nodes(2)
-				.nodeV8(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L)
-				.nodeV8(2, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7, 0, 0L); // 7 is above 2
+				.nodeV10(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L, 0, 1, 0, 0, 0, 1)
+				.nodeV10(2, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 7, 0, 0L, 0, 1, 0, 0, 0, 1); // 7 is above 2
 		w.programsV6(1, 0); // v6 section: this fixture is pinned to PROTOCOL_VERSION
 		w.creationWorldTimeV7(0L); // ...and therefore the v7 tail too
 		w.worldTimeAnchorV8(0L); // ...and the v8 anchor
+		w.uniformSectionV10(0); // ...and the v10 uniform section, even empty
 		byte[] blob = w.done();
 
 		assertEquals("the save must degrade rather than refuse",
@@ -902,18 +980,30 @@ public class PersistedVersionMigrationTest {
 		final long stamp = 0x0000000100000002L;   // halves differ: 1 and 2
 		final long epoch = 0x0000000300000004L;
 		final long anchor = 0x0000000500000006L;
+		// Six MUTUALLY-DISTINCT 3D values, none equal to a default (0 or 1) and none equal to
+		// each other or to any 2D field — a swapped pair or an off-by-one read cannot fake all
+		// six landing in the right fields.
+		final double tz = 11.5, sz = 12.5, qx = 13.5, qy = 14.5, qz = 15.5, qw = 16.5;
 		StructureWriter w = new StructureWriter(V2Wire.PROTOCOL_VERSION, "gpu-addr", EPOCH, 7, 900L, 2, 3);
 		w.resources(1).canvasWithContent(1, 64, 32, 16);
-		w.nodes(1).nodeV8(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF, 0, 31, stamp);
+		w.nodes(1).nodeV10(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF, 0, 31, stamp,
+				tz, sz, qx, qy, qz, qw);
 		w.programsV6(1, 0);
 		w.creationWorldTimeV7(epoch);
 		w.worldTimeAnchorV8(anchor);
+		w.uniformSectionV10(0);
 
 		SceneSnapshot decoded = SnapshotCodec.decodePersisted(w.done());
 		SceneNode node = decoded.state.nodes.get(Integer.valueOf(1));
 		assertEquals("the animator id must not be read out of the stamp's bytes", 31, node.animator);
 		assertEquals("the stamp must survive whole, in the right word order",
 				stamp, node.attachedWorldTime);
+		assertEquals("tz reads at its own offset", tz, node.tz, 0.0);
+		assertEquals("sz reads at its own offset", sz, node.sz, 0.0);
+		assertEquals("qx reads at its own offset", qx, node.qx, 0.0);
+		assertEquals("qy reads at its own offset", qy, node.qy, 0.0);
+		assertEquals("qz reads at its own offset", qz, node.qz, 0.0);
+		assertEquals("qw reads at its own offset", qw, node.qw, 0.0);
 		assertEquals("the epoch is its own field", epoch, decoded.state.creationWorldTime);
 		assertEquals("and the anchor is its own field, distinct from the epoch",
 				anchor, decoded.state.worldTimeAnchor);
@@ -977,6 +1067,218 @@ public class PersistedVersionMigrationTest {
 				2, result.scene.state().nodes.size());
 		assertEquals("and keeps the attachment", 31,
 				result.scene.state().nodes.get(Integer.valueOf(2)).animator);
+	}
+
+	/**
+	 * A v9 structure, pinned to the LITERAL 9 — what every world saved between the 8 → 9 and
+	 * 9 → 10 bumps holds on disk. v9's LAYOUT IS v8's (the 8 → 9 bump touched only the
+	 * transient heartbeat), so this reuses the frozen v8 writers and differs from v8Structure
+	 * only in its version short — the same shape as the 8 → 9 obligation, one bump later.
+	 */
+	private static byte[] v9Structure() throws IOException {
+		final long stamp = 0x0000000B0000000DL;
+		final int canvasId = 1;
+		StructureWriter w = new StructureWriter((short) 9, "gpu-addr", EPOCH, 7, 900L, 2, 3);
+		w.resources(1).canvasWithContent(canvasId, 64, 32, 16);
+		w.nodes(2)
+				.nodeV8(1, V2Wire.NODE_CANVAS, canvasId, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L)
+				.nodeV8(2, V2Wire.NODE_GROUP, 0, 1.5, -2.5, 3, 0x80FF00FF, 1, 31, stamp);
+		w.programsV6(5, 1);
+		w.creationWorldTimeV7(4242L);
+		w.worldTimeAnchorV8(0x0000000500000006L);
+		return w.done();
+	}
+
+	/**
+	 * THE 9 → 10 BUMP'S BACKWARD OBLIGATION: a v9 save must still load after the node record,
+	 * the resource record and the scene tail all grew.
+	 *
+	 * The assertions to care about are the IDENTITY DEFAULTS: the file's gate pattern defaults
+	 * appended fields to 0/0L, and a copy-pasted 0 for sz or qw would silently collapse every
+	 * pre-v10 node's scale and rotation the moment C1.3 starts consuming them — invisible until
+	 * then, wrong forever after. Driven through restore as well as the codec, because
+	 * restoreOrFresh turns a CodecException into deletion of the stored bodies.
+	 */
+	@Test
+	public void aV9StructureStillDecodesAfterTheFormatGrewIn3D() throws Exception {
+		byte[] structure = v9Structure();
+
+		SceneSnapshot decoded = SnapshotCodec.decodePersisted(structure);
+		assertEquals("a v9 scene restores its nodes", 2, decoded.state.nodes.size());
+		assertEquals("and its programs", 1, decoded.state.programs.size());
+		SceneNode two = decoded.state.nodes.get(Integer.valueOf(2));
+		assertEquals("node 2's animator came through", 31, two.animator);
+		assertEquals("and its stamp", 0x0000000B0000000DL, two.attachedWorldTime);
+		assertEquals("a pre-v10 node restores with IDENTITY scale-z, not the zero default",
+				1.0, two.sz, 0.0);
+		assertEquals("and an IDENTITY quaternion w, not the zero default", 1.0, two.qw, 0.0);
+		assertEquals("tz defaults to 0", 0.0, two.tz, 0.0);
+		assertEquals("qx defaults to 0", 0.0, two.qx, 0.0);
+		assertEquals("qy defaults to 0", 0.0, two.qy, 0.0);
+		assertEquals("qz defaults to 0", 0.0, two.qz, 0.0);
+		assertTrue("a v9 node restores with an empty uniform table", two.uniforms.isEmpty());
+
+		ScenePersistence.RestoreResult result = ScenePersistence.restore(structure, store);
+		assertEquals("restore agrees with the codec rather than deleting the scene",
+				2, result.scene.state().nodes.size());
+		assertEquals("and keeps the identity scale-z", 1.0,
+				result.scene.state().nodes.get(Integer.valueOf(2)).sz, 0.0);
+	}
+
+	/** A deterministic, valid v10 mesh: {@code vertexCount} stride-36 records, values non-zero. */
+	private static byte[] testVertexBlob(int vertexCount) {
+		byte[] blob = new byte[vertexCount * V2Wire.MESH_VERTEX_STRIDE];
+		for (int i = 0; i < blob.length; i++) {
+			blob[i] = (byte) (0x11 + i);
+		}
+		return blob;
+	}
+
+	/** One triangle 0,1,2 as u16 LITTLE-endian — the blob-interior convention. */
+	private static byte[] testIndexBlob() {
+		return new byte[] { 0, 0, 1, 0, 2, 0 };
+	}
+
+	/**
+	 * A hand-written CURRENT-version structure carrying everything v10 added: a type-3 mesh
+	 * record with its inline tail, a 3D-transformed node, and a populated uniform section —
+	 * decoded field-for-field, the {@code aHandWrittenV6ProgramRecordDecodesFieldForField}
+	 * discipline for the new format surface.
+	 */
+	@Test
+	public void aHandWrittenV10MeshAndUniformSectionDecodesFieldForField() throws Exception {
+		byte[] vertexBlob = testVertexBlob(3);
+		byte[] indexBlob = testIndexBlob();
+		StructureWriter w = new StructureWriter(V2Wire.PROTOCOL_VERSION, "gpu-addr", EPOCH, 7,
+				900L, 3, 3);
+		w.resources(2)
+				.canvasWithContent(1, 64, 32, 16)
+				.meshV10(2, vertexBlob, indexBlob);
+		w.nodes(2)
+				.nodeV10(1, V2Wire.NODE_CANVAS, 1, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L, 0, 1, 0, 0, 0, 1)
+				.nodeV10(2, V2Wire.NODE_MESH_INSTANCE, 2, 3.5, -1.25, 2, 0x80FF00FF, 0, 0, 0L,
+						7.5, 2.25, 0.5, -0.5, 0.5, 0.5);
+		w.programsV6(1, 0);
+		w.creationWorldTimeV7(0L);
+		w.worldTimeAnchorV8(0L);
+		w.uniformSectionV10(1);
+		w.uniformGroupV10(2, 2);
+		w.uniformEntryV10("speed", 2.5);
+		w.uniformEntryV10("tint4", 0.1, 0.2, 0.3, 0.4);
+		byte[] structure = w.done();
+
+		SceneSnapshot decoded = SnapshotCodec.decodePersisted(structure);
+		opengpu.v2.scene.ResourceInfo mesh = decoded.state.resources.get(Integer.valueOf(2));
+		assertEquals("mesh type", V2Wire.RES_MESH, mesh.type);
+		assertEquals("width carries the vertex count", 3, mesh.width);
+		assertEquals("height is pinned 1", 1, mesh.height);
+		assertEquals("mesh bytes arrive inline, both blobs combined",
+				vertexBlob.length + indexBlob.length, mesh.bytes.length);
+		assertEquals("a decoded mesh HOLDS its bytes (version = 1, not the pending 0)",
+				1, mesh.version);
+		SceneNode two = decoded.state.nodes.get(Integer.valueOf(2));
+		assertEquals("a MESH_INSTANCE node decodes", V2Wire.NODE_MESH_INSTANCE, two.type);
+		assertEquals("tz", 7.5, two.tz, 0.0);
+		assertEquals("sz", 2.25, two.sz, 0.0);
+		assertEquals("qw", 0.5, two.qw, 0.0);
+		assertEquals("two uniforms restored", 2, two.uniforms.size());
+		org.junit.Assert.assertArrayEquals("a float uniform round-trips",
+				new double[] { 2.5 }, two.uniforms.get("speed"), 0.0);
+		org.junit.Assert.assertArrayEquals("a vec4 uniform round-trips",
+				new double[] { 0.1, 0.2, 0.3, 0.4 }, two.uniforms.get("tint4"), 0.0);
+		// The NETWORK path accepts the same current-version payload — the strict decoder, so
+		// the new sections are proven on both policies, not just the forgiving one.
+		assertEquals(2, SnapshotCodec.decode(structure).state.nodes.size());
+	}
+
+	/**
+	 * A mesh record whose fixed-width header disagrees with its own tail was written by no
+	 * encoder — the cross-check must refuse it on the persisted path too (the throwing
+	 * dims-check precedent governs impossible records), not absorb one half as truth.
+	 */
+	@Test
+	public void aMeshHeaderDisagreeingWithItsTailIsRefusedNotAbsorbed() throws Exception {
+		byte[] vertexBlob = testVertexBlob(3);
+		byte[] indexBlob = testIndexBlob();
+		StructureWriter w = new StructureWriter(V2Wire.PROTOCOL_VERSION, "gpu-addr", EPOCH, 7,
+				900L, 3, 1);
+		// Hand-write the record with width = 4 against a 3-vertex tail.
+		w.resources(1);
+		w.out.writeInt(2);
+		w.out.writeByte(V2Wire.RES_MESH);
+		w.out.writeInt(4);   // WRONG vertexCount
+		w.out.writeInt(1);
+		w.out.writeInt(vertexBlob.length + indexBlob.length);
+		w.out.writeInt(1);
+		w.out.writeInt(1);
+		byte[] combined = new byte[vertexBlob.length + indexBlob.length];
+		System.arraycopy(vertexBlob, 0, combined, 0, vertexBlob.length);
+		System.arraycopy(indexBlob, 0, combined, vertexBlob.length, indexBlob.length);
+		w.out.writeLong(V2Wire.contentHash(combined));
+		w.out.writeInt(vertexBlob.length);
+		w.out.write(vertexBlob);
+		w.out.writeInt(indexBlob.length);
+		w.out.write(indexBlob);
+		w.nodes(0);
+		w.programsV6(1, 0);
+		w.creationWorldTimeV7(0L);
+		w.worldTimeAnchorV8(0L);
+		w.uniformSectionV10(0);
+		try {
+			SnapshotCodec.decodePersisted(w.done());
+			fail("a header/tail disagreement decoded cleanly");
+		} catch (CodecException expected) {
+			assertTrue(expected.getMessage(), expected.getMessage().contains("disagrees"));
+		}
+	}
+
+	/**
+	 * The THIRD leg of the RES_MESH refusal (constraint 21): a type-3 record under a pre-v10
+	 * version short is refused outright — never skipped, never absorbed as a data-less mesh.
+	 * No v9 encoder could write one, so this payload is corruption by definition, and the
+	 * misread (fabricating state from bytes that mean something else) is the failure this
+	 * file's whitelist doctrine ranks worse than deletion.
+	 */
+	@Test
+	public void aPreV10PayloadClaimingAMeshIsRefusedNotSkipped() throws Exception {
+		StructureWriter w = new StructureWriter((short) 9, "gpu-addr", EPOCH, 7, 900L, 3, 1);
+		w.resources(1).meshV10(2, testVertexBlob(3), testIndexBlob());
+		w.nodes(0);
+		w.programsV6(1, 0);
+		w.creationWorldTimeV7(0L);
+		w.worldTimeAnchorV8(0L);
+		try {
+			SnapshotCodec.decodePersisted(w.done());
+			fail("a v9 payload with a type-3 record decoded cleanly");
+		} catch (CodecException expected) {
+			assertTrue(expected.getMessage(),
+					expected.getMessage().contains("meshes exist only from v10"));
+		}
+	}
+
+	/** A crafted 65-entry uniform group: no encoder writes one (the apply cap is 64). */
+	@Test
+	public void anOverCapUniformGroupIsRefusedAtItsCount() throws Exception {
+		StructureWriter w = new StructureWriter(V2Wire.PROTOCOL_VERSION, "gpu-addr", EPOCH, 7,
+				900L, 1, 2);
+		w.resources(0);
+		w.nodes(1).nodeV10(1, V2Wire.NODE_GROUP, 0, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L,
+				0, 1, 0, 0, 0, 1);
+		w.programsV6(1, 0);
+		w.creationWorldTimeV7(0L);
+		w.worldTimeAnchorV8(0L);
+		w.uniformSectionV10(1);
+		w.uniformGroupV10(1, opengpu.v2.scene.ServerScene.MAX_NODE_UNIFORMS + 1);
+		for (int i = 0; i <= opengpu.v2.scene.ServerScene.MAX_NODE_UNIFORMS; i++) {
+			w.uniformEntryV10("u" + i, 1.0);
+		}
+		try {
+			SnapshotCodec.decodePersisted(w.done());
+			fail("an over-cap group decoded cleanly — producer-max stopped bounding the decoder");
+		} catch (CodecException expected) {
+			assertTrue(expected.getMessage(),
+					expected.getMessage().contains("entry count out of range"));
+		}
 	}
 
 	/**
@@ -1113,7 +1415,7 @@ public class PersistedVersionMigrationTest {
 				result.scene.state().programs.isEmpty());
 	}
 
-	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 9;
+	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 10;
 
 	@Test
 	public void aProtocolBumpMustDecideWhatHappensToTheOutgoingFormat() {

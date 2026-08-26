@@ -40,12 +40,16 @@ public class BatchSizeBoundTest {
 	/**
 	 * Encoded size of the widest delta a server can produce, derived rather than quoted.
 	 *
-	 * NodeProps: 1 type byte (written by encodeRaw) + 4 nodeId + 4 mask + 8 per set property.
-	 * Every other producible delta is smaller at a fixed size (NodeCreate 14 since v5 appended
-	 * `parent` to it — still far under the bound, which derives from NodeProps; ResourceCreate 30,
-	 * the frees 5) or carries a payload already bounded by its own per-batch allowance —
-	 * CanvasPublish and CanvasAppend by MAX_SUBMIT_BYTES_PER_BATCH, TextureWrite by
-	 * MAX_WRITE_BYTES_PER_BATCH — both of which are added to the budget once, below.
+	 * NodeProps: 1 type byte (written by encodeRaw) + 4 nodeId + 4 mask + 8 per set property —
+	 * 15 bits at v10, 129 B. Every other producible delta is smaller at a fixed size (NodeCreate
+	 * 14 since v5 appended `parent`; ResourceCreate 30; the frees 5; UniformSet at most 73 —
+	 * 1 type + 4 nodeId + 34 writeUTF of a 32-char [A-Za-z0-9_] name whose charset makes chars
+	 * == bytes, + 1 type byte + 32 values + 1 flag) or carries a payload bounded by its own
+	 * per-batch allowance, each added to the budget ONCE below: CanvasPublish/Append by
+	 * MAX_SUBMIT_BYTES_PER_BATCH, TextureWrite by MAX_WRITE_BYTES_PER_BATCH, ProgramCreate by
+	 * MAX_PROGRAM_BYTES_PER_BATCH, MeshCreate by MAX_MESH_BYTES_PER_BATCH. (The first version of
+	 * this budget omitted the PROGRAM allowance — the ledger was mistaken for the batch bound —
+	 * so the real margin was 84% while the printed one said 71%; caught at the v10 re-derivation.)
 	 */
 	private static int widestProducibleDelta() {
 		return 1 + 4 + 4 + 8 * Integer.bitCount(V2Wire.KNOWN_PROPS_MASK);
@@ -62,17 +66,20 @@ public class BatchSizeBoundTest {
 		return (long) HEADER_BYTES
 				+ (long) V2Wire.MAX_DELTAS * widestProducibleDelta()
 				+ V2Wire.MAX_WRITE_BYTES_PER_BATCH
-				+ V2Wire.MAX_SUBMIT_BYTES_PER_BATCH;
+				+ V2Wire.MAX_SUBMIT_BYTES_PER_BATCH
+				+ V2Wire.MAX_PROGRAM_BYTES_PER_BATCH
+				+ V2Wire.MAX_MESH_BYTES_PER_BATCH;
 	}
 
 	@Test
 	public void theWidestDeltaIsWhatWeThinkItIs() {
 		// Asserted as a shape, not just a number, so a new prop bit says what it broke.
-		assertEquals("KNOWN_PROPS_MASK should be 9 bits (x, y, rot, sx, sy, z, visible, tint,"
-				+ " teleport). A tenth widens NodeProps by 8 bytes — re-check the budget in"
-				+ " aMaximalBatchCannotExceedTheDecoderCeiling before changing this number.",
-				9, Integer.bitCount(V2Wire.KNOWN_PROPS_MASK));
-		assertEquals("a full-mask NodeProps encodes to 81 bytes", 81, widestProducibleDelta());
+		assertEquals("KNOWN_PROPS_MASK should be 15 bits (x, y, rot, sx, sy, z, visible, tint,"
+				+ " teleport, tz, sz, qx, qy, qz, qw). A sixteenth widens NodeProps by 8 bytes —"
+				+ " re-check the budget in aMaximalBatchCannotExceedTheDecoderCeiling before"
+				+ " changing this number.",
+				15, Integer.bitCount(V2Wire.KNOWN_PROPS_MASK));
+		assertEquals("a full-mask NodeProps encodes to 129 bytes", 129, widestProducibleDelta());
 	}
 
 	@Test
@@ -99,9 +106,10 @@ public class BatchSizeBoundTest {
 	 * actually stage; for scale, the heaviest bench2 run moved 143 B/tick with a 24,662 B
 	 * largest batch.
 	 *
-	 * Together with the upper bound this leaves a window of [32768, 47331], and 1&lt;&lt;15 is the
-	 * only power of two inside it: 1&lt;&lt;14 crashes the pump on a busy tick, 1&lt;&lt;16 exceeds the
-	 * decoder. The current value is derived, not chosen.
+	 * Together with the upper bound this leaves a window of [32768, 50040] at v10's 8 MiB
+	 * ceiling (at the old 4 MiB the 129 B widest delta made the window EMPTY — that is why the
+	 * ceiling moved with the bump), and 1&lt;&lt;15 is the only power of two inside it: 1&lt;&lt;14
+	 * crashes the pump on a busy tick, 1&lt;&lt;16 exceeds the decoder. Derived, not chosen.
 	 */
 	@Test
 	public void theCapStaysClearOfWhatABusyTickCanStage() {

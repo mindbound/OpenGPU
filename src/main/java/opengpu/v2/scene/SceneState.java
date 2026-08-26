@@ -72,13 +72,18 @@ public final class SceneState {
 	 */
 	public long worldTimeAnchor = 0L;
 
-	/** Structure only: no texture bytes cloned. For snapshots, which strip them anyway. */
+	/** Structure only: no TEXTURE bytes cloned. For snapshots, which strip them anyway. */
 	public SceneState copyStructure() {
 		SceneState s = new SceneState();
 		for (Map.Entry<Integer, ResourceInfo> e : resources.entrySet()) {
 			ResourceInfo res = e.getValue().copyStructure();
 			// Canvases ARE their content, so they must still be deep-copied.
 			res.canvas = e.getValue().canvas == null ? null : e.getValue().canvas.copy();
+			// Mesh blobs ride the STRUCTURE (v10) — the programs' inline reasoning below, not
+			// the textures' out-of-band one: bounded, immutable, and a snapshot that dropped
+			// them would restore data-less meshes on every resync and every save.
+			if (res.type == opengpu.v2.protocol.V2Wire.RES_MESH && e.getValue().bytes != null)
+				res.bytes = e.getValue().bytes.clone();
 			s.resources.put(e.getKey(), res);
 		}
 		for (Map.Entry<Integer, SceneNode> e : nodes.entrySet()) {

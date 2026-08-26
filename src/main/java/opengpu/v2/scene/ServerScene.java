@@ -48,6 +48,12 @@ public final class ServerScene {
 	 * scene ledger is the standing bound and this is only about what one batch can carry.
 	 */
 	private int stagedProgramBytes;
+	/**
+	 * Mesh blob bytes staged into the CURRENT UNSEALED BATCH; reset at seal. No per-TICK twin,
+	 * for {@link #stagedProgramBytes}'s stated reason: a mesh is created once and referenced,
+	 * so the scene ledger is the standing bound and this bounds only what one batch carries.
+	 */
+	private int stagedMeshBytes;
 	private int writeBudgetBytes = V2Wire.MAX_WRITE_BYTES_PER_TICK;
 	private int manifestGen;
 	private final ArrayList<Delta> staged = new ArrayList<Delta>();
@@ -195,6 +201,54 @@ public final class ServerScene {
 	}
 
 	/**
+	 * Create a mesh from packed blobs (v10) — the frozen wire layout is documented at
+	 * {@link V2Wire#DELTA_MESH_CREATE}. Admission is charged before the work, in
+	 * {@code createProgram}'s order: the format gate (the shared validator — its cheap length
+	 * bounds run first internally), then the scene ledger, then the per-batch counter, then id
+	 * space, and only then the delta is built and staged.
+	 *
+	 * @throws IllegalArgumentException if the blobs violate the frozen format; the message is
+	 *         the shared validator's own and is meant to reach the author
+	 * @throws IllegalStateException if the ledger, batch allowance or id space refuses
+	 */
+	public int createMesh(byte[] vertexBytes, byte[] indexBytes) {
+		// The format gate first — the cheaper refusal, and it bounds what the ledger below can
+		// be asked about (createProgram's ceiling-first reasoning).
+		V2Wire.validateMeshBlobs(vertexBytes, indexBytes);
+		long total = (long) vertexBytes.length + indexBytes.length;
+		// THE ADMISSION GATE. Long arithmetic for the same wrap reason programBytes() states.
+		if (meshBytes() + total > MAX_MESH_BYTES)
+			throw new IllegalStateException("Scene mesh budget exhausted ("
+					+ MAX_MESH_BYTES + " bytes); free a mesh first");
+		// The BATCH bound, which the ledger does not imply: freeing returns ledger bytes but
+		// does not un-stage the delta that carried them — the create/free-loop hole
+		// V2Wire.MAX_MESH_BYTES_PER_BATCH exists to close.
+		if (stagedMeshBytes + total > V2Wire.MAX_MESH_BYTES_PER_BATCH)
+			throw new IllegalStateException("Batch mesh payload exhausted ("
+					+ V2Wire.MAX_MESH_BYTES_PER_BATCH + " bytes); it refills next tick");
+		int id = allocateResourceId();
+		applyAndStage(new Delta.MeshCreate(id, vertexBytes, indexBytes));
+		stagedMeshBytes += (int) total;
+		return id;
+	}
+
+	/**
+	 * Set one named uniform on a node's per-attachment table (v10), or clear it.
+	 *
+	 * {@code values} carries 1..4 doubles — the count IS the wire type — or is empty/null for
+	 * CLEAR. Name legality, the per-node cap and clear-of-missing are all enforced on the
+	 * shared apply path (both sides accept exactly the same set); this method's own checks are
+	 * only what must be answered before a delta can be built at all.
+	 */
+	public void setUniform(int nodeId, String name, double[] values, boolean immediate) {
+		requireNode(nodeId);
+		double[] v = values == null ? new double[0] : values;
+		if (v.length > 4)
+			throw new IllegalArgumentException("A uniform carries 1..4 values, got " + v.length);
+		applyAndStage(new Delta.UniformSet(nodeId, name, (byte) v.length, v, immediate));
+	}
+
+	/**
 	 * Write packed RGBA pixels into a texture region. The pixels always travel with the
 	 * delta — there is no invalidate-and-refetch form, because that costs sizeBytes per
 	 * watcher per refresh with no bound.
@@ -323,6 +377,31 @@ public final class ServerScene {
 	 */
 	public static final int MAX_PROGRAM_BYTES = 256 * 1024;
 
+	/**
+	 * Total mesh bytes (vertex + index blobs) one scene may hold (v10). ADMISSION ONLY, the
+	 * {@link #MAX_PROGRAM_BYTES} discipline verbatim: enforced here, never in DeltaApplier and
+	 * never re-checked at restore, so lowering it can never brick a save — an over-budget
+	 * restored scene simply refuses new creates until frees bring it under.
+	 *
+	 * 512 KiB = exactly TWO maximum-size meshes (192 KiB vertices + 64 KiB indices each) —
+	 * the ProgramLedgerBoundTest usability floor (fewer than 2 maximal items is unusable
+	 * rather than protective); its mesh twin pins the relationship. 2x the program ledger
+	 * because meshes are bulkier per useful unit. The per-BATCH byte dimension has its own
+	 * bound ({@link V2Wire#MAX_MESH_BYTES_PER_BATCH}); the format-identity per-mesh caps live
+	 * in V2Wire because the DECODER enforces those.
+	 */
+	public static final int MAX_MESH_BYTES = 512 * 1024;
+
+	/**
+	 * Uniform entries one node's table may hold (v10). A DEDICATED constant, deliberately not
+	 * bound to {@code OcslWire.MAX_NAMES} or {@code SurfaceTable.MAX_UNIFORMS} — those are
+	 * calibration siblings that COINCIDE at 64 by calibration, not identity (the withheld-cap
+	 * lesson: two caps equal by accident must stay separately movable, or the day they diverge
+	 * one of them is a lie). Enforced on the shared apply path so server and mirror accept
+	 * exactly the same set; the snapshot decoder bounds its per-node counts by this too.
+	 */
+	public static final int MAX_NODE_UNIFORMS = 64;
+
 	/** Program bytes this scene currently holds; the ledger's running total. */
 	public long programBytes() {
 		long total = 0;
@@ -330,6 +409,21 @@ public final class ServerScene {
 			total += p.sizeBytes;
 		}
 		return total;
+	}
+
+	/** Mesh bytes this scene currently holds; {@link #MAX_MESH_BYTES}'s running total. */
+	public long meshBytes() {
+		long total = 0;
+		for (ResourceInfo r : state.resources.values()) {
+			if (r.type == V2Wire.RES_MESH)
+				total += r.sizeBytes;
+		}
+		return total;
+	}
+
+	/** Mesh bytes still admissible; clamped at zero for the restored-over-budget case. */
+	public long meshBudgetRemaining() {
+		return Math.max(0L, MAX_MESH_BYTES - meshBytes());
 	}
 
 	/** Program bytes still admissible. Clamped at zero, like every other *Remaining here: a
@@ -749,6 +843,7 @@ public final class ServerScene {
 		stagedWriteBytes = 0;
 		stagedSubmitBytes = 0;
 		stagedProgramBytes = 0;
+		stagedMeshBytes = 0;
 		return batch;
 	}
 

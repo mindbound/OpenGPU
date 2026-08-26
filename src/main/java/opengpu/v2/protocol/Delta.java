@@ -95,6 +95,10 @@ public abstract class Delta {
 				throw new IllegalArgumentException("Unknown prop mask bits in " + mask);
 			if (Integer.bitCount(mask) != values.length)
 				throw new IllegalArgumentException("mask bit count != value count");
+			int quat = mask & V2Wire.QUAT_PROPS_MASK;
+			if (quat != 0 && quat != V2Wire.QUAT_PROPS_MASK)
+				throw new IllegalArgumentException(
+						"Quaternion bits are all-or-none; a partial quaternion is not a rotation");
 		}
 
 		@Override
@@ -462,6 +466,133 @@ public abstract class Delta {
 		@Override
 		public int hashCode() {
 			return (nodeId * 31 + programId) * 31 + (int) (attachedWorldTime ^ (attachedWorldTime >>> 32));
+		}
+	}
+
+	/**
+	 * A mesh entering the scene, both blobs and all (v10).
+	 *
+	 * Carried inline like {@link ProgramCreate}, not referenced like a texture body — see
+	 * {@link V2Wire#DELTA_MESH_CREATE}. The blobs are validated at construction by the one
+	 * shared validator, so an invalid mesh cannot exist as a value object at all.
+	 */
+	public static final class MeshCreate extends Delta {
+		public final int resId;
+		/** PRIVATE for ProgramCreate's stated reason: equals makes these arrays the identity. */
+		private final byte[] vertexBytes;
+		private final byte[] indexBytes;
+
+		public MeshCreate(int resId, byte[] vertexBytes, byte[] indexBytes) {
+			V2Wire.validateMeshBlobs(vertexBytes, indexBytes);
+			this.resId = resId;
+			// Lua-supplied buffers we do not own; the immutable-value reasoning of TextureWrite.
+			this.vertexBytes = vertexBytes.clone();
+			this.indexBytes = indexBytes.clone();
+		}
+
+		/** The vertex blob, copied — the array is this object's identity. */
+		public byte[] vertexCopy() {
+			return vertexBytes.clone();
+		}
+
+		/** The index blob, copied. */
+		public byte[] indexCopy() {
+			return indexBytes.clone();
+		}
+
+		/** Combined length without copying, for codec sizing and per-batch accounting. */
+		public int blobLength() {
+			return vertexBytes.length + indexBytes.length;
+		}
+
+		public int vertexCount() {
+			return V2Wire.meshVertexCount(vertexBytes);
+		}
+
+		@Override
+		public byte typeId() {
+			return V2Wire.DELTA_MESH_CREATE;
+		}
+
+		@Override
+		public boolean equals(Object o) {
+			if (!(o instanceof MeshCreate))
+				return false;
+			MeshCreate d = (MeshCreate) o;
+			// EVERY field, blobs included — ProgramCreate's round-trip reasoning verbatim.
+			return resId == d.resId && java.util.Arrays.equals(vertexBytes, d.vertexBytes)
+					&& java.util.Arrays.equals(indexBytes, d.indexBytes);
+		}
+
+		@Override
+		public int hashCode() {
+			return (resId * 31 + java.util.Arrays.hashCode(vertexBytes)) * 31
+					+ java.util.Arrays.hashCode(indexBytes);
+		}
+	}
+
+	/**
+	 * One per-attachment uniform table write (v10): set a named entry on a node, or CLEAR it.
+	 *
+	 * See {@link V2Wire#DELTA_UNIFORM_SET} for the keying and lifecycle doctrine. The name obeys
+	 * {@link opengpu.v2.ocsl.IrStructure#checkName} — the ONE spelling of the identifier rule,
+	 * called here so a delta with an illegal name cannot exist; charset [A-Za-z0-9_] also makes
+	 * chars == bytes, which the batch-width arithmetic in BatchSizeBoundTest leans on.
+	 */
+	public static final class UniformSet extends Delta {
+		/** Type byte 0: remove the entry (no values). */
+		public static final byte TYPE_CLEAR = 0;
+		public static final byte TYPE_FLOAT = 1;
+		public static final byte TYPE_VEC2 = 2;
+		public static final byte TYPE_VEC3 = 3;
+		public static final byte TYPE_VEC4 = 4;
+
+		public final int nodeId;
+		public final String name;
+		public final byte type;
+		/** Exactly {@code type} values (CLEAR carries none) — the count IS the type. */
+		public final double[] values;
+		/** "Do not interpolate this transition." Consumed at apply, never stored or persisted. */
+		public final boolean immediate;
+
+		public UniformSet(int nodeId, String name, byte type, double[] values, boolean immediate) {
+			try {
+				opengpu.v2.ocsl.IrStructure.checkName(0, name);
+			} catch (opengpu.v2.ocsl.IrStructure.StructureException e) {
+				throw new IllegalArgumentException("Uniform name: " + e.getMessage());
+			}
+			if (type < TYPE_CLEAR || type > TYPE_VEC4)
+				throw new IllegalArgumentException("Unknown uniform type " + type);
+			if (values == null)
+				throw new IllegalArgumentException("Values array must be present (empty for CLEAR)");
+			if (values.length != type)
+				throw new IllegalArgumentException("Type " + type + " carries exactly " + type
+						+ " values, got " + values.length);
+			this.nodeId = nodeId;
+			this.name = name;
+			this.type = type;
+			this.values = values.clone();
+			this.immediate = immediate;
+		}
+
+		@Override
+		public byte typeId() {
+			return V2Wire.DELTA_UNIFORM_SET;
+		}
+
+		@Override
+		public boolean equals(Object o) {
+			if (!(o instanceof UniformSet))
+				return false;
+			UniformSet d = (UniformSet) o;
+			return nodeId == d.nodeId && name.equals(d.name) && type == d.type
+					&& java.util.Arrays.equals(values, d.values) && immediate == d.immediate;
+		}
+
+		@Override
+		public int hashCode() {
+			return ((nodeId * 31 + name.hashCode()) * 31 + type) * 31
+					+ java.util.Arrays.hashCode(values);
 		}
 	}
 

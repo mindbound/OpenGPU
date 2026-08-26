@@ -53,7 +53,11 @@ public class ProtocolVersionTest {
 	// layout IS v9's, which is why v8 could join LAYOUT_COMPATIBLE_PERSISTED_VERSIONS unchanged
 	// It still owed a v8 golden fixture: an unchanged layout does not excuse one, because what
 	// needs pinning is that the v9 reader ACCEPTS an 8. See PersistedVersionMigrationTest.
-	private static final short VERSION_THAT_DEFINES_IT = 9;
+	// 9 -> 10 is Stage C's C1.1: meshes (RES_MESH + DELTA_MESH_CREATE), the 3D TRS prop bits and
+	// node-record append, and the per-attachment uniform table (DELTA_UNIFORM_SET + a nested
+	// snapshot section). No new canvas op, so HIGHEST_OP_AT_THIS_VERSION stays OP_SET_FONT and
+	// only this constant moves — the 4 -> 9 precedent, sixth time over.
+	private static final short VERSION_THAT_DEFINES_IT = 10;
 
 	@Test
 	public void versionAndOpTableMoveTogether() {

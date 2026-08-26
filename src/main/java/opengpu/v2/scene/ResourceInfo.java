@@ -128,7 +128,11 @@ public final class ResourceInfo {
 		return r;
 	}
 
-	/** Every scalar, no bytes and no canvas clone — for snapshots, which strip bodies anyway. */
+	/**
+	 * Every scalar, no bytes and no canvas clone. Snapshots strip TEXTURE bodies; canvases and
+	 * (since v10) mesh blobs ride the structure, so SceneState.copyStructure re-attaches both
+	 * right after calling this — SnapshotCodec.encode throws on a mesh whose bytes went missing.
+	 */
 	public ResourceInfo copyStructure() {
 		ResourceInfo r = new ResourceInfo(id, type, width, height, sizeBytes);
 		r.version = version;

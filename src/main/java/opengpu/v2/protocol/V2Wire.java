@@ -59,7 +59,33 @@ public final class V2Wire {
 	 * animator on that scene pops with nothing to interpolate. One long on a message already
 	 * being sent removes the free-run outright.
 	 */
-	public static final short PROTOCOL_VERSION = 9;
+	/*
+	 * Bumped 9 -> 10 on 2026-08-26 for Stage C's C1.1 — one bump carries everything 3D needs
+	 * at the wire/persistence level, so no later Stage C increment pays another:
+	 *
+	 *  - Meshes: RES_MESH = 3 claimed; DELTA_MESH_CREATE (15) carries both blobs INLINE (the
+	 *    program precedent, not the texture body protocol); the persisted resource record grows
+	 *    a type-3 conditional tail. The vertex layout frozen here (stride 36: pos f32x3,
+	 *    normal f32x3, uv f32x2, color u8x4 RGBA; u16 LE indices; triangle list) is FORMAT.
+	 *  - 3D TRS: six new NodeProps bits (TZ, SZ, QX..QW), and the persisted node record appends
+	 *    tz, sz, qx, qy, qz, qw after attachedWorldTime.
+	 *  - The per-attachment uniform table: DELTA_UNIFORM_SET (16) and a NESTED snapshot section
+	 *    after worldTimeAnchor.
+	 *
+	 * The op table did NOT move (no new canvas op).
+	 *
+	 * BatchCodec.MAX_INFLATED_BYTES moved 4 -> 8 MiB IN THIS BUMP, because the widest
+	 * producible delta grew to a 15-bit NodeProps (129 B) and 32768 x 129 alone exceeds 4 MiB —
+	 * see BatchSizeBoundTest for the full re-derivation. Raising the decoder ceiling is safe
+	 * ONLY at a bump: an old jar refuses a v10 batch either at the inflate size check (before
+	 * any version read) or at strict version equality — size first, then version — so no
+	 * pre-raise decoder ever sees post-raise content.
+	 *
+	 * Persisted-format answer: v9 joins LAYOUT_COMPATIBLE_PERSISTED_VERSIONS (its layout is
+	 * v8's; every v10 change is an append behind version >= 10 gates), and the v9 golden
+	 * fixture + frozen v10 writers land in PersistedVersionMigrationTest in this same change.
+	 */
+	public static final short PROTOCOL_VERSION = 10;
 
 	// Delta type ids
 	public static final byte DELTA_NODE_CREATE = 1;
@@ -114,17 +140,71 @@ public final class V2Wire {
 	 * (the resource case), so the applier does not resolve the id.
 	 */
 	public static final byte DELTA_NODE_ATTACH = 14;
+	/**
+	 * Mesh create (v10). BOTH blobs travel INLINE in this one delta — the program precedent
+	 * ({@link #DELTA_PROGRAM_CREATE}), not the texture body protocol: a mesh is bounded by
+	 * {@link #MAX_MESH_VERTEX_BYTES}+{@link #MAX_MESH_INDEX_BYTES}, and the out-of-band pending
+	 * state would land on the C1.3 render path for nothing. There is deliberately NO mesh arm
+	 * of DELTA_RES_CREATE, and a blob-less mesh record cannot come into being on any path: the
+	 * decode arm and the apply arm both refuse {@link #RES_MESH} outright ("meshes arrive via
+	 * DELTA_MESH_CREATE"), and the persisted resource loop refuses a type-3 record below
+	 * version 10 ("meshes exist only from v10" — at v10+ it ACCEPTS one, reading the inline
+	 * tail). The registry entry this delta creates is still an ordinary resource (type 3), so
+	 * ResourceFree and resource enumeration are untouched.
+	 *
+	 * The layout below freezes the WIRE; how a client uploads is its own business — the
+	 * expected shape is upload ONCE into the client's own VBO (meshes are static by design and
+	 * VRAM-charged at declare), because Angelica's GLSM re-uploads client-array attributes per
+	 * draw, which would pay the interleave four times per frame for nothing.
+	 *
+	 * The blobs' frozen layout — the WIRE format, independent of how any client uploads it:
+	 * vertex record stride 36, little-endian: pos f32 x3 @0, normal f32 x3 @12, uv f32 x2 @24,
+	 * color u8 x4 RGBA @32. Indices u16 little-endian, triangle list. Blob-interior integers
+	 * are LITTLE-endian while every framed wire integer stays DataOutputStream big-endian —
+	 * the two conventions meet at {@link #validateMeshBlobs}, which must read indices LE.
+	 * (Lua 5.3 packs a vertex with string.pack("&lt;ffffffffBBBB", ...) — eight f's; the shipped
+	 * big-endian '&gt;d' fallback in opengpu.lua is NOT this packer, and C1.4 owes a 5.2
+	 * little-endian one. DESIGN:103's "pos, uv, color, normal" listing and PLAN-STAGE-C's
+	 * "position, normal, uv, color" both predate this freeze and neither declared a wire
+	 * order; THIS order is the normative one.)
+	 */
+	public static final byte DELTA_MESH_CREATE = 15;
+	/**
+	 * Per-attachment uniform table write (v10): nodeId, name, type byte, values, immediate.
+	 *
+	 * Keyed by node + NAME, not register: register binding is a client/program concern (C1.3),
+	 * and name-keying survives ANIM-17's atomic program replace — entries outlive detach and
+	 * re-attach; only NodeFree, scene reset and CLEAR remove them. Type byte: 0 = CLEAR
+	 * (removes the entry, carries no values; clearing a missing entry throws, the frees'
+	 * precedent), 1 = float, 2 = vec2, 3 = vec3, 4 = vec4 — the value count is the type.
+	 * The {@code immediate} flag qualifies THIS TRANSITION, not the node (PROP_TELEPORT's
+	 * doctrine): consumed at apply, never stored, never persisted.
+	 */
+	public static final byte DELTA_UNIFORM_SET = 16;
 
 	// Node types
 	public static final byte NODE_CANVAS = 1;
 	public static final byte NODE_SPRITE = 2;
 	public static final byte NODE_GROUP = 3;
-	// Reserved: 4 = MESH_INSTANCE, 5 = CAMERA (Stage C)
+	// Stage C (v10): both are ordinary nodes in the transform tree. A camera is a NODE so that
+	// lookAt math, parenting and interpolation all reuse the one machine (DESIGN's decision).
+	public static final byte NODE_MESH_INSTANCE = 4;
+	public static final byte NODE_CAMERA = 5;
 
 	// Resource types
 	public static final byte RES_TEXTURE = 1;
 	public static final byte RES_CANVAS = 2;
-	// Reserved: 3 = MESH, 4 = FONT.
+	/**
+	 * Mesh (v10). Created ONLY by {@link #DELTA_MESH_CREATE} — see the refusal note there.
+	 * Persisted fixed-width header convention, frozen: width = vertexCount (1..MAX by
+	 * construction inside the existing 1..MAX_TEXTURE_DIM decode bound), height = 1,
+	 * sizeBytes = vertexBytes + indexBytes, version = latestVersion = 1 on both sides (the
+	 * blob travels inline; a mesh is never held at an older version), knownHashVersion = 1,
+	 * knownHash = contentHash(vertexBlob || indexBlob). Counts are re-derived from the two
+	 * length-prefixed tail blobs at decode and cross-checked against this header.
+	 */
+	public static final byte RES_MESH = 3;
+	// Reserved: 4 = FONT.
 	// 5 WAS "PROGRAM" and is now reserved-but-unclaimed: 3.1 decided against a program resource
 	// type (SceneState.programs is its own table — ProgramInfo's javadoc gives the three code-level
 	// reasons). The id stays burned rather than reused, because the wire is append-only by id.
@@ -160,9 +240,13 @@ public final class V2Wire {
 	 * bench2 run. BatchSizeBoundTest pins BOTH sides, so neither raising this into the
 	 * undecodable range nor lowering it into the reachable one passes silently.
 	 *
-	 * Those two bounds leave the window [32768, 47331], and 1&lt;&lt;15 is the only power of two in
-	 * it — 1&lt;&lt;14 puts the pump's throw back in reach, 1&lt;&lt;16 is where this started. The value
-	 * is derived rather than picked, which is why the tests assert a window and not a number.
+	 * Those two bounds left the window [32768, 47331] at v9's 4 MiB ceiling, with 1&lt;&lt;15 the
+	 * only power of two in it — 1&lt;&lt;14 puts the pump's throw back in reach. RE-DERIVED at the
+	 * 9 -&gt; 10 bump: the widest producible delta grew to a 15-bit NodeProps (129 B), which made
+	 * the window at 4 MiB EMPTY (upper bound 17,526 &lt; the busy-tick lower bound 32,768) — that
+	 * is why BatchCodec.MAX_INFLATED_BYTES moved to 8 MiB in the same change, where the window
+	 * is [32768, 50040] and 1&lt;&lt;15 remains the only power of two in it. The value is derived
+	 * rather than picked, which is why the tests assert a window and not a number.
 	 */
 	public static final int MAX_DELTAS = 1 << 15;
 	public static final int MAX_COMMANDS = 1 << 20;
@@ -276,8 +360,9 @@ public final class V2Wire {
 	 * mistake in the other direction, so the wire total gets its own explicit budget.
 	 *
 	 * 2 MiB: comfortably over any plausible real scene (a full 4096-command canvas of the
-	 * widest op is ~233 KB) and comfortably under MAX_INFLATED_BYTES, which the snapshot must
-	 * also satisfy.
+	 * widest op is ~233 KB). (A first draft said the snapshot "must also satisfy
+	 * MAX_INFLATED_BYTES" — false: nothing routes a snapshot through BatchCodec; SnapshotCodec
+	 * bounds its encode by FrameChunker.MAX_TRANSFER_BYTES, its own ceiling.)
 	 */
 	public static final int MAX_STANDING_COMMAND_BYTES = 2 * 1024 * 1024;
 
@@ -299,21 +384,98 @@ public final class V2Wire {
 	 *
 	 * Sized at 2x the ledger, the same "a batch spans up to two tick allowances" reasoning
 	 * MAX_WRITE_BYTES_PER_BATCH is built on: the most a legitimate caller needs in one batch is to
-	 * populate the whole program table, and churn beyond that is not traffic worth carrying. 512
-	 * KiB against a 4 MiB decoder ceiling leaves the 8x margin the batch caps are chosen to keep.
+	 * populate the whole program table, and churn beyond that is not traffic worth carrying. The
+	 * batch caps keep an 8x margin between the LARGEST allowance and the decoder ceiling: at v10
+	 * that pair is MAX_MESH_BYTES_PER_BATCH (1 MiB) against 8 MiB; this 512 KiB sits at 16x.
 	 */
 	public static final int MAX_PROGRAM_BYTES_PER_BATCH = 2 * 256 * 1024;
+
+	// ---- Mesh format caps (v10). FORMAT IDENTITY, decoder-enforced: these move only with a
+	// PROTOCOL_VERSION bump, unlike ServerScene.MAX_MESH_BYTES (admission-only ledger). ----
+	/** Vertex record stride: pos f32 x3, normal f32 x3, uv f32 x2, color u8 x4 RGBA. Frozen. */
+	public static final int MESH_VERTEX_STRIDE = 36;
+	/** Index width: u16 little-endian. Frozen; see the u16-sufficiency pin in MeshBoundTest. */
+	public static final int MESH_INDEX_BYTES = 2;
+	/**
+	 * Per-mesh vertex blob cap: 192 KiB = 5461 vertices.
+	 *
+	 * 192 rather than 256 KiB so the scene ledger fits TWO maximum-size meshes — the
+	 * discriminating arithmetic divides the ledger by a FULL mesh (vertex + index caps):
+	 * 524288 / (196608 + 65536) = 2, where 256 KiB gives 524288 / (262144 + 65536) = 1 —
+	 * failing ProgramLedgerBoundTest's usability floor: a ledger that admits fewer than 2
+	 * maximum-size items is unusable rather than protective. 5461 &lt; 65536 is also what makes
+	 * u16 indices sufficient FOREVER under this cap.
+	 */
+	public static final int MAX_MESH_VERTEX_BYTES = 192 * 1024;
+	/**
+	 * Per-mesh index blob cap: 64 KiB = 32768 u16 slots; the largest LEGAL list is 32766
+	 * indices = 10922 triangles (the validator's %3 rule makes the last two slots unreachable).
+	 */
+	public static final int MAX_MESH_INDEX_BYTES = 64 * 1024;
+	/**
+	 * Mesh blob bytes one BATCH may carry — 2x the ServerScene.MAX_MESH_BYTES ledger, the
+	 * create/free-loop reasoning of {@link #MAX_PROGRAM_BYTES_PER_BATCH} verbatim: freeing
+	 * releases ledger bytes, so churn inside one batch is bounded here, not by the ledger.
+	 */
+	public static final int MAX_MESH_BYTES_PER_BATCH = 2 * 512 * 1024;
+
+	/**
+	 * The one shared mesh-blob validator — called from all four sites (BatchCodec decode,
+	 * SnapshotCodec's type-3 tail, DeltaApplier's backstop, createMesh admission) so the
+	 * format has exactly one spelling. Throws IllegalArgumentException; callers wrap.
+	 *
+	 * Floors are explicit (one vertex, one triangle): the divisibility checks alone would admit
+	 * the empty mesh vacuously, and every sibling resource path refuses zero extent. Indices
+	 * are read LITTLE-endian — blob-interior convention, not the frame's big-endian one.
+	 */
+	public static void validateMeshBlobs(byte[] vertexBytes, byte[] indexBytes) {
+		if (vertexBytes == null || indexBytes == null)
+			throw new IllegalArgumentException("Mesh blobs must be present.");
+		if (vertexBytes.length > MAX_MESH_VERTEX_BYTES)
+			throw new IllegalArgumentException("Vertex blob " + vertexBytes.length + " B exceeds "
+					+ MAX_MESH_VERTEX_BYTES + ".");
+		if (indexBytes.length > MAX_MESH_INDEX_BYTES)
+			throw new IllegalArgumentException("Index blob " + indexBytes.length + " B exceeds "
+					+ MAX_MESH_INDEX_BYTES + ".");
+		if (vertexBytes.length < MESH_VERTEX_STRIDE)
+			throw new IllegalArgumentException("Vertex blob smaller than one vertex.");
+		if (indexBytes.length < 3 * MESH_INDEX_BYTES)
+			throw new IllegalArgumentException("Index blob smaller than one triangle.");
+		if (vertexBytes.length % MESH_VERTEX_STRIDE != 0)
+			throw new IllegalArgumentException("Vertex blob " + vertexBytes.length
+					+ " B is not a multiple of the " + MESH_VERTEX_STRIDE + "-byte stride.");
+		if (indexBytes.length % MESH_INDEX_BYTES != 0)
+			throw new IllegalArgumentException("Index blob " + indexBytes.length
+					+ " B is not a multiple of " + MESH_INDEX_BYTES + ".");
+		int indexCount = indexBytes.length / MESH_INDEX_BYTES;
+		if (indexCount % 3 != 0)
+			throw new IllegalArgumentException("Index count " + indexCount
+					+ " is not a multiple of 3 (triangle list).");
+		int vertexCount = vertexBytes.length / MESH_VERTEX_STRIDE;
+		for (int i = 0; i < indexBytes.length; i += 2) {
+			int index = (indexBytes[i] & 0xFF) | ((indexBytes[i + 1] & 0xFF) << 8);
+			if (index >= vertexCount)
+				throw new IllegalArgumentException("Index " + index + " at position " + (i / 2)
+						+ " out of range for " + vertexCount + " vertices.");
+		}
+	}
+
+	/** Vertex count implied by a validated vertex blob. */
+	public static int meshVertexCount(byte[] vertexBytes) {
+		return vertexBytes.length / MESH_VERTEX_STRIDE;
+	}
 
 	/** Self-describing persisted body blob: 'OGPB'. */
 	public static final int PERSIST_BODY_MAGIC = 0x4F475042;
 	public static final short PERSIST_BODY_FORMAT = 1;
 
 	public static boolean isKnownNodeType(byte type) {
-		return type == NODE_CANVAS || type == NODE_SPRITE || type == NODE_GROUP;
+		return type == NODE_CANVAS || type == NODE_SPRITE || type == NODE_GROUP
+				|| type == NODE_MESH_INSTANCE || type == NODE_CAMERA;
 	}
 
 	public static boolean isKnownResType(byte type) {
-		return type == RES_TEXTURE || type == RES_CANVAS;
+		return type == RES_TEXTURE || type == RES_CANVAS || type == RES_MESH;
 	}
 
 	// Node property mask bits (NodeProps delta)
@@ -338,8 +500,24 @@ public final class V2Wire {
 	 * reasoning as the compression sentinel in BatchCodec.
 	 */
 	public static final int PROP_TELEPORT = 1 << 8;
+	// ---- 3D TRS bits (v10). One double per bit, ascending bit order — the invariant every
+	// bit here inherits from the codec's Integer.bitCount derivation. ----
+	public static final int PROP_TZ = 1 << 9;
+	public static final int PROP_SZ = 1 << 10;
+	/**
+	 * The rot3d quaternion rides FOUR bits (one double per bit is load-bearing, see
+	 * PROP_TELEPORT), and they are ALL-OR-NONE: a mask carrying some but not all of QX..QW is
+	 * rejected at construction AND at decode — a partial quaternion is not a rotation.
+	 * Component order when present: ascending bit order, so qx, qy, qz, qw.
+	 */
+	public static final int PROP_QX = 1 << 11;
+	public static final int PROP_QY = 1 << 12;
+	public static final int PROP_QZ = 1 << 13;
+	public static final int PROP_QW = 1 << 14;
+	/** The four quaternion bits together; masks must carry all or none of this. */
+	public static final int QUAT_PROPS_MASK = PROP_QX | PROP_QY | PROP_QZ | PROP_QW;
 	/** Every defined property bit; masks carrying anything else are rejected outright. */
-	public static final int KNOWN_PROPS_MASK = 0x1FF;
+	public static final int KNOWN_PROPS_MASK = 0x7FFF;
 
 	// Canvas op ids (v2 replaces CommandEnum; the Transelate typo dies here)
 	public static final byte OP_FILL = 1;

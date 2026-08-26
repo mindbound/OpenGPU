@@ -288,7 +288,9 @@ public class SceneGraphTest {
 	@Test
 	public void freeingInDescendingIdOrderNeverHitsTheRefusal() {
 		// The order clearNodes must use, pinned here because clearNodes itself lives in
-		// TileEntityGpu2 and no JVM test can load it (the OC API is compileOnly). Ascending order
+		// TileEntityGpu2, which a JVM test can LOAD but not INSTANTIATE (the 2026-08-24 probe on
+		// ApiSurfacePinTest refuted the older "cannot load" claim this comment once carried), so
+		// the method body stays unreachable from here either way. Ascending order
 		// is GUARANTEED to hit the child refusal rather than merely likely to, because a parent's
 		// id is always the lower one — so a bulk free that walks a TreeMap forwards breaks on the
 		// first parented group and half-clears the scene.

@@ -60,6 +60,22 @@ public final class SnapshotCodec {
 					out.writeInt(res.canvas.commandCap);
 					BatchCodec.writeCommands(out, res.canvas.visibleCommands());
 				}
+				// The v10 mesh tail: BOTH blobs inline (the programs' reasoning, not the
+				// textures' — copyStructure carries mesh bytes for exactly this line). The
+				// fixed-width header above already holds the frozen type-3 convention (width =
+				// vertexCount, height = 1), which is what keeps the dims check in decode()
+				// untouched. The split point is derivable (width * stride), and both halves are
+				// length-prefixed so decode re-derives and cross-checks the counts.
+				if (res.type == V2Wire.RES_MESH) {
+					if (res.bytes == null)
+						throw new IllegalStateException("Mesh " + res.id
+								+ " has no bytes at encode; copyStructure must carry them");
+					int vertexLen = res.width * V2Wire.MESH_VERTEX_STRIDE;
+					out.writeInt(vertexLen);
+					out.write(res.bytes, 0, vertexLen);
+					out.writeInt(res.bytes.length - vertexLen);
+					out.write(res.bytes, vertexLen, res.bytes.length - vertexLen);
+				}
 			}
 			out.writeInt(state.nodes.size());
 			for (Map.Entry<Integer, SceneNode> e : state.nodes.entrySet()) {
@@ -87,6 +103,16 @@ public final class SnapshotCodec {
 				// moved. ANIM-6's per-attachment stamp, in world time so that this record means
 				// the same thing on the server, on every mirror, and on disk.
 				out.writeLong(node.attachedWorldTime);
+				// APPENDED in v10, same shape a fourth time: 74 -> 122 bytes, nothing before it
+				// moved. The 3D TRS in pinned order tz, sz, qx, qy, qz, qw. The decode gate's
+				// pre-v10 defaults are the IDENTITY transform (sz = 1, qw = 1), NOT the usual
+				// zero pattern — a zeroed sz would collapse every pre-upgrade node's scale.
+				out.writeDouble(node.tz);
+				out.writeDouble(node.sz);
+				out.writeDouble(node.qx);
+				out.writeDouble(node.qy);
+				out.writeDouble(node.qz);
+				out.writeDouble(node.qw);
 			}
 			// APPENDED in v6, the same shape the v5 `parent` append used: strictly after every
 			// earlier field, so a v5 payload is consumed at its own width by the gate in decode()
@@ -124,6 +150,37 @@ public final class SnapshotCodec {
 			// One field here keeps every stored stamp identical everywhere and leaves 3.3's host
 			// fill needing no further protocol change.
 			out.writeLong(state.worldTimeAnchor);
+			// APPENDED in v10, strictly after the v8 anchor: the per-attachment uniform table,
+			// NESTED — [int nodeCountWithUniforms][per node: int nodeId, int entryCount,
+			// entries...] — because the FLAT alternative was refuted by arithmetic: 4096 nodes x
+			// 64 entries = 262,144 legal standing entries, 4x MAX_ENTRIES, so a flat count bound
+			// would let a legally-full server encode a snapshot every decoder refuses (network:
+			// permanently unresyncable; persisted: restoreOrFresh DELETES the scene). Nested,
+			// each bound is producibly satisfiable: outer <= MAX_NODES < MAX_ENTRIES, inner <=
+			// MAX_NODE_UNIFORMS. Entry = (name, count-as-type byte, doubles); the wire delta's
+			// `immediate` flag is deliberately absent — it qualifies transitions, not state.
+			// WRITTEN EVEN WHEN EMPTY: the count int is load-bearing for the trailing-data guard.
+			int nodesWithUniforms = 0;
+			for (SceneNode node : state.nodes.values()) {
+				if (!node.uniforms.isEmpty())
+					nodesWithUniforms++;
+			}
+			out.writeInt(nodesWithUniforms);
+			for (Map.Entry<Integer, SceneNode> e : state.nodes.entrySet()) {
+				SceneNode node = e.getValue();
+				if (node.uniforms.isEmpty())
+					continue;
+				out.writeInt(node.id);
+				out.writeInt(node.uniforms.size());
+				for (Map.Entry<String, double[]> u : node.uniforms.entrySet()) {
+					out.writeUTF(u.getKey());
+					double[] values = u.getValue();
+					out.writeByte(values.length);
+					for (double v : values) {
+						out.writeDouble(v);
+					}
+				}
+			}
 			byte[] encoded = bytes.toByteArray();
 			// "Legal to create" must imply "deliverable": a snapshot the chunker cannot carry
 			// would make the scene permanently unresyncable. Budget caps (open numbers in the
@@ -176,6 +233,19 @@ public final class SnapshotCodec {
 	 *       v7 payload is consumed at its own widths and lands flush on the trailing-data guard; a
 	 *       v7 world restores with every attachment unstamped and no anchor, which is what it had.
 	 *       The op table did not change in this bump.
+	 *   8 — BYTE-IDENTICAL. The 8 → 9 bump (ANIM-13(b)) put the server tick on the HEARTBEAT, a
+	 *       transient message no save contains; it changed no persisted field and no op arity, so
+	 *       a v8 structure is a v9 structure. (This paragraph was missing when the entry landed —
+	 *       the file's own every-entry-carries-its-reason rule, restored at the v10 bump's audit.)
+	 *   9 — READ AT ITS OWN WIDTH BY GATES. The 9 → 10 bump APPENDED the six 3D TRS doubles to
+	 *       the node record (74 → 122 bytes, nothing before it moved), the type-3 mesh tail in
+	 *       the resource record's type-conditional slot (v9 cannot contain a type-3 record — the
+	 *       decoder refuses one below version 10 outright), and the nested uniform section after
+	 *       the v8 anchor. decode() reads each only at version >= 10, so a v9 payload is consumed
+	 *       at its own widths and lands flush on the trailing-data guard; a v9 world restores
+	 *       with identity 3D transforms (sz = 1, qw = 1 — the gate arms restore the IDENTITY, not
+	 *       zeros), no meshes and empty uniform tables, which is what it had. The op table did
+	 *       not change in this bump.
 	 *
 	 * IF A FUTURE BUMP MOVES, RESIZES OR REORDERS AN EXISTING FIELD, IT DOES NOT BELONG HERE, and
 	 * no gate rescues it. Write a decoder for the old layout instead, as
@@ -198,7 +268,7 @@ public final class SnapshotCodec {
 	 * TE saves before its scene is initialised. A world can therefore carry a v3 structure
 	 * through any number of v4 sessions.
 	 */
-	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4, 5, 6, 7, 8 };
+	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4, 5, 6, 7, 8, 9 };
 
 	/**
 	 * Legality of a decoded parent, answered identically on both paths — and answered DIFFERENTLY
@@ -298,6 +368,12 @@ public final class SnapshotCodec {
 				byte type = in.readByte();
 				if (!V2Wire.isKnownResType(type))
 					throw new CodecException("Unknown resource type " + type);
+				// REFUSE, never skip: no v8/v9 encoder could write a type-3 record, so one in a
+				// pre-v10 payload is corruption; skipping would fabricate a data-less mesh from
+				// bytes that mean something else — the misread this file ranks worse than loss.
+				if (type == V2Wire.RES_MESH && version < 10)
+					throw new CodecException("Resource " + id + " claims type MESH in a v"
+							+ version + " payload; meshes exist only from v10");
 				int width = in.readInt();
 				int height = in.readInt();
 				int sizeBytes = in.readInt();
@@ -308,6 +384,10 @@ public final class SnapshotCodec {
 					throw new CodecException("Resource " + id + " version out of range: " + wireVersion);
 				if (knownHashVersion < 0 || knownHashVersion > wireVersion)
 					throw new CodecException("Resource " + id + " knownHashVersion out of range");
+				// Type-3 records pass UNTOUCHED by construction: width = vertexCount (1..5461)
+				// sits inside the 1..8192 bound, height = 1. That is the frozen convention's
+				// whole point — the one wrong natural choice (height = indexCount) would refuse
+				// any legal mesh with more than 8192 indices.
 				if (width <= 0 || height <= 0
 						|| width > V2Wire.MAX_TEXTURE_DIM || height > V2Wire.MAX_TEXTURE_DIM)
 					throw new CodecException("Resource " + id + " has invalid dimensions");
@@ -318,6 +398,7 @@ public final class SnapshotCodec {
 				ResourceInfo res = new ResourceInfo(id, type, width, height, sizeBytes);
 				// "I know of version V and hold no bytes." ScenePersistence.restore sets
 				// version when it attaches bytes; SceneMirror.applySnapshot via carry-over.
+				// (Meshes override below: their bytes are IN this payload.)
 				res.latestVersion = wireVersion;
 				res.version = 0;
 				res.knownHashVersion = knownHashVersion;
@@ -348,6 +429,49 @@ public final class SnapshotCodec {
 							BatchCodec.readCommands(in, cap);
 					canvas.publish(commands);
 					res.canvas = canvas;
+				}
+				if (type == V2Wire.RES_MESH) {
+					// The v10 mesh tail. Length bounds BEFORE either allocation (the batch
+					// decoder's rule), then the shared validator on the read bytes, then the
+					// header cross-checks — a record whose fixed-width header disagrees with its
+					// own tail was written by no encoder and is refused on BOTH paths (the
+					// throwing dims-check precedent governs impossible records here too).
+					int vertexLen = in.readInt();
+					if (vertexLen < V2Wire.MESH_VERTEX_STRIDE
+							|| vertexLen > V2Wire.MAX_MESH_VERTEX_BYTES)
+						throw new CodecException("Mesh " + id + " vertex blob length out of range: "
+								+ vertexLen);
+					byte[] vertexBytes = new byte[vertexLen];
+					in.readFully(vertexBytes);
+					int indexLen = in.readInt();
+					if (indexLen < 3 * V2Wire.MESH_INDEX_BYTES
+							|| indexLen > V2Wire.MAX_MESH_INDEX_BYTES)
+						throw new CodecException("Mesh " + id + " index blob length out of range: "
+								+ indexLen);
+					byte[] indexBytes = new byte[indexLen];
+					in.readFully(indexBytes);
+					try {
+						V2Wire.validateMeshBlobs(vertexBytes, indexBytes);
+					} catch (IllegalArgumentException ex) {
+						throw new CodecException("Mesh " + id + " malformed: " + ex.getMessage(), ex);
+					}
+					if (width != V2Wire.meshVertexCount(vertexBytes) || height != 1)
+						throw new CodecException("Mesh " + id + " header disagrees with its tail: "
+								+ width + "x" + height + " vs " + V2Wire.meshVertexCount(vertexBytes)
+								+ " vertices");
+					if (sizeBytes != vertexLen + indexLen)
+						throw new CodecException("Mesh " + id + " sizeBytes disagrees with its blobs");
+					if (wireVersion != 1 || knownHashVersion != 1)
+						throw new CodecException("Mesh " + id + " carries versions no encoder writes");
+					byte[] combined = new byte[vertexLen + indexLen];
+					System.arraycopy(vertexBytes, 0, combined, 0, vertexLen);
+					System.arraycopy(indexBytes, 0, combined, vertexLen, indexLen);
+					// The hash and the bytes travelled in the SAME payload, so a mismatch is
+					// self-inconsistency, not a torn side-channel — corrupt on any path.
+					if (knownHash != V2Wire.contentHash(combined))
+						throw new CodecException("Mesh " + id + " bytes do not match their hash");
+					res.bytes = combined;
+					res.version = 1;
 				}
 				state.resources.put(id, res);
 			}
@@ -384,6 +508,15 @@ public final class SnapshotCodec {
 				int animator = version >= 7 ? in.readInt() : 0;
 				// v8's stamp, gated on its own version for the same reason each earlier field is.
 				long attachedWorldTime = version >= 8 ? in.readLong() : 0L;
+				// v10's 3D TRS, gated alike — and the defaults are the IDENTITY transform, not
+				// the file's usual zero pattern: a pre-v10 node restoring with sz = 0 or qw = 0
+				// would collapse its scale / rotation the moment C1.3 starts consuming these.
+				double tz = version >= 10 ? in.readDouble() : 0.0;
+				double szScale = version >= 10 ? in.readDouble() : 1.0;
+				double qxr = version >= 10 ? in.readDouble() : 0.0;
+				double qyr = version >= 10 ? in.readDouble() : 0.0;
+				double qzr = version >= 10 ? in.readDouble() : 0.0;
+				double qwr = version >= 10 ? in.readDouble() : 1.0;
 				if (animator < 0)
 					throw new CodecException("Node " + id + " has a negative animator id " + animator);
 				if (attachedWorldTime < 0L)
@@ -408,6 +541,12 @@ public final class SnapshotCodec {
 				node.z = z;
 				node.visible = visible;
 				node.tint = tint;
+				node.tz = tz;
+				node.sz = szScale;
+				node.qx = qxr;
+				node.qy = qyr;
+				node.qz = qzr;
+				node.qw = qwr;
 				node.animator = animator;
 				node.attachedWorldTime = attachedWorldTime;
 				state.nodes.put(id, node);
@@ -470,6 +609,49 @@ public final class SnapshotCodec {
 			}
 			if (version >= 8) {
 				state.worldTimeAnchor = in.readLong();
+			}
+			// THE v10 GATE on the nested uniform section — see encode() for the section's shape
+			// and the arithmetic that forced nesting. Every bound here is one a legal encoder
+			// can actually satisfy: outer count <= MAX_ENTRIES (producibly <= MAX_NODES), inner
+			// count 1..MAX_NODE_UNIFORMS. Unknown nodeId, duplicate nodeId (a node whose table
+			// is already non-empty), duplicate name, bad name, or a type byte outside 1..4
+			// (CLEAR is never persisted — it is a transition) all throw: no encoder writes them.
+			if (version >= 10) {
+				int nodesWithUniforms = in.readInt();
+				if (nodesWithUniforms < 0 || nodesWithUniforms > MAX_ENTRIES)
+					throw new CodecException("Uniform node count out of range: " + nodesWithUniforms);
+				for (int i = 0; i < nodesWithUniforms; i++) {
+					int nodeId = in.readInt();
+					SceneNode node = state.nodes.get(Integer.valueOf(nodeId));
+					if (node == null)
+						throw new CodecException("Uniform section references unknown node " + nodeId);
+					if (!node.uniforms.isEmpty())
+						throw new CodecException("Duplicate uniform group for node " + nodeId);
+					int entryCount = in.readInt();
+					if (entryCount < 1 || entryCount > opengpu.v2.scene.ServerScene.MAX_NODE_UNIFORMS)
+						throw new CodecException("Uniform entry count out of range for node "
+								+ nodeId + ": " + entryCount);
+					for (int u = 0; u < entryCount; u++) {
+						String name = in.readUTF();
+						try {
+							opengpu.v2.ocsl.IrStructure.checkName(0, name);
+						} catch (opengpu.v2.ocsl.IrStructure.StructureException ex) {
+							throw new CodecException("Uniform name on node " + nodeId + ": "
+									+ ex.getMessage(), ex);
+						}
+						int valueCount = in.readByte();
+						if (valueCount < 1 || valueCount > 4)
+							throw new CodecException("Uniform '" + name + "' on node " + nodeId
+									+ " has a value count of " + valueCount);
+						double[] values = new double[valueCount];
+						for (int v = 0; v < valueCount; v++) {
+							values[v] = in.readDouble();
+						}
+						if (node.uniforms.put(name, values) != null)
+							throw new CodecException("Duplicate uniform '" + name + "' on node "
+									+ nodeId);
+					}
+				}
 			}
 			if (in.read() != -1)
 				throw new CodecException("Trailing data after snapshot");

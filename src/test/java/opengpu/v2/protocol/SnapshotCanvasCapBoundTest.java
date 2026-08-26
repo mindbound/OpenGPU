@@ -80,6 +80,7 @@ public class SnapshotCanvasCapBoundTest {
 		out.writeInt(0);    // no programs
 		out.writeLong(0L);  // v7 creationWorldTime, appended after the program section
 		out.writeLong(0L);  // v8 world-time anchor
+		out.writeInt(0);    // v10 uniform section, empty — the count int is load-bearing
 		out.flush();
 		return bytes.toByteArray();
 	}

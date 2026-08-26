@@ -225,11 +225,14 @@ public strictfp class NodeFoldTest {
 
 	@Test
 	public void theFoldIsTwoDimensionalAndSaysSoWhenAThirdAppears() throws Exception {
-		// THE SCOPED GAP. ANIM-3 pinned composition equations for tz, sz and rot3d; the renderer has
-		// no field, no interpolator slot and no matrix term for any of them, so ANIM-10 binds the
-		// six 2D properties only. This is a stated scope, and this test is what stops it becoming a
-		// forgotten one: the moment a 3D transform field lands on SceneNode, the fold and the
-		// interpolator have to widen together and this fails to say so.
+		// THE SCOPED GAP, re-pinned at C1.1. The MODEL is now eleven scalars wide — the v10 node
+		// record stores tz, sz and the rot3d quaternion — but the FOLD still consumes exactly the
+		// 2D five: NodeFold.TRS_WIDTH, NodeInterpolator's FIELDS and ANIM-10's scope are the trio
+		// that widens together, and that widening is C1.3's obligation (quaternion slerp lands
+		// there), not this increment's. This test pins BOTH halves so neither drifts silently: the
+		// exact field set (a twelfth scalar must come here and say what it means) and the fold's
+		// width as a LITERAL (it must not track the model's size — that is the very decoupling the
+		// stored-but-unconsumed state depends on).
 		List<String> transformFields = new ArrayList<String>();
 		for (Field f : SceneNode.class.getDeclaredFields()) {
 			if (Modifier.isStatic(f.getModifiers())) {
@@ -239,14 +242,17 @@ public strictfp class NodeFoldTest {
 				transformFields.add(f.getName());
 			}
 		}
-		List<String> expected = Arrays.asList("x", "y", "rot", "sx", "sy");
-		assertEquals("SceneNode's transform is 2D and five wide; a new scalar field here means"
-				+ " ANIM-10's scope, NodeFold.TRS_WIDTH and NodeInterpolator's FIELDS must all"
-				+ " widen together. Found: " + transformFields,
+		List<String> expected = Arrays.asList("x", "y", "rot", "sx", "sy",
+				"tz", "sz", "qx", "qy", "qz", "qw");
+		assertEquals("SceneNode's scalar model is eleven wide (the 2D five plus v10's 3D six);"
+				+ " a new scalar field here means ANIM-10's scope, NodeFold.TRS_WIDTH and"
+				+ " NodeInterpolator's FIELDS must all be re-examined together. Found: "
+				+ transformFields,
 				expected.size(), transformFields.size());
 		assertTrue("and they are exactly " + expected + ", found " + transformFields,
 				transformFields.containsAll(expected));
-		assertEquals("the fold's width tracks that set", expected.size(), NodeFold.TRS_WIDTH);
+		assertEquals("the fold consumes the 2D five ONLY until C1.3 widens it — a LITERAL, not"
+				+ " the model's size", 5, NodeFold.TRS_WIDTH);
 
 		// The three that have no consumer are nonetheless composable, which is the gap stated as an
 		// assertion rather than as a sentence: OcslCompose answers for them and nothing can draw it.

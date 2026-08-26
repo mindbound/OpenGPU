@@ -92,10 +92,29 @@ public final class DeltaApplier {
 			// client's interpolator, and the server simply ignores it.
 			if ((d.mask & V2Wire.PROP_TELEPORT) != 0)
 				vi++;
+			if ((d.mask & V2Wire.PROP_TZ) != 0)
+				node.tz = d.values[vi++];
+			if ((d.mask & V2Wire.PROP_SZ) != 0)
+				node.sz = d.values[vi++];
+			// Quat bits are all-or-none (enforced at construct and decode), so these four either
+			// all fire or none do — a node can never hold a partially-written rotation.
+			if ((d.mask & V2Wire.PROP_QX) != 0)
+				node.qx = d.values[vi++];
+			if ((d.mask & V2Wire.PROP_QY) != 0)
+				node.qy = d.values[vi++];
+			if ((d.mask & V2Wire.PROP_QZ) != 0)
+				node.qz = d.values[vi++];
+			if ((d.mask & V2Wire.PROP_QW) != 0)
+				node.qw = d.values[vi++];
 		} else if (delta instanceof Delta.ResourceCreate) {
 			Delta.ResourceCreate d = (Delta.ResourceCreate) delta;
 			if (!V2Wire.isKnownResType(d.resType))
 				throw new IllegalStateException("Unknown resource type " + d.resType);
+			// Mirror of BatchCodec's decode-arm refusal, needed here independently: the delta's
+			// constructor validates nothing, so this arm is the only guard against a
+			// server-constructed blob-less mesh record.
+			if (d.resType == V2Wire.RES_MESH)
+				throw new IllegalStateException("Meshes arrive via DELTA_MESH_CREATE, not RES_CREATE");
 			if (d.width <= 0 || d.height <= 0
 					|| d.width > V2Wire.MAX_TEXTURE_DIM || d.height > V2Wire.MAX_TEXTURE_DIM)
 				throw new IllegalStateException("Resource " + d.resId + " has invalid dimensions "
@@ -232,6 +251,60 @@ public final class DeltaApplier {
 			// one's age — and a detach clears the stamp so a later re-attach cannot read a stale
 			// one. Writing the id without the stamp is the defect this pairing exists to prevent.
 			node.attachedWorldTime = d.attachedWorldTime;
+		} else if (delta instanceof Delta.MeshCreate) {
+			Delta.MeshCreate d = (Delta.MeshCreate) delta;
+			if (state.resources.containsKey(d.resId))
+				throw new IllegalStateException("Resource " + d.resId + " already exists");
+			byte[] vertexBytes = d.vertexCopy();
+			byte[] indexBytes = d.indexCopy();
+			// Backstop only — the delta's constructor already ran the shared validator, so an
+			// invalid MeshCreate cannot exist as a value object. Kept because this is the one
+			// shared apply path and the throw here is a divergence signal, not dead weight.
+			try {
+				V2Wire.validateMeshBlobs(vertexBytes, indexBytes);
+			} catch (IllegalArgumentException e) {
+				throw new IllegalStateException("Malformed mesh " + d.resId + ": " + e.getMessage());
+			}
+			// The frozen registry convention (V2Wire.RES_MESH): width = vertexCount, height = 1,
+			// sizeBytes = the combined length. `bytes` holds vertexBlob || indexBlob — one array,
+			// split derivable as width * MESH_VERTEX_STRIDE, so copy()/contentEquals need no new
+			// fields and the persisted record re-derives both halves.
+			ResourceInfo res = new ResourceInfo(d.resId, V2Wire.RES_MESH, d.vertexCount(), 1,
+					vertexBytes.length + indexBytes.length);
+			byte[] combined = new byte[vertexBytes.length + indexBytes.length];
+			System.arraycopy(vertexBytes, 0, combined, 0, vertexBytes.length);
+			System.arraycopy(indexBytes, 0, combined, vertexBytes.length, indexBytes.length);
+			res.bytes = combined;
+			// Inline transport: BOTH sides hold the bytes from the moment of creation, so a mesh
+			// is never pending and never at an older version — version == latestVersion == 1
+			// forever, on server and mirror alike (the frozen convention).
+			res.version = 1;
+			res.latestVersion = 1;
+			res.knownHash = V2Wire.contentHash(combined);
+			res.knownHashVersion = 1;
+			state.resources.put(d.resId, res);
+		} else if (delta instanceof Delta.UniformSet) {
+			Delta.UniformSet d = (Delta.UniformSet) delta;
+			SceneNode node = state.nodes.get(Integer.valueOf(d.nodeId));
+			if (node == null)
+				throw new IllegalStateException("Uniform set for unknown node " + d.nodeId);
+			if (d.type == Delta.UniformSet.TYPE_CLEAR) {
+				// Clearing a missing entry throws — the frees' precedent (NodeFree/ResourceFree).
+				if (node.uniforms.remove(d.name) == null)
+					throw new IllegalStateException("Clearing unknown uniform '" + d.name
+							+ "' on node " + d.nodeId);
+			} else {
+				// The per-node cap binds only when ADDING a name; replacing an existing entry
+				// never grows the table. Enforced on the shared path so both sides accept
+				// exactly the same set (the parenting-rules precedent above).
+				if (!node.uniforms.containsKey(d.name)
+						&& node.uniforms.size() >= ServerScene.MAX_NODE_UNIFORMS)
+					throw new IllegalStateException("Node " + d.nodeId + " already holds "
+							+ ServerScene.MAX_NODE_UNIFORMS + " uniforms");
+				node.uniforms.put(d.name, d.values.clone());
+			}
+			// d.immediate is consumed, never stored — it qualifies this transition, not the node
+			// (PROP_TELEPORT's doctrine). SceneMirror routes it to the interpolator in C1.3.
 		} else if (delta instanceof Delta.SceneProp) {
 			// Reserved (Stage D); carrying it is legal, applying it is a no-op for now.
 		} else {

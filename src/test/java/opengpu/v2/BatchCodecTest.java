@@ -39,8 +39,33 @@ public class BatchCodecTest {
 		deltas.add(new Delta.CanvasPublish(1, cmds));
 		deltas.add(new Delta.NodeFree(2));
 		deltas.add(new Delta.ResourceFree(2));
+		// v10: a mesh (both blobs inline), a 3D props update (full quat — all-or-none), and the
+		// three uniform shapes (set float, set vec4 with immediate, CLEAR).
+		deltas.add(new Delta.MeshCreate(3, meshVertices(3), meshTriangle()));
+		deltas.add(new Delta.NodeProps(1,
+				V2Wire.PROP_TZ | V2Wire.PROP_SZ | V2Wire.QUAT_PROPS_MASK,
+				new double[] { 1.5, 2.0, 0.5, -0.5, 0.5, 0.5 }));
+		deltas.add(new Delta.UniformSet(1, "speed", Delta.UniformSet.TYPE_FLOAT,
+				new double[] { 2.5 }, false));
+		deltas.add(new Delta.UniformSet(1, "tint4", Delta.UniformSet.TYPE_VEC4,
+				new double[] { 0.1, 0.2, 0.3, 0.4 }, true));
+		deltas.add(new Delta.UniformSet(1, "gone", Delta.UniformSet.TYPE_CLEAR,
+				new double[0], false));
 		deltas.add(new Delta.SceneProp(7, new byte[] { 1, 2, 3 }));
 		return new SceneBatch("aaaa-bbbb-cccc-dddd", 5, 41, 123456789L, deltas);
+	}
+
+	static byte[] meshVertices(int count) {
+		byte[] blob = new byte[count * V2Wire.MESH_VERTEX_STRIDE];
+		for (int i = 0; i < blob.length; i++) {
+			blob[i] = (byte) (i * 7);
+		}
+		return blob;
+	}
+
+	/** One triangle 0,1,2 as u16 LITTLE-endian — the blob-interior convention. */
+	static byte[] meshTriangle() {
+		return new byte[] { 0, 0, 1, 0, 2, 0 };
 	}
 
 	@Test
@@ -51,6 +76,200 @@ public class BatchCodecTest {
 		assertEquals(5, decoded.epoch);
 		assertEquals(41, decoded.seq);
 		assertEquals(123456789L, decoded.serverTick);
+	}
+
+	@Test
+	public void aMeshViaResourceCreateIsRefusedOnTheWire() throws Exception {
+		// The delta constructor validates nothing, so a blob-less type-3 RES_CREATE can be
+		// BUILT — the wire arm is one of the three sites that refuse it (decode here, the
+		// apply arm, and the pre-v10 persisted loop).
+		ArrayList<Delta> deltas = new ArrayList<Delta>();
+		deltas.add(new Delta.ResourceCreate(9, V2Wire.RES_MESH, 3, 1, 114, 0L, 0));
+		byte[] encoded = BatchCodec.encode(
+				new SceneBatch("scene", 5, 1, 1L, deltas));
+		try {
+			BatchCodec.decode(encoded);
+			fail("meshes must arrive via DELTA_MESH_CREATE, never RES_CREATE");
+		} catch (CodecException expected) {
+			assertTrue(expected.getMessage(),
+					expected.getMessage().contains("DELTA_MESH_CREATE"));
+		}
+	}
+
+	@Test
+	public void aPartialQuaternionCannotExistOrDecode() {
+		// Constructor side: all-or-none.
+		try {
+			new Delta.NodeProps(1, V2Wire.PROP_QX | V2Wire.PROP_QY, new double[] { 1, 2 });
+			fail("a partial quaternion is not a rotation");
+		} catch (IllegalArgumentException expected) {
+			assertTrue(expected.getMessage(), expected.getMessage().contains("all-or-none"));
+		}
+		// TZ/SZ alone are fine — they are ordinary scalar props.
+		new Delta.NodeProps(1, V2Wire.PROP_TZ | V2Wire.PROP_SZ, new double[] { 1, 2 });
+	}
+
+	@Test
+	public void aMalformedMeshBlobIsRefusedAtDecodeNotDeliveredToApply() throws Exception {
+		// Hand-encode a DELTA_MESH_CREATE whose index points past its vertices; the delta
+		// cannot be built (constructor validates), so the bytes are laid down by hand.
+		java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+		java.io.DataOutputStream out = new java.io.DataOutputStream(bytes);
+		out.writeShort(V2Wire.PROTOCOL_VERSION);
+		out.writeUTF("scene");
+		out.writeInt(5);   // epoch
+		out.writeInt(1);   // seq
+		out.writeLong(1L); // tick
+		out.writeInt(1);   // one delta
+		out.writeByte(V2Wire.DELTA_MESH_CREATE);
+		out.writeInt(3);   // resId
+		byte[] verts = meshVertices(2);
+		out.writeInt(verts.length);
+		out.write(verts);
+		out.writeInt(6);
+		// Index 2 with EXACTLY 2 vertices — the boundary, deliberately: the largest legal index
+		// is vertexCount - 1, and a >= check weakened to > admits precisely this blob. An index
+		// far past the count would pass under both spellings and pin nothing.
+		out.write(new byte[] { 0, 0, 1, 0, 2, 0 });
+		try {
+			BatchCodec.decode(bytes.toByteArray());
+			fail("an index equal to vertexCount must die in the codec");
+		} catch (CodecException expected) {
+			// "out of range FOR" — the index-range message specifically. The looser "out of
+			// range" is also printed by the LENGTH checks, and a both-sides blob-order swap
+			// would trip those instead (indexLen 72 passes, vertexLen 6 fails) — green on the
+			// wrong check, which is exactly what this match must not allow.
+			assertTrue(expected.getMessage(), expected.getMessage().contains("out of range for"));
+		}
+	}
+
+	@Test
+	public void aPartialQuaternionIsRefusedByTheDecoderItself() throws Exception {
+		// The decode leg of the all-or-none rule, on hand-laid bytes: mask = PROP_QX alone is
+		// INSIDE KNOWN_PROPS_MASK, so the mask check passes and the refusal must come from the
+		// constructor invariant surfacing as a CodecException (BatchCodec's IAE conversion is
+		// that rule's decode-side enforcement — its comment says so now).
+		java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+		java.io.DataOutputStream out = new java.io.DataOutputStream(bytes);
+		out.writeShort(V2Wire.PROTOCOL_VERSION);
+		out.writeUTF("scene");
+		out.writeInt(5);
+		out.writeInt(1);
+		out.writeLong(1L);
+		out.writeInt(1);
+		out.writeByte(V2Wire.DELTA_NODE_PROPS);
+		out.writeInt(1);                 // nodeId
+		out.writeInt(V2Wire.PROP_QX);    // a lone quaternion component
+		out.writeDouble(0.5);
+		try {
+			BatchCodec.decode(bytes.toByteArray());
+			fail("a lone quat component must not decode");
+		} catch (CodecException expected) {
+			assertTrue(expected.getMessage(), expected.getMessage().contains("all-or-none"));
+		}
+	}
+
+	@Test
+	public void handLaidV10DeltaBytesDecodeFieldForField() throws Exception {
+		// The aHandWrittenV6 discipline for the two new deltas: the codec's own round trip is
+		// encoder-against-its-own-decoder, so a symmetric field-order mistake round-trips
+		// clean there and only independently laid bytes can catch it.
+		java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+		java.io.DataOutputStream out = new java.io.DataOutputStream(bytes);
+		out.writeShort(V2Wire.PROTOCOL_VERSION);
+		out.writeUTF("scene");
+		out.writeInt(5);
+		out.writeInt(1);
+		out.writeLong(1L);
+		out.writeInt(2);
+		out.writeByte(V2Wire.DELTA_MESH_CREATE);
+		out.writeInt(7);                          // resId
+		byte[] verts = meshVertices(3);
+		out.writeInt(verts.length);               // vertex blob FIRST, length-prefixed
+		out.write(verts);
+		byte[] tri = meshTriangle();
+		out.writeInt(tri.length);                 // then the index blob
+		out.write(tri);
+		out.writeByte(V2Wire.DELTA_UNIFORM_SET);
+		out.writeInt(4);                          // nodeId
+		out.writeUTF("speed");                    // name
+		out.writeByte(2);                         // type = vec2
+		out.writeDouble(1.25);
+		out.writeDouble(-2.5);
+		out.writeBoolean(true);                   // immediate LAST
+		SceneBatch decoded = BatchCodec.decode(bytes.toByteArray());
+		Delta.MeshCreate mesh = (Delta.MeshCreate) decoded.deltas.get(0);
+		assertEquals(7, mesh.resId);
+		assertEquals(3, mesh.vertexCount());
+		assertTrue(Arrays.equals(verts, mesh.vertexCopy()));
+		assertTrue(Arrays.equals(tri, mesh.indexCopy()));
+		Delta.UniformSet u = (Delta.UniformSet) decoded.deltas.get(1);
+		assertEquals(4, u.nodeId);
+		assertEquals("speed", u.name);
+		assertEquals(Delta.UniformSet.TYPE_VEC2, u.type);
+		assertTrue(Arrays.equals(new double[] { 1.25, -2.5 }, u.values));
+		assertTrue(u.immediate);
+	}
+
+	@Test
+	public void the3dPropsLandOnTheirOwnNodeFields() {
+		// Six DISTINCT values so a value-index desync or a swapped assignment cannot fake all
+		// six landing where they belong (the swap-proof doctrine, applied to the apply path).
+		opengpu.v2.scene.SceneState state = new opengpu.v2.scene.SceneState();
+		opengpu.v2.scene.DeltaApplier.apply(state, new Delta.NodeCreate(1, V2Wire.NODE_GROUP, 0));
+		opengpu.v2.scene.DeltaApplier.apply(state, new Delta.NodeProps(1,
+				V2Wire.PROP_TZ | V2Wire.PROP_SZ | V2Wire.QUAT_PROPS_MASK,
+				new double[] { 1.5, 2.0, 0.5, -0.5, 0.25, 0.75 }));
+		opengpu.v2.scene.SceneNode n = state.nodes.get(Integer.valueOf(1));
+		assertEquals(1.5, n.tz, 0.0);
+		assertEquals(2.0, n.sz, 0.0);
+		assertEquals(0.5, n.qx, 0.0);
+		assertEquals(-0.5, n.qy, 0.0);
+		assertEquals(0.25, n.qz, 0.0);
+		assertEquals(0.75, n.qw, 0.0);
+		// And mixed with a 2D bit + teleport, the ascending-bit-order contract holds across
+		// the old/new boundary: x consumes first, teleport is consumed-not-stored, tz after.
+		opengpu.v2.scene.DeltaApplier.apply(state, new Delta.NodeProps(1,
+				V2Wire.PROP_X | V2Wire.PROP_TELEPORT | V2Wire.PROP_TZ,
+				new double[] { 9.0, 1.0, 3.25 }));
+		assertEquals(9.0, n.x, 0.0);
+		assertEquals(3.25, n.tz, 0.0);
+	}
+
+	@Test
+	public void aBatchOverTheMeshAllowanceIsRefusedAtDecode() throws Exception {
+		// Six maximal meshes = ~1.13 MiB of blob against the 1 MiB per-batch allowance. The
+		// SERVER-side counter is tested in MeshLedgerBoundTest; this is the DECODER's own
+		// accumulator, which must hold even against a producer that skipped admission.
+		ArrayList<Delta> deltas = new ArrayList<Delta>();
+		byte[] verts = meshVertices(V2Wire.MAX_MESH_VERTEX_BYTES / V2Wire.MESH_VERTEX_STRIDE);
+		for (int i = 0; i < 6; i++) {
+			deltas.add(new Delta.MeshCreate(i + 1, verts, meshTriangle()));
+		}
+		byte[] encoded = BatchCodec.encode(new SceneBatch("scene", 5, 1, 1L, deltas));
+		try {
+			BatchCodec.decode(encoded);
+			fail("the decoder's per-batch mesh accumulator never fired");
+		} catch (CodecException expected) {
+			assertTrue(expected.getMessage(), expected.getMessage().contains("per-batch cap"));
+		}
+	}
+
+	@Test
+	public void aMeshViaResourceCreateIsRefusedAtApplyToo() {
+		// The decode-arm refusal has a server-side mirror: Delta.ResourceCreate's constructor
+		// validates nothing, so a blob-less type-3 record can be BUILT in-process and the
+		// shared apply path is the only guard on that route.
+		opengpu.v2.scene.SceneState state = new opengpu.v2.scene.SceneState();
+		try {
+			opengpu.v2.scene.DeltaApplier.apply(state,
+					new Delta.ResourceCreate(9, V2Wire.RES_MESH, 3, 1, 114, 0L, 0));
+			fail("the apply arm must refuse a mesh ResourceCreate");
+		} catch (IllegalStateException expected) {
+			assertTrue(expected.getMessage(),
+					expected.getMessage().contains("DELTA_MESH_CREATE"));
+		}
+		assertTrue("and nothing may be registered", state.resources.isEmpty());
 	}
 
 	@Test
@@ -158,12 +377,13 @@ public class BatchCodecTest {
 	public void rejectsUnknownPropMaskBits() {
 		byte[] data = singleDelta(new Delta.NodeProps(1, V2Wire.PROP_X, new double[] { 1 }));
 		// [type byte][int nodeId][int mask]: set a bit above KNOWN_PROPS_MASK in the mask.
-		// Byte index 2 of the big-endian mask covers bits 15..8, so 0x02 sets bit 9 — the
-		// lowest bit still unknown now that PROP_TELEPORT claimed bit 8 and widened
-		// KNOWN_PROPS_MASK to 0x1FF. (This line previously wrote 1 here and claimed it made
-		// the mask 0x00010001; it actually set bit 8, which is why widening the mask turned
-		// this into a truncation failure rather than the mask rejection it is testing.)
-		data[FIRST_DELTA_OFFSET + 1 + 4 + 2] = 2; // mask becomes 0x00000201
+		// Byte index 2 of the big-endian mask covers bits 15..8, so 0x80 sets bit 15 — the
+		// lowest bit still unknown now that v10's TZ/SZ/quat bits widened KNOWN_PROPS_MASK to
+		// 0x7FFF. THIRD time this line has chased the mask: it previously set bit 9, and before
+		// that bit 8, and each widening turned it into a truncation failure rather than the
+		// mask rejection it is testing — which is exactly why the assertion below checks the
+		// MESSAGE and not merely that something threw.
+		data[FIRST_DELTA_OFFSET + 1 + 4 + 2] = (byte) 0x80; // mask becomes 0x00008001
 		try {
 			BatchCodec.decode(data);
 			fail("expected CodecException");
