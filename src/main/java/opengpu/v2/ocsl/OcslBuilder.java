@@ -388,10 +388,14 @@ public final class OcslBuilder {
 	/**
 	 * The bounded fold: {@code acc = init}, then {@code trips} iterations of {@code body}.
 	 *
-	 * A fold rather than a loop STATEMENT, and it maps 1:1 to IR {@code FOR}. Build-time unrolling
-	 * in the host language is explicitly not the mechanism — it would burn the op cap, and the
-	 * whole point of an interpreted {@code for} is that the frame width stays independent of the
-	 * trip count.
+	 * A fold rather than a loop STATEMENT, and it maps 1:1 to IR {@code FOR}. The fold form is
+	 * preferred for IR compactness (the dry run's 9-tap blur serialized at roughly 1/5 its
+	 * unrolled size — one program's figure, and it scales with the trip count), for validator
+	 * ERROR LOCALITY (one body to point at rather than N copies), and because the frame width
+	 * stays independent of the trip count. Build-time unrolling in the host language into
+	 * straight-line IR is a sanctioned authoring pattern all the same: the validator cannot
+	 * distinguish it, and under the post-unroll cap definition an unrolled program charges the
+	 * same or less (GLSL dry run, amendment 6).
 	 *
 	 * The body returns the accumulator's next value. When that value is the result of the body's
 	 * LAST op — which is the natural shape, {@code return acc.add(tap)} — the builder retargets

@@ -2569,7 +2569,7 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 				optParent(args, 1));
 	}
 
-	@Callback(direct = true, limit = 16, doc = "function([parentId:number]):number -- Create a camera node; returns its node id. A camera is an ordinary transform node: aim it with lookAt or setNodeTransform3d, set its projection with setPerspective/setOrtho. The LOWEST-id camera is the active one; with no camera the 3D layer is skipped (renders from C1.3).")
+	@Callback(direct = true, limit = 16, doc = "function([parentId:number]):number -- Create a camera node; returns its node id. A camera is an ordinary transform node: aim it with lookAt or setNodeTransform3d, set its projection with setPerspective/setOrtho. The LOWEST-id VISIBLE camera is the active one (its own visible flag -- hide it with setNodeVisible to cut to the next camera, or hide them all to switch the 3D layer off); with no visible camera the 3D layer is skipped (renders from C1.3).")
 	public Object[] createCamera(Context context, Arguments args) throws Exception {
 		if (args.count() > 1) {
 			throw new Exception("createCamera takes only an optional parent id; a camera"
