@@ -119,9 +119,20 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 * annotations, refuting the "no JVM test can load it" claim this comment carried for one
 	 * draft — and reads the source as text only for the getLimits keys, because instantiating
 	 * the tile entity to invoke it throws.
+	 *
+	 * Level 9 (2026-08-26, Stage C C1.2) adds the twelve 3D-surface verbs — createMesh /
+	 * freeMesh / meshes / getMeshBudget / createMeshNode / createCamera / setNodeTransform3d /
+	 * lookAt / setPerspective / setOrtho / setUniform / setUniformImmediate — and the
+	 * meshVertexBytes / meshIndexBytes / meshBytes / nodeUniforms keys to getLimits. Same
+	 * edit, same reason — and the first bump the level-8 guardian actually watched.
 	 */
-	public static final int API_LEVEL = 8;
-	/** Server-side VRAM budget in bytes (textures w*h*4 + canvas command capacity estimate). */
+	public static final int API_LEVEL = 9;
+	/**
+	 * Server-side VRAM budget in bytes. Charged today: textures (w*h*4), canvases (command
+	 * slots + pixels), and meshes (vertex+index bytes, v10 — DESIGN's "VRAM-charged at
+	 * declare" made true at C1.2); the 3D depth renderbuffer joins at C1.3. Worded as an open
+	 * list on purpose — a closed list here has gone stale once already.
+	 */
 	public static final long VRAM_BUDGET_BYTES = 16L * 1024 * 1024;
 	/** Budget estimate per canvas command slot (id + args worst case, serialized). */
 	public static final int CANVAS_SLOT_COST = 32;
@@ -1409,6 +1420,11 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 				// is 1x1 or 2048x2048, while the client's FBO is w*h*4 either way.
 				used += (long) res.canvas.commandCap * CANVAS_SLOT_COST
 						+ (long) res.width * (long) res.height * 4L;
+			} else if (res.type == V2Wire.RES_MESH) {
+				// v10: the combined vertex+index bytes, approximating the client's VBO — the
+				// canvas reasoning again (a real client GL allocation belongs in this budget).
+				// The 512 KiB mesh ledger bounds these independently; both gates hold.
+				used += res.sizeBytes;
 			}
 		}
 		return used;
@@ -2237,7 +2253,7 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 *
 	 * Static constants only, so no lock and no scene required.
 	 */
-	@Callback(direct = true, doc = "function():table -- Structural caps, in bytes unless noted: submitBytes (per canvasSubmit call), submitBytesPerTick (per scene per tick), commandCap (commands per canvas), textChars (per drawText), writeBytes (per writeRegion call), writeBytesPerTick, textureDim (pixels), standingCommandBytes (whole scene), programBytes (all OCSL programs on this scene), programBlobBytes (one program). OCSL semantic caps, counts not bytes: animatorOps, animatorFetches (0 -- the animator has no sampler), programRegisters, programFrameFloats, programUnrollProduct, programUniforms. Chunk by submitBytes, pace by submitBytesPerTick.")
+	@Callback(direct = true, doc = "function():table -- Structural caps, in bytes unless noted: submitBytes (per canvasSubmit call), submitBytesPerTick (per scene per tick), commandCap (commands per canvas), textChars (per drawText), writeBytes (per writeRegion call), writeBytesPerTick, textureDim (pixels), standingCommandBytes (whole scene), programBytes (all OCSL programs on this scene), programBlobBytes (one program), meshVertexBytes and meshIndexBytes (one mesh's vertex/index blob, per createMesh call), meshBytes (all meshes on this scene). OCSL semantic caps, counts not bytes: animatorOps, animatorFetches (0 -- the animator has no sampler), programRegisters, programFrameFloats, programUnrollProduct, programUniforms, nodeUniforms (named entries per node's uniform table -- a DIFFERENT cap from programUniforms, equal at 64 by calibration only). Chunk by submitBytes, pace by submitBytesPerTick.")
 	public Object[] getLimits(Context context, Arguments args) throws Exception {
 		java.util.Map<String, Object> out = new java.util.LinkedHashMap<String, Object>();
 		out.put("submitBytes", Integer.valueOf(V2Wire.MAX_SUBMIT_BYTES));
@@ -2276,6 +2292,19 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 		out.put("programUnrollProduct",
 				Integer.valueOf(opengpu.v2.ocsl.IrValidator.MAX_UNROLL_PRODUCT));
 		out.put("programUniforms", Integer.valueOf(opengpu.v2.ocsl.SurfaceTable.MAX_UNIFORMS));
+		// THE MESH CAPS (2026-08-26, C1.2). Per-item pair first, then the scene total, then the
+		// count cap — deliberately the inverse of the program pair's order, chosen not copied.
+		// The per-BATCH mesh bound (MAX_MESH_BYTES_PER_BATCH) is DELIBERATELY ABSENT, the same
+		// withholding principle as the per-BATCH submit bound above: batch boundaries are
+		// unobservable from Lua (the staged counter resets at the tick-end seal, so the shipped
+		// refusal's "refills next tick" is the whole truth an author can use).
+		out.put("meshVertexBytes", Integer.valueOf(V2Wire.MAX_MESH_VERTEX_BYTES));
+		out.put("meshIndexBytes", Integer.valueOf(V2Wire.MAX_MESH_INDEX_BYTES));
+		out.put("meshBytes", Integer.valueOf(ServerScene.MAX_MESH_BYTES));
+		// A COUNT, not bytes — and a DIFFERENT cap from programUniforms: the two are equal at
+		// 64 by calibration, not identity (ServerScene.MAX_NODE_UNIFORMS's javadoc), so each
+		// is published from its own enforcing constant and may move alone.
+		out.put("nodeUniforms", Integer.valueOf(ServerScene.MAX_NODE_UNIFORMS));
 		// UNIFORM COMPONENTS ARE DELIBERATELY ABSENT, on the same principle as the per-BATCH
 		// submit bound above: a number whose only possible use is to be misread is worse than
 		// no number. MAX_UNIFORM_COMPONENTS is 64 and so is MAX_UNIFORMS, but they coincide in
@@ -2433,7 +2462,8 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 * made stranded canvases unrecoverable without a brute-force id sweep
 	 * ({@code ingame/vramreclaim.lua}). Programs outlive the Lua program that created them, so a
 	 * script that lost its ids across a reboot needs a way to find them; providing it here costs
-	 * one callback and removes the whole class of leak the resource side is still living with.
+	 * one callback and removes a whole class of leak — one that textures and canvases (though,
+	 * since C1.2, no longer meshes: see {@code meshes()}) are still living with.
 	 */
 	@Callback(direct = true, limit = 8, doc = "function():table -- Live program ids on this scene, ascending, 1-based. Use it to reclaim programs whose ids were lost across a reboot.")
 	public Object[] programs(Context context, Arguments args) throws Exception {
@@ -2449,6 +2479,245 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 			}
 			return new Object[] { out };
 		}
+	}
+
+	// ------------------------------------------------------------------
+	// Stage C surface (C1.2, API level 9): meshes, cameras, 3D transforms, uniforms. The wire
+	// beneath all of it is C1.1's protocol v10; nothing here RENDERS until C1.3 — every verb
+	// stores and replicates state the 3D renderer will consume.
+
+	@Callback(direct = true, limit = 8, doc = "function(vertexData:string, indexData:string):number -- Create a mesh from packed blobs; returns its id. Vertex record: 36 bytes little-endian -- pos f32x3, normal f32x3, uv f32x2, color u8x4 RGBA. Indices: u16 little-endian, triangle list. Renders from the 3D renderer (C1.3). Caps: getLimits().meshVertexBytes/meshIndexBytes per mesh, meshBytes per scene; charges GPU memory.")
+	public Object[] createMesh(Context context, Arguments args) throws Exception {
+		byte[] vertexBytes = args.checkByteArray(0);
+		byte[] indexBytes = args.checkByteArray(1);
+		// THE FORMAT GATE RUNS BEFORE THE VRAM GATE, deliberately: an over-cap or malformed
+		// blob must be named as such, not misdiagnosed as "not enough GPU memory".
+		try {
+			V2Wire.validateMeshBlobs(vertexBytes, indexBytes);
+		} catch (IllegalArgumentException e) {
+			throw new Exception(e.getMessage());
+		}
+		synchronized (sceneLock) {
+			requireScene();
+			long bytes = (long) vertexBytes.length + indexBytes.length;
+			if (usedVramLocked() + bytes > VRAM_BUDGET_BYTES) {
+				throw new Exception("not enough GPU memory");
+			}
+			try {
+				int id = scene.createMesh(vertexBytes, indexBytes);
+				// No freedSinceSave.remove here, unlike createTexture: mesh blobs persist
+				// INLINE in the structure — there is no out-of-band body whose delete could
+				// need cancelling — and resource ids are never reused anyway.
+				chunkDirty = true;
+				return new Object[] { Integer.valueOf(id) };
+			} catch (IllegalArgumentException e) {
+				// The shared validator's messages name the byte, the index, the cap — they are
+				// written FOR the author and are relayed, the createProgram doctrine.
+				throw new Exception(e.getMessage());
+			} catch (IllegalStateException e) {
+				throw new Exception(e.getMessage());
+			}
+		}
+	}
+
+	@Callback(direct = true, limit = 32, doc = "function(id:number) -- Free a mesh and release its ledger and GPU-memory bytes. Nodes still referencing it render nothing (the dangling-ref rule).")
+	public Object[] freeMesh(Context context, Arguments args) throws Exception {
+		int id = args.checkInteger(0);
+		synchronized (sceneLock) {
+			requireScene();
+			ResourceInfo res = scene.state().resources.get(id);
+			if (res == null || res.type != V2Wire.RES_MESH) {
+				throw new Exception("invalid mesh id " + id);
+			}
+			// No dropDrawsReferencing, unlike freeTexture: no canvas command embeds a mesh ref.
+			scene.freeResource(id);
+			chunkDirty = true;
+		}
+		return null;
+	}
+
+	@Callback(direct = true, limit = 8, doc = "function():table -- Live mesh ids on this scene, ascending, 1-based. Use it to reclaim meshes whose ids were lost across a reboot.")
+	public Object[] meshes(Context context, Arguments args) throws Exception {
+		synchronized (sceneLock) {
+			requireScene();
+			java.util.Map<Integer, Integer> out = new java.util.LinkedHashMap<Integer, Integer>();
+			int i = 1;
+			for (ResourceInfo res : scene.state().resources.values()) {
+				if (res.type == V2Wire.RES_MESH) {
+					out.put(Integer.valueOf(i++), Integer.valueOf(res.id));
+				}
+			}
+			return new Object[] { out };
+		}
+	}
+
+	@Callback(direct = true, doc = "function():number, number -- Mesh bytes still admissible on this scene, and the ceiling they are measured against.")
+	public Object[] getMeshBudget(Context context, Arguments args) throws Exception {
+		synchronized (sceneLock) {
+			requireScene();
+			return new Object[] { Long.valueOf(scene.meshBudgetRemaining()),
+					Integer.valueOf(ServerScene.MAX_MESH_BYTES) };
+		}
+	}
+
+	@Callback(direct = true, limit = 16, doc = "function(meshId:number[, parentId:number]):number -- Create a node that places an INSTANCE of a mesh in the 3D layer; returns its node id (many nodes may instance one mesh). Renders from the 3D renderer (C1.3). Position it with setNodeTransform3d or lookAt.")
+	public Object[] createMeshNode(Context context, Arguments args) throws Exception {
+		if (args.count() > 2) {
+			throw new Exception("createMeshNode takes a mesh id and an optional parent id");
+		}
+		return createNodeLocked(V2Wire.NODE_MESH_INSTANCE, args.checkInteger(0), V2Wire.RES_MESH,
+				optParent(args, 1));
+	}
+
+	@Callback(direct = true, limit = 16, doc = "function([parentId:number]):number -- Create a camera node; returns its node id. A camera is an ordinary transform node: aim it with lookAt or setNodeTransform3d, set its projection with setPerspective/setOrtho. The LOWEST-id camera is the active one; with no camera the 3D layer is skipped (renders from C1.3).")
+	public Object[] createCamera(Context context, Arguments args) throws Exception {
+		if (args.count() > 1) {
+			throw new Exception("createCamera takes only an optional parent id; a camera"
+					+ " references no resource");
+		}
+		return createNodeLocked(V2Wire.NODE_CAMERA, 0, (byte) 0, optParent(args, 0));
+	}
+
+	@Callback(direct = true, limit = 256, doc = "function(nodeId:number, x:number, y:number, z:number[, qx:number, qy:number, qz:number, qw:number][, sx:number, sy:number, sz:number][, teleport:boolean]) -- Set a node's full 3D transform atomically. z is 3D translation (setNodeZ's z is draw ORDER -- a different thing). The quaternion defaults to identity (0,0,0,1) and is normalized server-side; scale defaults to (1,1,1). Legal argument counts: 4, 8, 11, 12. teleport=true snaps instead of interpolating. The 2D renderer keeps consuming x,y today; the 3D fields render from C1.3.")
+	public Object[] setNodeTransform3d(Context context, Arguments args) throws Exception {
+		int count = args.count();
+		if (count != 4 && count != 8 && count != 11 && count != 12) {
+			throw new Exception("setNodeTransform3d takes 4 (position), 8 (+quaternion),"
+					+ " 11 (+scale) or 12 (+teleport) arguments, got " + count);
+		}
+		int id = args.checkInteger(0);
+		double x = args.checkDouble(1), y = args.checkDouble(2), z = args.checkDouble(3);
+		double qx = 0, qy = 0, qz = 0, qw = 1;
+		if (count >= 8) {
+			qx = args.checkDouble(4);
+			qy = args.checkDouble(5);
+			qz = args.checkDouble(6);
+			qw = args.checkDouble(7);
+		}
+		double sx = 1, sy = 1, sz = 1;
+		if (count >= 11) {
+			sx = args.checkDouble(8);
+			sy = args.checkDouble(9);
+			sz = args.checkDouble(10);
+		}
+		boolean teleport = count >= 12 && args.checkBoolean(11);
+		requireFinite(x, "x"); requireFinite(y, "y"); requireFinite(z, "z");
+		requireFinite(qx, "qx"); requireFinite(qy, "qy");
+		requireFinite(qz, "qz"); requireFinite(qw, "qw");
+		requireFinite(sx, "scaleX"); requireFinite(sy, "scaleY"); requireFinite(sz, "scaleZ");
+		// Normalized (and sign-canonicalised) SERVER-side before anything stages, so both
+		// sides replicate the same clean rotation; a near-zero quat is refused by name.
+		double[] q;
+		try {
+			q = opengpu.v2.scene.Look.normalize(qx, qy, qz, qw);
+		} catch (IllegalArgumentException e) {
+			throw new Exception(e.getMessage());
+		}
+		synchronized (sceneLock) {
+			requireScene();
+			requireNodeLocked(id);
+			refuseDisplayNodeMove(id, x == 0 && y == 0 && z == 0
+					&& q[0] == 0 && q[1] == 0 && q[2] == 0 && q[3] == 1
+					&& sx == 1 && sy == 1 && sz == 1);
+			scene.setTransform3d(id, x, y, z, q[0], q[1], q[2], q[3], sx, sy, sz, teleport);
+			chunkDirty = true;
+		}
+		return null;
+	}
+
+	@Callback(direct = true, limit = 256, doc = "function(nodeId:number, eyeX:number, eyeY:number, eyeZ:number, targetX:number, targetY:number, targetZ:number, upX:number, upY:number, upZ:number[, teleport:boolean]) -- Place a node at eye and aim its local -Z at target, up steadying the roll; the server does the math and replicates the result. Coordinates are in the node's PARENT space (world space when unparented -- aim a rig by calling this on its parent group). Scale untouched. Refuses eye==target and up parallel to the view direction (for a top-down view pass a different up, e.g. 0,0,-1).")
+	public Object[] lookAt(Context context, Arguments args) throws Exception {
+		int count = args.count();
+		if (count != 10 && count != 11) {
+			throw new Exception("lookAt takes nodeId, eye xyz, target xyz, up xyz and an"
+					+ " optional teleport flag, got " + count + " arguments");
+		}
+		int id = args.checkInteger(0);
+		double[] v = new double[9];
+		String[] names = { "eyeX", "eyeY", "eyeZ", "targetX", "targetY", "targetZ",
+				"upX", "upY", "upZ" };
+		for (int i = 0; i < 9; i++) {
+			v[i] = args.checkDouble(1 + i);
+			requireFinite(v[i], names[i]);
+		}
+		boolean teleport = count == 11 && args.checkBoolean(10);
+		double[] q;
+		try {
+			q = opengpu.v2.scene.Look.quat(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]);
+		} catch (IllegalArgumentException e) {
+			throw new Exception(e.getMessage());
+		}
+		synchronized (sceneLock) {
+			requireScene();
+			requireNodeLocked(id);
+			// Flat refusal, no identity carve-out — see refuseDisplayNodeMove's javadoc.
+			refuseDisplayNodeMove(id, false);
+			scene.setPose3d(id, v[0], v[1], v[2], q[0], q[1], q[2], q[3], teleport);
+			chunkDirty = true;
+		}
+		return null;
+	}
+
+	@Callback(direct = true, limit = 32, doc = "function(cameraNodeId:number, fovDegrees:number, near:number, far:number) -- Set a camera's perspective projection. fov in (0,180) exclusive; near > 0; far > near. Stored as the reserved __proj entry in the camera's uniform table (1 of its 64 slots, leaving 63 for your names) and applied as a cut, not a glide. Renderer defaults apply only BEFORE the first call: once set, the projection cannot be removed short of freeing the camera node.")
+	public Object[] setPerspective(Context context, Arguments args) throws Exception {
+		return projectionRelay(args, false);
+	}
+
+	@Callback(direct = true, limit = 32, doc = "function(cameraNodeId:number, halfHeight:number, near:number, far:number) -- Set a camera's orthographic projection; halfHeight is half the vertical extent in scene units. near > 0; far > near. Stored as the reserved __proj entry (1 of the camera's 64 uniform slots, leaving 63 for your names); once set, the projection cannot be removed short of freeing the camera node.")
+	public Object[] setOrtho(Context context, Arguments args) throws Exception {
+		return projectionRelay(args, true);
+	}
+
+	private Object[] projectionRelay(Arguments args, boolean ortho) throws Exception {
+		int id = args.checkInteger(0);
+		double a = args.checkDouble(1), near = args.checkDouble(2), far = args.checkDouble(3);
+		synchronized (sceneLock) {
+			requireScene();
+			requireNodeLocked(id);
+			try {
+				scene.setProjection(id, ortho, a, near, far);
+			} catch (IllegalArgumentException e) {
+				throw new Exception(e.getMessage());
+			} catch (IllegalStateException e) {
+				throw new Exception(e.getMessage());
+			}
+			chunkDirty = true;
+		}
+		return null;
+	}
+
+	@Callback(direct = true, limit = 256, doc = "function(nodeId:number, name:string[, v1:number, v2:number, v3:number, v4:number]) -- Set a named uniform on a node's table: 1 value = float, 2..4 = vec2..vec4 (the count IS the type). Call with NO values to remove the entry; removing one that does not exist is an error. Values must be finite. Entries survive detach and program replacement; up to getLimits().nodeUniforms names per node. Names starting __ are reserved for the host. Nothing binds these to a program register until C1.3.")
+	public Object[] setUniform(Context context, Arguments args) throws Exception {
+		return uniformSetRelay(args, false);
+	}
+
+	@Callback(direct = true, limit = 256, doc = "function(nodeId:number, name:string[, v1:number, v2:number, v3:number, v4:number]) -- setUniform, but the change is applied as a cut rather than interpolated (the teleport doctrine: the flag qualifies THIS transition, not the entry). An immediate no-value call is a legal uninterpolated removal. A twin verb rather than a trailing flag: every optional argument here is a NUMBER, so a boolean tail would invite passing 1 -- which would silently become a vec component.")
+	public Object[] setUniformImmediate(Context context, Arguments args) throws Exception {
+		return uniformSetRelay(args, true);
+	}
+
+	private Object[] uniformSetRelay(Arguments args, boolean immediate) throws Exception {
+		int id = args.checkInteger(0);
+		String name = args.checkString(1);
+		double[] values = new double[Math.max(0, args.count() - 2)];
+		for (int i = 0; i < values.length; i++) {
+			values[i] = args.checkDouble(2 + i);
+		}
+		synchronized (sceneLock) {
+			requireScene();
+			requireNodeLocked(id);
+			try {
+				// ServerScene.setUniform is the shared admission gate (reserved-name check
+				// FIRST, then finiteness, then count) — both verbs inherit all three.
+				scene.setUniform(id, name, values, immediate);
+			} catch (IllegalArgumentException e) {
+				throw new Exception(e.getMessage());
+			} catch (IllegalStateException e) {
+				throw new Exception(e.getMessage());
+			}
+			chunkDirty = true;
+		}
+		return null;
 	}
 
 	@Callback(direct = true, doc = "function():number -- This scene's incarnation epoch. Pass it to canvasSubmit to reject a handle from a previous scene.")
@@ -2605,12 +2874,18 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 */
 	@Callback(direct = true, limit = 16, doc = "function(textureId:number[, parentId:number]):number -- Create a sprite node drawing a texture as a quad; returns its node id. For an offscreen canvas use createCanvasNode.")
 	public Object[] createSprite(Context context, Arguments args) throws Exception {
-		return createNodeLocked(V2Wire.NODE_SPRITE, args.checkInteger(0), true, optParent(args, 1));
+		// No surplus-arg guard, deliberately: this creator SHIPPED at level 8 ignoring extras,
+		// and tightening a shipped surface was weighed and declined at the C1.2 panel — the
+		// refuse-surplus posture applies to the NEW creators only (createMeshNode/createCamera).
+		return createNodeLocked(V2Wire.NODE_SPRITE, args.checkInteger(0), V2Wire.RES_TEXTURE,
+				optParent(args, 1));
 	}
 
 	@Callback(direct = true, limit = 16, doc = "function(canvasId:number[, parentId:number]):number -- Create a node that displays an offscreen canvas as a layer; returns its node id.")
 	public Object[] createCanvasNode(Context context, Arguments args) throws Exception {
-		return createNodeLocked(V2Wire.NODE_CANVAS, args.checkInteger(0), false, optParent(args, 1));
+		// No surplus-arg guard — createSprite's reasoning, the same shipped-surface rule.
+		return createNodeLocked(V2Wire.NODE_CANVAS, args.checkInteger(0), V2Wire.RES_CANVAS,
+				optParent(args, 1));
 	}
 
 	/**
@@ -2650,11 +2925,12 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	/**
 	 * Shared node allocation: validates the referenced resource, then charges the node cap.
 	 *
-	 * {@code wantTexture} distinguishes the two node kinds, and the check is not pedantry —
-	 * each renders only its own resource type, so a mismatched ref produces a node that
-	 * converges and draws nothing.
+	 * {@code wantType} names the resource kind this node renders, or {@code 0} = NONE for a
+	 * ref-less node (a camera), which skips the resource lookup entirely. The check is not
+	 * pedantry — each node kind renders only its own resource type, so a mismatched ref
+	 * produces a node that converges and draws nothing.
 	 */
-	private Object[] createNodeLocked(byte nodeType, int ref, boolean wantTexture, int parent)
+	private Object[] createNodeLocked(byte nodeType, int ref, byte wantType, int parent)
 			throws Exception {
 		synchronized (sceneLock) {
 			requireScene();
@@ -2671,22 +2947,77 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 							+ "; groups do not nest, so it cannot be a parent itself");
 				}
 			}
-			ResourceInfo res = scene.state().resources.get(ref);
-			if (res == null) {
-				throw new Exception("invalid resource id " + ref);
-			}
-			byte want = wantTexture ? V2Wire.RES_TEXTURE : V2Wire.RES_CANVAS;
-			if (res.type != want) {
-				throw new Exception(wantTexture
-						? "resource " + ref + " is a canvas, not a texture; use createCanvasNode"
-						: "resource " + ref + " is a texture, not a canvas; use createSprite");
+			if (wantType != 0) {
+				ResourceInfo res = scene.state().resources.get(ref);
+				if (res == null) {
+					throw new Exception("invalid resource id " + ref);
+				}
+				if (res.type != wantType) {
+					throw new Exception(refTypeMismatch(ref, res.type, wantType));
+				}
 			}
 			if (scene.state().nodes.size() >= ServerScene.MAX_NODES) {
 				throw new Exception("scene node limit reached (" + ServerScene.MAX_NODES + ")");
 			}
-			int id = scene.createNode(nodeType, ref, parent);
+			int id = scene.createNode(nodeType, wantType == 0 ? 0 : ref, parent);
 			chunkDirty = true;
 			return new Object[] { id };
+		}
+	}
+
+	/**
+	 * The ref-type redirect matrix, one TRUE claim per want/got cell: name what the resource
+	 * actually IS and the verb that takes it. The binary predecessor answered every mismatch
+	 * with its complement, so the moment RES_MESH joined the id space, createSprite(meshId)
+	 * would have said "is a canvas, not a texture" — two false claims in one player-facing
+	 * string. Static and pure so a JVM test drives all six cells directly.
+	 */
+	static String refTypeMismatch(int ref, byte got, byte want) {
+		return "resource " + ref + " is a " + resTypeNoun(got) + ", not a " + resTypeNoun(want)
+				+ "; use " + verbForResType(got);
+	}
+
+	private static String resTypeNoun(byte type) {
+		switch (type) {
+			case V2Wire.RES_TEXTURE: return "texture";
+			case V2Wire.RES_CANVAS: return "canvas";
+			case V2Wire.RES_MESH: return "mesh";
+			default: return "resource of type " + type;
+		}
+	}
+
+	private static String verbForResType(byte type) {
+		switch (type) {
+			case V2Wire.RES_TEXTURE: return "createSprite";
+			case V2Wire.RES_CANVAS: return "createCanvasNode";
+			case V2Wire.RES_MESH: return "createMeshNode";
+			default: return "the matching create verb";
+		}
+	}
+
+	/**
+	 * The one display-node transform guard, shared by every transform-writing verb (2D, 3D
+	 * and lookAt) — the rule is symmetric, so it has one spelling. THE DISPLAY NODE IS THE
+	 * COORDINATE SPACE, so it cannot be moved within it: rendering honours every node's
+	 * transform while INPUT deliberately does not (both input paths report SCENE coordinates
+	 * and nothing inverts a node transform), so a transform here silently breaks "where I
+	 * drew is where a click reports" for the surface that DEFINES that space — with the
+	 * server and every mirror agreeing perfectly, so no convergence check can see it. The
+	 * full reasoning lives at setNodeTransform, where it was first fought out.
+	 *
+	 * {@code identity} true means the caller's arguments are an exact identity transform,
+	 * which IS permitted: nodes persist, so a save written before this guard existed can hold
+	 * a moved display node, and the identity write is the one call that repairs it. lookAt
+	 * passes false unconditionally — it is new at C1.2 and ships WITH its guard, so no
+	 * pre-guard save can hold a lookAt-moved display node and the repair reason does not
+	 * apply.
+	 */
+	private void refuseDisplayNodeMove(int id, boolean identity) throws Exception {
+		if (id == implicitCanvasNode && !identity) {
+			throw new Exception("cannot transform the display node: input reports scene"
+					+ " coordinates and is not transformed with it, so the picture and its"
+					+ " clicks would disagree. Put the content on a canvas node and transform"
+					+ " that instead. (Setting it back to identity is allowed.)");
 		}
 	}
 
@@ -2750,13 +3081,9 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 			// Nodes persist, so a save written before this check can hold a moved display node,
 			// and a blanket refusal would reject the one call that repairs it — locking in the
 			// exact state being prevented. Setting it back to identity is always allowed.
-			if (id == implicitCanvasNode
-					&& !(x == 0 && y == 0 && rot == 0 && sx == 1 && sy == 1)) {
-				throw new Exception("cannot transform the display node: input reports scene"
-						+ " coordinates and is not transformed with it, so the picture and its"
-						+ " clicks would disagree. Put the content on a canvas node and transform"
-						+ " that instead. (Setting it back to identity is allowed.)");
-			}
+			// ONE shared guard for every transform-writing verb (2D, 3D, lookAt) — the rule is
+			// symmetric, so it lives in one place.
+			refuseDisplayNodeMove(id, x == 0 && y == 0 && rot == 0 && sx == 1 && sy == 1);
 			scene.setTransform(id, x, y, rot, sx, sy, teleport);
 			chunkDirty = true;
 		}
@@ -2909,7 +3236,7 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 		}
 	}
 
-	@Callback(direct = true, doc = "function([id:number]):number, number -- Size of a texture, or of the canvas without an id.")
+	@Callback(direct = true, doc = "function([id:number]):number, number -- Size of a texture, or of the canvas without an id. For a mesh id: (vertexCount, 1) -- the frozen registry convention, inherited rather than designed; use it for a vertex count if you like, but meshes have no 2D size.")
 	public Object[] getSize(Context context, Arguments args) throws Exception {
 		synchronized (sceneLock) {
 			requireScene();

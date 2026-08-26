@@ -230,8 +230,9 @@ public final class StatsOverlay {
 			// a cap -- it said "not about a cap" when it shipped, which the per-node, settled-
 			// pass and budget rows twenty lines below already falsify. A program can
 			// declare uniforms, validate, persist and attach, and then read 0.0 on every
-			// evaluation forever, because the per-attachment uniform table is designed and not
-			// implemented. Nothing fails, so nothing else on this overlay would ever show it.
+			// evaluation forever — the uniform table and its set-call exist (C1.1/C1.2), but
+			// nothing binds a table entry to a register until C1.3 lands. Nothing fails, so
+			// nothing else on this overlay would ever show it.
 			//
 			// CONDITIONAL, so a session that never touches uniforms carries no line: an
 			// always-present "uniforms 0" would spend a row of a crowded overlay on a gap the

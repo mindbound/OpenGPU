@@ -45,24 +45,27 @@ package opengpu.v2.ocsl;
  *
  * So the boundary splits, and the split is where the state lives: <b>the set-call may retain,
  * because the table is replicated; the executor substitutes, because the frame is not.</b> The
- * set-call half is not implemented here — no host-facing {@code setUniform} exists — and is
- * carried as an obligation rather than claimed.
+ * set-call half LANDED at C1.2 (2026-08-26): the host-facing {@code setUniform} exists on
+ * TileEntityGpu2, refuses non-finite values by THROW, and the previous value is retained by
+ * construction — the obligation this sentence used to carry is discharged. What still does not
+ * exist is the client BINDING (a table entry reaching a program register), which is C1.3's.
  *
- * <b>That obligation no longer has an expiry condition, and this sentence used to imply one.</b>
- * It read "while the surface is shut"; the animator surface OPENED on 2026-08-13 and the set-call
- * did not arrive with it. The live consequence, established by inspection (a grep, not a
- * probe) in `67b3bf8` (2026-08-24): a program may declare a uniform, validate, encode, persist
- * and attach, and then evaluate against a zero-initialised frame forever — because nothing
- * in {@code src/main} ever binds a register at or above {@code SurfaceTable.UNIFORM_BASE}.
+ * <b>The expiry-condition history, kept because this paragraph is the file's own thesis:</b>
+ * the sentence read "while the surface is shut"; the animator surface OPENED on 2026-08-13 and
+ * the set-call did not arrive with it — it arrived at C1.2 (2026-08-26, above). What REMAINS
+ * live, established by inspection in `67b3bf8` and still true after C1.2: a program may
+ * declare a uniform, validate, encode, persist and attach, and then evaluate against a
+ * zero-initialised frame — because nothing in {@code src/main} yet binds a register at or
+ * above {@code SurfaceTable.UNIFORM_BASE}; the binding is C1.3's.
  *
  * <b>It is no longer SILENT.</b> A diagnostic shipped in that same commit: a
  * {@code RenderStats} counter, one row on the stats overlay, and one log line. The value is
  * still 0.0; only the silence was fixed. The sentence here read "with no refusal and no
  * diagnostic" as it was committed — the commit that added the diagnostic — which is this
- * file's own thesis failing inside its own diff. The remedy is the set-call
- * machinery this paragraph describes, not a refusal: uniforms are a designed surface
- * (DESIGN "uniform sets by name per attachment"), so refusing them would be a validator
- * tightening that has to be undone the moment the table lands.
+ * file's own thesis failing inside its own diff. The remedy was the set-call machinery this
+ * paragraph describes (built: table C1.1, set-call C1.2; binding C1.3), never a refusal:
+ * uniforms are a designed surface (DESIGN "uniform sets by name per attachment"), so refusing
+ * them would have been a validator tightening undone the moment the machinery landed.
  */
 public final strictfp class OcslIngress {
 	private OcslIngress() {}

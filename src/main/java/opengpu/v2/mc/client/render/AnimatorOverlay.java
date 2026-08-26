@@ -625,7 +625,9 @@ final class AnimatorOverlay {
 			// 0.0 forever because nothing binds one; that is silent, and silence is the defect.
 			// A refusal was considered and rejected -- uniforms are a designed surface, so
 			// refusing them would reject already-persisted blobs and be undone the day the
-			// per-attachment table lands. See OcslDiagnostics.uniformsWithNothingToBindThem.
+			// client BINDING lands (the node-keyed uniform table itself landed at C1.1, its
+			// set-call at C1.2; the binding is C1.3's, which is when this diagnostic retires).
+			// See OcslDiagnostics.uniformsWithNothingToBindThem.
 			//
 			// READ BEFORE THE RECORD, deliberately, and the ordering is the whole mechanism:
 			// the counter IS the latch, so there is no second "have we warned" flag to keep in

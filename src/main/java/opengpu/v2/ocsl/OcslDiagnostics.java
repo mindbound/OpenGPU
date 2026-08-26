@@ -69,13 +69,14 @@ public final class OcslDiagnostics {
 	 *
 	 * <h2>Why this is a diagnostic and not a refusal</h2>
 	 *
-	 * Uniforms are a designed surface: {@code OcslIngress} specifies a replicated per-attachment
-	 * table, and DESIGN promises "uniform sets by name per attachment". The set-call half is not
-	 * built, so a declared uniform reads 0.0 on every evaluation, forever, with nothing said. The
-	 * tempting fix — have the validator refuse such programs — is wrong twice over: it is a
-	 * TIGHTENING, so it would reject blobs already persisted in a save, and it would have to be
-	 * deleted the day the table lands. A line of text has neither cost. It also carries no format
-	 * impact and no acceptance change, which is the property that makes it safe to ship now.
+	 * Uniforms are a designed surface: {@code OcslIngress} specifies a replicated table, and
+	 * DESIGN promises "uniform sets by name per attachment". The table and its set-call now
+	 * exist (C1.1/C1.2) — what is still not built is the client BINDING, so a declared uniform
+	 * still reads 0.0 on every evaluation, with nothing said, until C1.3 lands. The tempting
+	 * fix — have the validator refuse such programs — is wrong twice over: it is a TIGHTENING,
+	 * so it would reject blobs already persisted in a save, and it would have to be deleted the
+	 * day the binding lands. A line of text has neither cost. It also carries no format impact
+	 * and no acceptance change, which is the property that made it safe to ship when it did.
 	 *
 	 * <h2>Stateless, unlike {@link Reporter}</h2>
 	 *
@@ -103,10 +104,11 @@ public final class OcslDiagnostics {
 		warn("animator program " + programId + " declares " + uniformCount + " uniform"
 				+ (uniformCount == 1 ? "" : "s") + " and nothing can bind one yet, so"
 				+ " every read of them evaluates to 0.0. This is a KNOWN GAP in OpenGPU -- the\n"
-				+ "  per-attachment uniform table is designed and not implemented -- and NOT a\n"
-				+ "  fault in the program. Further such programs are counted on the OpenGPU stats\n"
-				+ "  overlay's animator line -- bind \"Toggle render stats overlay\" under\n"
-				+ "  Controls -> OpenGPU -- rather than logged here.");
+				+ "  uniform table and its setUniform call exist (API 9), but nothing binds a\n"
+				+ "  table entry to a program register yet; the client half lands at C1.3 -- and\n"
+				+ "  it is NOT a fault in the program. Further such programs are counted on the\n"
+				+ "  OpenGPU stats overlay's animator line -- bind \"Toggle render stats overlay\"\n"
+				+ "  under Controls -> OpenGPU -- rather than logged here.");
 	}
 
 	/**

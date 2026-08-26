@@ -167,9 +167,9 @@ public final class RenderStats {
 	 * hit first"; this one answers "is anybody walking into the uniform gap", and it exists
 	 * because that gap is otherwise SILENT. A program may declare a uniform, validate, encode,
 	 * persist and attach, and then evaluate against a zero-initialised frame forever: nothing in
-	 * {@code src/main} binds a register at or above {@code SurfaceTable.UNIFORM_BASE}, because the
-	 * per-attachment uniform table is designed (DESIGN, "uniform sets by name per attachment")
-	 * and not implemented. There is no failure to observe — the frame is simply zero.
+	 * {@code src/main} binds a register at or above {@code SurfaceTable.UNIFORM_BASE} — the
+	 * uniform table and its set-call exist (C1.1/C1.2), but the client BINDING is C1.3's, so
+	 * until it lands there is no failure to observe: the frame is simply zero.
 	 *
 	 * DECLARES, not READS, and the distinction is deliberate rather than sloppy. The number this
 	 * counts is {@code IrValidator.Validated.uniformComponents}, which the validator takes from

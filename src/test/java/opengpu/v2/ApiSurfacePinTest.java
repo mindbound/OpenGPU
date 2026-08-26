@@ -111,9 +111,33 @@ public class ApiSurfacePinTest {
 		LIMIT_KEYS_AT.put(Integer.valueOf(7), keys7);
 
 		// Level 8 (2026-08-24) — no new callback; six OCSL semantic caps published.
+		// This row's expression is SHIPPED and untouched (the never-edit-a-shipped-row rule);
+		// level 9 writes its own fresh literals rather than chaining off this one.
 		CALLBACKS_AT.put(Integer.valueOf(8), callbacks7);
 		LIMIT_KEYS_AT.put(Integer.valueOf(8), keys7 + ",animatorOps,animatorFetches,"
 				+ "programRegisters,programFrameFloats,programUnrollProduct,programUniforms");
+
+		// Level 9 (2026-08-26, Stage C C1.2) — the twelve 3D-surface verbs and four mesh/uniform
+		// caps. A FRESH sorted literal, per the never-edit-a-shipped-row rule above.
+		String callbacks9 = "autopresent,bind,canvasOps,canvasSubmit,clear,clearNodes,"
+				+ "clearRectangle,createCamera,createCanvas,createCanvasNode,createGroup,"
+				+ "createMesh,createMeshNode,createProgram,createSprite,createTexture,"
+				+ "createTextureFrom,drawText,drawTexture,fill,"
+				+ "filledOval,filledRectangle,filledTriangle,freeCanvas,freeMesh,freeNode,"
+				+ "freeProgram,freeTexture,getColor,getEpoch,getFontMetrics,getFreeMemory,"
+				+ "getLimits,getMeshBudget,getProgramBudget,getResolution,getScreen,getSize,"
+				+ "getStats,getSubmitBudget,getTextWidth,getTotalMemory,getUsedMemory,getVersion,"
+				+ "getWriteBudget,line,lookAt,maxResolution,meshes,nodes,origin,oval,plot,pop,"
+				+ "present,programs,push,rectangle,resetStats,rotate,rotateAround,scale,"
+				+ "setAnimator,setColor,setFont,setNodeTint,setNodeTransform,setNodeTransform3d,"
+				+ "setNodeVisible,setNodeZ,setOrtho,setPerspective,setResolution,setUniform,"
+				+ "setUniformImmediate,swapVisibility,translate,triangle,unbind,writeRegion";
+		CALLBACKS_AT.put(Integer.valueOf(9), callbacks9);
+		LIMIT_KEYS_AT.put(Integer.valueOf(9), "submitBytes,submitBytesPerTick,commandCap,"
+				+ "textChars,writeBytes,writeBytesPerTick,textureDim,standingCommandBytes,"
+				+ "programBytes,programBlobBytes,animatorOps,animatorFetches,programRegisters,"
+				+ "programFrameFloats,programUnrollProduct,programUniforms,"
+				+ "meshVertexBytes,meshIndexBytes,meshBytes,nodeUniforms");
 
 		// THE STAGE ARGUMENT IS PART OF THE VALUE. Checking only that the expression names some
 		// constant let STAGE_ANIMATOR -> STAGE_PIXEL_MATERIAL through, which publishes 16 for
@@ -126,6 +150,13 @@ public class ApiSurfacePinTest {
 		PUBLISHED_FROM.put("programUnrollProduct",
 				new String[] { "IrValidator.MAX_UNROLL_PRODUCT" });
 		PUBLISHED_FROM.put("programUniforms", new String[] { "SurfaceTable.MAX_UNIFORMS" });
+		// The level-9 mesh/uniform caps, CLASS-QUALIFIED deliberately: an unqualified
+		// "MAX_MESH_BYTES" would be a contains-match substring of MAX_MESH_BYTES_PER_BATCH —
+		// the exact wrong-constant edit this map exists to make red.
+		PUBLISHED_FROM.put("meshVertexBytes", new String[] { "V2Wire.MAX_MESH_VERTEX_BYTES" });
+		PUBLISHED_FROM.put("meshIndexBytes", new String[] { "V2Wire.MAX_MESH_INDEX_BYTES" });
+		PUBLISHED_FROM.put("meshBytes", new String[] { "ServerScene.MAX_MESH_BYTES" });
+		PUBLISHED_FROM.put("nodeUniforms", new String[] { "ServerScene.MAX_NODE_UNIFORMS" });
 	}
 
 	private static String source() throws Exception {

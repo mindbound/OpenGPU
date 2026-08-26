@@ -233,19 +233,92 @@ public final class ServerScene {
 	}
 
 	/**
-	 * Set one named uniform on a node's per-attachment table (v10), or clear it.
+	 * Set one named uniform on a node's table (v10), or clear it.
 	 *
 	 * {@code values} carries 1..4 doubles — the count IS the wire type — or is empty/null for
-	 * CLEAR. Name legality, the per-node cap and clear-of-missing are all enforced on the
-	 * shared apply path (both sides accept exactly the same set); this method's own checks are
-	 * only what must be answered before a delta can be built at all.
+	 * CLEAR. Name legality, the per-node cap and clear-of-missing are enforced on the shared
+	 * apply path (both sides accept exactly the same set). THIS method is the shared admission
+	 * gate both host verbs (setUniform and setUniformImmediate) relay through, and its checks
+	 * run in a frozen order — the reserved-name check FIRST, so a bare
+	 * {@code setUniform(node, "__proj")} cannot CLEAR host state through a values-first
+	 * implementation:
+	 *
+	 * 1. Names starting {@code __} are RESERVED FOR THE HOST (setPerspective/setOrtho write
+	 *    the projection there). Refused here — admission policy only: the wire, the applier
+	 *    and every save still accept them, so replication and old worlds are untouched. The
+	 *    C1.3 binder SKIPS names starting __ — reserved in BOTH directions, so a program
+	 *    declaring a __ name reads zero (the ruled contract; a first draft recorded the
+	 *    opposite and the panel caught it).
+	 * 2. Every value must be finite — DESIGN's pinned set-call rule. Rejection by throw
+	 *    retains the previous value by construction (applyAndStage never ran); the pin's
+	 *    "logged once" clause is superseded by the error reaching the author directly.
+	 * 3. At most 4 values.
 	 */
 	public void setUniform(int nodeId, String name, double[] values, boolean immediate) {
 		requireNode(nodeId);
+		if (name != null && name.startsWith("__"))
+			throw new IllegalArgumentException("uniform names starting with __ are reserved for"
+					+ " the host; projection is set via setPerspective/setOrtho on a camera");
 		double[] v = values == null ? new double[0] : values;
+		for (int i = 0; i < v.length; i++) {
+			if (Double.isNaN(v[i]) || Double.isInfinite(v[i]))
+				throw new IllegalArgumentException("uniform value " + (i + 1)
+						+ " must be a finite number (the previous value is retained)");
+		}
 		if (v.length > 4)
 			throw new IllegalArgumentException("A uniform carries 1..4 values, got " + v.length);
 		applyAndStage(new Delta.UniformSet(nodeId, name, (byte) v.length, v, immediate));
+	}
+
+	/** The reserved projection entry's name: __proj = vec4(mode, fovDegOrHalfHeight, near, far). */
+	public static final String PROJECTION_UNIFORM = "__proj";
+	/** __proj mode component: 1 = perspective (fov in degrees), 2 = orthographic (half-height). */
+	public static final double PROJECTION_PERSPECTIVE = 1;
+	public static final double PROJECTION_ORTHO = 2;
+
+	/**
+	 * Write a camera's projection (v10, C1.2) — ONE reserved vec4 entry in the node's own
+	 * uniform table, the one mechanism that already replicates, persists, and survives rejoin
+	 * at v10. Atomic BY CONSTRUCTION: a single UniformSet delta, so even a 64-full-table
+	 * refusal is a clean whole refusal with nothing staged (this is why the entry is one vec4
+	 * and not four scalars — a four-delta write could tear mid-sequence at the cap). Staged
+	 * {@code immediate}: a projection change is a cut, not a glide (teleport's doctrine) —
+	 * without it C1.3's interpolator would slide the MODE through 1.5 for a tick.
+	 *
+	 * NODE_CAMERA-gated, and that gate does not conflict with the ungated-writer doctrine: no
+	 * ungated verb can write reserved state (setUniform refuses __ names), so this is one
+	 * state with one door. Validation: perspective fov in (0,180) exclusive; near &gt; 0,
+	 * far &gt; near; ortho half-height &gt; 0. The entry costs 1 of the node's 64 uniform
+	 * slots (a camera's author budget is 63), and once set it is author-unclearable short of
+	 * freeNode — a documented one-way door; renderer defaults are a pre-first-call state only.
+	 */
+	public void setProjection(int nodeId, boolean ortho, double fovOrHalfHeight, double near,
+			double far) {
+		requireNode(nodeId);
+		SceneNode node = state.nodes.get(nodeId);
+		if (node.type != V2Wire.NODE_CAMERA)
+			throw new IllegalStateException("node " + nodeId + " is not a camera");
+		if (Double.isNaN(fovOrHalfHeight) || Double.isInfinite(fovOrHalfHeight)
+				|| Double.isNaN(near) || Double.isInfinite(near)
+				|| Double.isNaN(far) || Double.isInfinite(far))
+			throw new IllegalArgumentException("projection parameters must be finite numbers");
+		if (ortho) {
+			if (!(fovOrHalfHeight > 0))
+				throw new IllegalArgumentException("ortho half-height must be > 0");
+		} else {
+			if (!(fovOrHalfHeight > 0 && fovOrHalfHeight < 180))
+				throw new IllegalArgumentException("fov must be in (0, 180) degrees exclusive");
+		}
+		if (!(near > 0))
+			throw new IllegalArgumentException("near must be > 0");
+		if (!(far > near))
+			throw new IllegalArgumentException("far (" + far + ") must be greater than near ("
+					+ near + ")");
+		// Bypasses setUniform deliberately: that method's __ refusal guards AUTHORS out of the
+		// reserved space; this method IS the host door it points them to.
+		applyAndStage(new Delta.UniformSet(nodeId, PROJECTION_UNIFORM, (byte) 4, new double[] {
+				ortho ? PROJECTION_ORTHO : PROJECTION_PERSPECTIVE, fovOrHalfHeight, near, far },
+				true));
 	}
 
 	/**
@@ -660,6 +733,52 @@ public final class ServerScene {
 		// PROP_TELEPORT is the highest bit, so its value goes last.
 		applyAndStage(new Delta.NodeProps(nodeId, mask | V2Wire.PROP_TELEPORT,
 				new double[] { x, y, rot, sx, sy, 1 }));
+	}
+
+	/**
+	 * Full 3D TRS write (v10, C1.2): position, quaternion rotation, per-axis scale — ONE delta,
+	 * always the full mask, so the write is atomic and one interpolation transition (the 2D
+	 * setTransform's atomicity reasoning). The quaternion must arrive already normalized and
+	 * sign-canonicalised ({@link Look#normalize}); this method stages, it does not launder.
+	 *
+	 * VALUE ORDER IS ASCENDING BIT ORDER, and for THIS mask that puts teleport in the MIDDLE:
+	 * PROP_TELEPORT is bit 8 and every 3D bit sits above it, so the layout is
+	 * x, y, sx, sy, [teleport], tz, sz, qx, qy, qz, qw. The 2D sibling's "teleport goes last"
+	 * comment is true only of the 2D mask — copying it here would produce convergent garbage
+	 * (both sides misread identically, no detector fires).
+	 * Surface3dTest.setTransform3dLandsEveryFieldWithTeleport reads every field back for
+	 * exactly that reason.
+	 */
+	public void setTransform3d(int nodeId, double x, double y, double z,
+			double qx, double qy, double qz, double qw,
+			double sx, double sy, double sz, boolean teleport) {
+		requireNode(nodeId);
+		int mask = V2Wire.PROP_X | V2Wire.PROP_Y | V2Wire.PROP_SX | V2Wire.PROP_SY
+				| V2Wire.PROP_TZ | V2Wire.PROP_SZ | V2Wire.QUAT_PROPS_MASK;
+		if (!teleport) {
+			applyAndStage(new Delta.NodeProps(nodeId, mask,
+					new double[] { x, y, sx, sy, z, sz, qx, qy, qz, qw }));
+			return;
+		}
+		applyAndStage(new Delta.NodeProps(nodeId, mask | V2Wire.PROP_TELEPORT,
+				new double[] { x, y, sx, sy, 1, z, sz, qx, qy, qz, qw }));
+	}
+
+	/**
+	 * Position + orientation only (lookAt's staging half): scale untouched. Same bit-order
+	 * discipline as {@link #setTransform3d} — teleport sits between y and tz here.
+	 */
+	public void setPose3d(int nodeId, double x, double y, double z,
+			double qx, double qy, double qz, double qw, boolean teleport) {
+		requireNode(nodeId);
+		int mask = V2Wire.PROP_X | V2Wire.PROP_Y | V2Wire.PROP_TZ | V2Wire.QUAT_PROPS_MASK;
+		if (!teleport) {
+			applyAndStage(new Delta.NodeProps(nodeId, mask,
+					new double[] { x, y, z, qx, qy, qz, qw }));
+			return;
+		}
+		applyAndStage(new Delta.NodeProps(nodeId, mask | V2Wire.PROP_TELEPORT,
+				new double[] { x, y, 1, z, qx, qy, qz, qw }));
 	}
 
 	public void setZ(int nodeId, int z) {
