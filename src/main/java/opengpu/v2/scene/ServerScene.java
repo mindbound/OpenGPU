@@ -290,7 +290,10 @@ public final class ServerScene {
 	 * state with one door. Validation: perspective fov in (0,180) exclusive; near &gt; 0,
 	 * far &gt; near; ortho half-height &gt; 0. The entry costs 1 of the node's 64 uniform
 	 * slots (a camera's author budget is 63), and once set it is author-unclearable short of
-	 * freeNode — a documented one-way door; renderer defaults are a pre-first-call state only.
+	 * freeNode — a documented one-way door. There are NO renderer defaults: a VISIBLE
+	 * camera with no {@code __proj} set skips the 3D layer exactly as no visible camera
+	 * does (camera decision 4, PLAN-STAGE-C.md). This sentence used to promise defaults
+	 * that never existed in any renderer; see CASEBOOK D11.
 	 */
 	public void setProjection(int nodeId, boolean ortho, double fovOrHalfHeight, double near,
 			double far) {

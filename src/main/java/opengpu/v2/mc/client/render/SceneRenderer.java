@@ -52,6 +52,21 @@ public final class SceneRenderer {
 	private static final class SceneGl {
 		int fbo = -1;
 		int colorTex = -1;
+		/**
+		 * Depth renderbuffer, or -1 while this scene has never needed one — every 2D-only
+		 * scene, permanently.
+		 *
+		 * <b>CONTRACT, not yet current behaviour:</b> to be allocated lazily on the first 3D
+		 * frame and then kept for the FBO's lifetime; a resize destroys the FBO and so resets
+		 * this to -1, which is what will make the next 3D frame re-allocate at the new size.
+		 * Until group F lands the allocator's caller this is ALWAYS -1, so the teardown and
+		 * reset paths below are correct but unexercised, and retarget()'s hasDepth argument is
+		 * a constant false.
+		 *
+		 * -1 rather than 0 for the same reason fbo and colorTex use it: 0 is a legal-looking
+		 * GL name, so a 0 sentinel turns a leak into a silent no-op instead of a trip.
+		 */
+		int depthRb = -1;
 		int width, height;
 		boolean everRendered;
 		/**
@@ -68,6 +83,28 @@ public final class SceneRenderer {
 		 */
 		int failedWidth = -1;
 		int failedHeight = -1;
+		/**
+		 * Depth allocation already failed for this scene at its current size — skip the 3D
+		 * layer and keep compositing 2D.
+		 *
+		 * DELIBERATELY NOT failedWidth/failedHeight, and this is the whole point of the field.
+		 * That latch's consumer returns before any render at all, so folding a depth failure
+		 * into it would turn "this machine cannot allocate a depth renderbuffer" into "this
+		 * scene renders no 2D either, forever" — a 3D-only failure silently blanking a
+		 * 2D-only feature. The plan requires the latch to COVER the depth mode; it does not
+		 * require it to share the fields, and sharing them is the reading that breaks 2D.
+		 *
+		 * Cleared wherever depthRb is reset to -1, so a resize retries naturally.
+		 * <b>NOT YET LOAD-BEARING.</b> The resize path below already CLEARS this to false, but
+		 * nothing ever sets it true and nothing reads it, so it cannot yet change any
+		 * behaviour; the setter and the reader both arrive with the 3D pass in C1.3.1 group F
+		 * (the mesh draw). An earlier draft said "nothing sets or reads this field", which the
+		 * clear four lines further down already contradicted. Group E, which
+		 * shipped, is the camera scan and does NOT discharge this — an earlier draft of this
+		 * line said "group E", which would have let a reader tick off the plan's "the latch
+		 * must cover the depth failure mode too" obligation against work that had not happened.
+		 */
+		boolean depthUnavailable;
 		/** Smooths node transforms across the 20 tps channel; see NodeInterpolator. */
 		final NodeInterpolator interp = new NodeInterpolator();
 		/** Per-frame animator output, held beside the interpolator it composes over. */
@@ -516,10 +553,18 @@ public final class SceneRenderer {
 				return;
 			}
 			if (gl.fbo != -1) {
-				FramebufferPass.deleteSceneFbo(gl.fbo, gl.colorTex);
+				// The OLD renderbuffer, read before anything below overwrites it. Assigning
+				// the new state first would leak this one and delete the new one instead —
+				// one renderbuffer per resize, with the scene still rendering correctly on
+				// the frame it happens.
+				FramebufferPass.deleteSceneFbo(gl.fbo, gl.colorTex, gl.depthRb);
 			}
 			gl.fbo = created[0];
 			gl.colorTex = created[1];
+			// A fresh FBO carries no depth: the next 3D frame re-attaches at the new size.
+			// Clearing the latch with it is what makes a resize a natural retry.
+			gl.depthRb = -1;
+			gl.depthUnavailable = false;
 			gl.width = size[0];
 			gl.height = size[1];
 			gl.everRendered = false;
@@ -702,7 +747,7 @@ public final class SceneRenderer {
 		// before this change and after it are not directly comparable, and PERF-BASELINE's
 		// fixed term was measured the old way.
 		long renderStart = System.nanoTime();
-		pass.retarget(gl.fbo, gl.width, gl.height);
+		pass.retarget(gl.fbo, gl.width, gl.height, gl.depthRb != -1);
 		canvasRenderer.renderScene(mirror.state(), gl.width, gl.height, glMap, gl.interp, now,
 				gl.overlay);
 		RenderStats.onSceneRender(System.nanoTime() - renderStart, commandCount, interpolationDriven);
@@ -802,7 +847,11 @@ public final class SceneRenderer {
 
 	private static void dispose(SceneGl gl) {
 		if (gl.fbo != -1) {
-			FramebufferPass.deleteSceneFbo(gl.fbo, gl.colorTex);
+			// depthRb cannot be live without an FBO — it is only ever attached to one, and
+			// reset to -1 whenever one is destroyed — so this guard covers it. deleteSceneFbo
+			// tolerates -1 regardless, which is what keeps that reasoning from being
+			// load-bearing.
+			FramebufferPass.deleteSceneFbo(gl.fbo, gl.colorTex, gl.depthRb);
 		}
 		for (TexEntry entry : gl.textures.values()) {
 			GL11.glDeleteTextures(entry.glId);

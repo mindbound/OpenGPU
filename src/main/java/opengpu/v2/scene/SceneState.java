@@ -136,6 +136,93 @@ public final class SceneState {
 	}
 
 	/**
+	 * THE active camera, or null when this scene has none — the 3D layer's selection rule.
+	 *
+	 * Lowest-id NODE_CAMERA whose OWN visible flag is true. {@code nodes} is a TreeMap, so
+	 * ascending iteration makes "lowest-id" free and returning on the first match makes a scene
+	 * with a camera O(1).
+	 *
+	 * <b>{@code node.visible} ALONE — deliberately NOT {@code Canvas2dRenderer.isDrawn}, and
+	 * this is the one substitution that silently reverts a settled decision.</b> {@code isDrawn}
+	 * is the EFFECTIVE-visibility predicate: it also tests the parent. The frozen rule says the
+	 * opposite, in these words (PLAN-STAGE-C.md, camera decision 2): "the flag consulted is the
+	 * camera's OWN, never the effective ancestor visibility (a camera in a hidden rig group
+	 * stays eligible — selection is a flat scan, no tree walk); PARENTED cameras are eligible
+	 * (the scan does not test parent — camera rigs are the point)". The two predicates agree on
+	 * every scene EXCEPT a camera parented to a hidden group, which is precisely the case the
+	 * decision exists to permit — so a reviewer "unifying" them would read as obviously right
+	 * and break exactly one thing. The falsifier is a test:
+	 * {@code aCameraParentedToAHiddenGroupIsStillSelected}.
+	 *
+	 * SCANNED PER CALL, NOT CACHED, for the reason its sibling below gives at length: a cached
+	 * id would be a second source of truth needing invalidation on every path that creates,
+	 * frees or hides a node. Re-scanning is also what makes silent promotion fall out — freeing
+	 * or hiding the active camera promotes the next-lowest visible one with no extra code — and
+	 * a cache would have to reimplement that.
+	 */
+	public SceneNode activeCamera() {
+		for (SceneNode node : nodes.values()) {
+			if (node.type == opengpu.v2.protocol.V2Wire.NODE_CAMERA && node.visible) {
+				return node;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * A camera's projection, or null when it has none the renderer can use.
+	 *
+	 * <b>There are no renderer projection defaults</b> (camera decision 4): a null here means
+	 * the 3D layer is SKIPPED, exactly as no visible camera does — a contract the renderer
+	 * will honour from C1.3.1 group F, where the 3D pass that consults this lands. Today this
+	 * method has no caller outside its tests. Returning invented values
+	 * would render a believable picture from numbers nobody supplied — see CASEBOOK D11.
+	 *
+	 * Null covers three cases the renderer must treat identically, because the author's remedy
+	 * is the same in all three (call setPerspective/setOrtho):
+	 * <ol>
+	 * <li>No {@code __proj} entry — the camera was created and never configured.</li>
+	 * <li>A malformed entry (not 4 components).</li>
+	 * <li>A well-formed entry outside the validation band.</li>
+	 * </ol>
+	 * The third is not paranoia and is not covered elsewhere. {@link ServerScene#setProjection}
+	 * validates the band, but that is a SERVER-SIDE ADMISSION GATE; a mirror payload reaches
+	 * this side through DeltaApplier/SnapshotCodec, which check name legality and value COUNT
+	 * but never the band. A {@code far <= near} entry that arrived any other way makes the
+	 * frustum degenerate, so the renderer re-checks rather than trusting a gate it does not run.
+	 *
+	 * Reads {@code __proj} DIRECTLY and must not be routed through any shared
+	 * "read this node's uniforms" helper that skips {@code __} names. Reserved-ness runs in both
+	 * directions on purpose: the author-facing binder must skip these names, while the renderer
+	 * is a HOST consumer and this entry is addressed to it. One shared helper makes __proj
+	 * unreadable here, and the symptom would not be an error — it would be every camera looking
+	 * unconfigured forever, i.e. a 3D layer that silently ignores setPerspective.
+	 *
+	 * The returned array is the node's own storage ({@code DeltaApplier} stores a clone), so
+	 * callers must read it and never mutate it in place.
+	 */
+	public double[] cameraProjection(SceneNode camera) {
+		if (camera == null) {
+			return null;
+		}
+		double[] p = camera.uniforms.get(ServerScene.PROJECTION_UNIFORM);
+		if (p == null || p.length != 4) {
+			return null;
+		}
+		double mode = p[0], a = p[1], near = p[2], far = p[3];
+		if (near <= 0 || far <= near) {
+			return null;
+		}
+		if (mode == ServerScene.PROJECTION_PERSPECTIVE) {
+			return (a > 0 && a < 180) ? p : null;
+		}
+		if (mode == ServerScene.PROJECTION_ORTHO) {
+			return a > 0 ? p : null;
+		}
+		return null;
+	}
+
+	/**
 	 * Whether any node here has an animator attached — ANIM-19's re-render term.
 	 *
 	 * SCANNED, NOT CACHED, and that is a deliberate trade rather than the lazy option. A cached

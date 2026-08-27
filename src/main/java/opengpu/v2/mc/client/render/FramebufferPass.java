@@ -7,6 +7,8 @@ import net.minecraft.client.renderer.OpenGlHelper;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
+import org.lwjgl.opengl.GL14;
+import org.lwjgl.opengl.GL30;
 
 /**
  * The only way any OpenGPU code touches FBO binding. Captures the observable GL state it
@@ -15,8 +17,35 @@ import org.lwjgl.opengl.GL12;
  * Angelica in documented scenarios; see ANGELICA-NOTES.md, rules 3/5/9).
  *
  * Every GL call goes through plain GL11/OpenGlHelper entry points, which Angelica's
- * redirector tracks. glGetInteger reads are served from GLSM's cache under Angelica and from
- * the driver on vanilla — both correct.
+ * redirector tracks (ANGELICA-NOTES rule 1).
+ *
+ * The pname lists below name what THIS class reads and are not a census of GLSM's switches;
+ * consult the source for anything else, and note that "no enable cap is carried" is a claim
+ * about the caps this class saves, not about every cap in the switch.
+ *
+ * READING STATE BACK IS NOT UNIFORM, and this paragraph used to say it was — "glGetInteger
+ * reads are served from GLSM's cache, both correct" was a general licence, and C1.3.0 (2026-08-27)
+ * established it is false in general. GLSM's {@code glGetInteger} switch carries the pnames this
+ * class asks it for — viewport, the four blend factors, active texture, depth func, cull-face
+ * mode, front face — but it carries NO ENABLE CAP. {@code GL_DEPTH_TEST}, {@code GL_CULL_FACE},
+ * {@code GL_ALPHA_TEST}, {@code GL_LIGHTING} fall through to a 3.3 core driver, where they are
+ * compatibility-only enums: {@code GL_INVALID_ENUM}, destination untouched, garbage saved.
+ * <b>Read every enable with {@code glIsEnabled} or {@code glGetBoolean}, never
+ * {@code glGetInteger}</b> — as the saves below do. Two further pnames have their own rule.
+ * {@code GL_DEPTH_RANGE} is BUFFER-FORM ONLY: neither scalar getter has a case for it, so a
+ * scalar read reaches the driver and returns one component of two. And the depth VALUES — the
+ * clear value and the two range bounds — are stored by GLSM as doubles, so <b>read them with
+ * {@code glGetDouble}, not {@code glGetFloat}</b>: the float forms apply a narrowing cast while
+ * the double forms serve them uncast. {@code glGetDouble} IS redirected — {@code GLSMRedirector}'s
+ * gl11 map carries {@code glGetDouble} and {@code glGetDoublev} beside {@code glGetFloat} — so
+ * the exact read costs nothing in tracking.
+ *
+ * <b>Every claim in this paragraph was checked against Angelica tag 2.2.8 with
+ * {@code git show 2.2.8:<path>}.</b> The reference clone's working tree sat on tag 2.1.59 until
+ * 2026-08-27 while the pack ran 2.2.8, and an earlier draft of this very paragraph asserted the
+ * OPPOSITE about {@code glGetDouble} — and changed the code to match — because it was greped
+ * from that tree. The clone has since been moved to 2.2.8, but name the ref in the command
+ * anyway: a grep's output never states which ref produced it. See CASEBOOK D12.
  *
  * Render thread only.
  */
@@ -39,6 +68,8 @@ public final class FramebufferPass {
 	private final IntBuffer viewport = BufferUtils.createIntBuffer(16);
 
 	private final java.nio.FloatBuffer colorBuffer = BufferUtils.createFloatBuffer(16);
+	/** Depth range only — it is buffer-form, and the DOUBLE form is the exact one. */
+	private final java.nio.DoubleBuffer depthRangeBuffer = BufferUtils.createDoubleBuffer(16);
 	private final java.nio.ByteBuffer writeMaskBuffer = BufferUtils.createByteBuffer(16);
 
 	/**
@@ -103,6 +134,13 @@ public final class FramebufferPass {
 	private boolean savedFog;
 	private boolean savedLighting;
 	private boolean savedCull;
+	// The five C1.3.1 additions: modes and values, never enables. See begin()'s reads.
+	private int savedDepthFunc;
+	private int savedCullFaceMode;
+	private int savedFrontFace;
+	private double savedClearDepth;
+	private double savedDepthRangeNear;
+	private double savedDepthRangeFar;
 	private int savedActiveTexture;
 	private boolean savedTex2dUnit0;
 	private boolean savedTex2dUnit1;
@@ -117,7 +155,7 @@ public final class FramebufferPass {
 	 * and call {@link #retarget} at least once in between to choose a framebuffer.
 	 *
 	 * SPLIT from the former {@code begin(fbo, width, height)} on 2026-08-09. Everything here is
-	 * per-PASS — ~21 state reads and the enable/blend/line-width canonicalisation — and none of
+	 * per-PASS — ~26 state reads and the enable/blend/line-width canonicalisation — and none of
 	 * it depends on which framebuffer is being drawn into. It used to run once per visible SCENE
 	 * because the whole thing was inside the per-scene loop, so two scenes paid for it twice and
 	 * N scenes N times, for a value that cannot differ between them.
@@ -140,6 +178,16 @@ public final class FramebufferPass {
 		savedViewportY = viewport.get(1);
 		savedViewportW = viewport.get(2);
 		savedViewportH = viewport.get(3);
+		// Depth range travels with the viewport, and is BUFFER-FORM ONLY: neither scalar getter
+		// has a case for it, so a scalar read falls through to the driver and hands back one
+		// component of two. The DoubleBuffer form is carried AND serves both bounds uncast from
+		// viewportState, which stores doubles — the float buffer form narrows them. GLSM writes
+		// at params.position() without advancing it, hence the clear(): it is what makes the
+		// absolute get(0)/get(1) correct, as the sibling reads all do.
+		depthRangeBuffer.clear();
+		GL11.glGetDouble(GL11.GL_DEPTH_RANGE, depthRangeBuffer);
+		savedDepthRangeNear = depthRangeBuffer.get(0);
+		savedDepthRangeFar = depthRangeBuffer.get(1);
 		savedBlend = GL11.glIsEnabled(GL11.GL_BLEND);
 		// GL_BLEND_SRC/DST alias the *RGB* factors; vanilla sets separate alpha factors via
 		// OpenGlHelper.glBlendFunc nearly every frame, so restoring with the 2-arg call
@@ -174,6 +222,17 @@ public final class FramebufferPass {
 		savedFog = GL11.glIsEnabled(GL11.GL_FOG);
 		savedLighting = GL11.glIsEnabled(GL11.GL_LIGHTING);
 		savedCull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
+		// The five C1.3.1 additions. Every one is a MODE or a VALUE, never an enable, so
+		// glGetInteger is correct for the three that GLSM's switch carries; see the class
+		// javadoc for why that distinction is not decorative.
+		savedDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
+		savedCullFaceMode = GL11.glGetInteger(GL11.GL_CULL_FACE_MODE);
+		savedFrontFace = GL11.glGetInteger(GL11.GL_FRONT_FACE);
+		// glGetDouble, which IS redirected (GLSMRedirector's gl11 map carries glGetDouble and
+		// glGetDoublev beside glGetFloat) and serves this pname UNCAST from depthState, where
+		// the float form applies a narrowing (float) cast. Exact, and on the same tracked path
+		// as every other read here.
+		savedClearDepth = GL11.glGetDouble(GL11.GL_DEPTH_CLEAR_VALUE);
 		savedActiveTexture = GL11.glGetInteger(GL_ACTIVE_TEXTURE);
 
 		// Texture-2D enable state of units 0 and 1 — toggling these selects Iris program
@@ -195,6 +254,18 @@ public final class FramebufferPass {
 		GL11.glDisable(GL11.GL_ALPHA_TEST);
 		GL11.glDisable(GL11.GL_DEPTH_TEST);
 		GL11.glDepthMask(true);
+		// Canonicalise what the five new saves cover. A save without a matching SET buys
+		// nothing: the state would still be whatever the world left, and the save would
+		// merely put it back. The depth RANGE is the sharpest of these — a leftover
+		// non-default range from a held-item or outline pass compresses the whole 3D layer
+		// into a z slab, and the symptom reads as a projection bug rather than a state leak.
+		// GL_CULL_FACE itself stays DISABLED above; only its mode is pinned, so that a 3D
+		// pass enabling the cap locally does not inherit the world's winding.
+		GL11.glDepthFunc(GL11.GL_LEQUAL);
+		GL11.glDepthRange(0.0D, 1.0D);
+		GL11.glClearDepth(1.0D);
+		GL11.glFrontFace(GL11.GL_CCW);
+		GL11.glCullFace(GL11.GL_BACK);
 		GL11.glEnable(GL11.GL_BLEND);
 		GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 		// Canvas outlines are 1px; the world's block-highlight pass leaves this at 2.
@@ -215,7 +286,7 @@ public final class FramebufferPass {
 	 *
 	 * Everything here genuinely varies per target, which is why it is the part that repeats.
 	 */
-	public void retarget(int fbo, int width, int height) {
+	public void retarget(int fbo, int width, int height, boolean hasDepth) {
 		if (!active) {
 			throw new IllegalStateException("retarget() without begin()");
 		}
@@ -227,9 +298,25 @@ public final class FramebufferPass {
 		// (in practice zero) initial contents and the whole scene reads as transparent.
 		// The mask is re-set per target rather than once per pass because the clear depends
 		// on it, and a previous retarget left it alpha-masked.
+		// The depth mirror of that same argument, and it must be exact. glClear obeys the
+		// DEPTH write mask exactly as it obeys the colour mask. GLSM DOES redirect glClear
+		// (GLSMRedirector's gl11 map carries it), but its handler only records for display
+		// lists and then forwards to the backend without touching either mask — so real GL
+		// semantics reach the driver. An earlier draft claimed glClear was not intercepted at
+		// all, which was false; the conclusion is unchanged, the reason was not. begin() sets glDepthMask(true) once, but this
+		// class is explicitly built for repeated retargets inside one begin(): the moment a 3D
+		// draw leaves the mask false, the NEXT scene's depth clear would silently do nothing and
+		// that scene would depth-test against its predecessor's buffer. That is the alpha bug's
+		// twin, and it only appears with two or more visible scenes — which a single-screen
+		// field test never reaches.
 		GL11.glColorMask(true, true, true, true);
+		GL11.glDepthMask(true);
 		GL11.glClearColor(0.0F, 0.0F, 0.0F, 1.0F);
-		GL11.glClear(GL11.GL_COLOR_BUFFER_BIT);
+		GL11.glClearDepth(1.0D);
+		// One clear of both buffers, not two calls: the ordering argument above is written
+		// about a single masked clear.
+		GL11.glClear(GL11.GL_COLOR_BUFFER_BIT
+				| (hasDepth ? GL11.GL_DEPTH_BUFFER_BIT : 0));
 		// NOW pin alpha at the opaque value the clear just wrote: no recorded draw can
 		// lower it. Blending math is unaffected (it reads the *source* alpha), so
 		// translucent draws still composite correctly onto RGB. This is what lets surfaces
@@ -272,6 +359,16 @@ public final class FramebufferPass {
 		setEnabled(GL11.GL_ALPHA_TEST, savedAlphaTest);
 		setEnabled(GL11.GL_DEPTH_TEST, savedDepthTest);
 		GL11.glDepthMask(savedDepthMask);
+		// The five C1.3.1 restores, mirroring begin()'s reads one for one. The saves hold
+		// DOUBLES (widened when the reads moved to glGetDouble), so nothing narrows on the way
+		// back and no round trip through float occurs — an earlier draft of this comment said
+		// the opposite and pointed at a class javadoc that now says so too. All five setters
+		// write through to the driver as well as to GLSM's cache, so the restore is real.
+		GL11.glDepthFunc(savedDepthFunc);
+		GL11.glClearDepth(savedClearDepth);
+		GL11.glDepthRange(savedDepthRangeNear, savedDepthRangeFar);
+		GL11.glCullFace(savedCullFaceMode);
+		GL11.glFrontFace(savedFrontFace);
 		setEnabled(GL11.GL_SCISSOR_TEST, savedScissor);
 		setEnabled(GL11.GL_FOG, savedFog);
 		setEnabled(GL11.GL_LIGHTING, savedLighting);
@@ -297,12 +394,19 @@ public final class FramebufferPass {
 	// FBO lifecycle helpers (OpenGlHelper wrappers only; see ANGELICA-NOTES rule 1)
 
 	/**
-	 * Largest scene dimension this GL context can allocate.
+	 * Largest scene dimension the COLOUR attachment can take: {@code GL_MAX_TEXTURE_SIZE}.
 	 *
-	 * GL_MAX_TEXTURE_SIZE is the binding limit here: the scene FBO's only attachment is a
-	 * colour TEXTURE, so GL_MAX_RENDERBUFFER_SIZE — which the design names alongside it —
-	 * does not apply until something attaches a renderbuffer. Queried lazily because it
-	 * needs a current context, and cached because the answer cannot change within one.
+	 * There are now TWO limits and they bound different attachments. This one is the colour
+	 * texture's and remains the authority for every 2D scene. The premise this javadoc used to
+	 * carry — "GL_MAX_RENDERBUFFER_SIZE does not apply until something attaches a
+	 * renderbuffer" — EXPIRED at C1.3.1, which attaches one for depth; see
+	 * {@link #maxRenderbufferDimension()}. Deliberately not merged into a single min(): a 2D
+	 * scene must not be refused a size its own attachment can hold because of a limit that
+	 * does not apply to it, and merging the two would flip a previously-constant condition for
+	 * every existing scene.
+	 *
+	 * Queried lazily because it needs a current context, and cached because the answer cannot
+	 * change within one.
 	 */
 	public static int maxSceneDimension() {
 		if (maxDimension < 0) {
@@ -311,7 +415,29 @@ public final class FramebufferPass {
 		return maxDimension;
 	}
 
+	/**
+	 * Largest dimension a DEPTH renderbuffer can take: {@code GL_MAX_RENDERBUFFER_SIZE}.
+	 *
+	 * The depth path's bound, and only the depth path's. Callers wanting a scene that carries
+	 * depth take {@code min(maxSceneDimension(), maxRenderbufferDimension())}; callers
+	 * allocating colour alone must not.
+	 *
+	 * The two are equal on the machine C1.0 measured (both 16384, FIELD-TEST-C10), which is
+	 * exactly why a field observation there cannot tell the two gates apart and the
+	 * discrimination has to be a unit-level test instead. Same lazy-and-cached reasoning as
+	 * its sibling. {@code GL_MAX_RENDERBUFFER_SIZE} is a GL30 CONSTANT read through a GL11
+	 * entry point, which is not a raw GL30 call and so does not touch ANGELICA-NOTES rule 1;
+	 * the C1.0 spike read it the same way and the field run returned a real number.
+	 */
+	public static int maxRenderbufferDimension() {
+		if (maxRenderbufferSize < 0) {
+			maxRenderbufferSize = GL11.glGetInteger(GL30.GL_MAX_RENDERBUFFER_SIZE);
+		}
+		return maxRenderbufferSize;
+	}
+
 	private static int maxDimension = -1;
+	private static int maxRenderbufferSize = -1;
 
 	private static final int TRUST_UNKNOWN = -1;
 	private static final int TRUST_NO = 0;
@@ -440,8 +566,92 @@ public final class FramebufferPass {
 		return new int[] { fbo, tex };
 	}
 
-	public static void deleteSceneFbo(int fbo, int colorTexture) {
+	/**
+	 * Attach a {@code GL_DEPTH_COMPONENT24} renderbuffer to an existing scene FBO. Returns the
+	 * renderbuffer name, or -1 if it could not be allocated.
+	 *
+	 * <b>NO CALLER YET — the 3D pass that invokes this arrives in C1.3.1 group F.</b> Every
+	 * path below is therefore unexercised by the suite and by any in-game run so far; the
+	 * argument order, the D24 constant and the attach target are checkable only by reading
+	 * them against vanilla's own sequence, which is why that provenance is cited below.
+	 *
+	 * <b>To be called LAZILY, on a scene's first 3D frame — not from createSceneFbo.</b> That is the
+	 * settled lifetime decision (PLAN-STAGE-C.md, depth lifetime: "allocate lazily on first
+	 * need, then keep"), and this is the only shape that honours it without cost elsewhere:
+	 * allocating inside the create window would force the camera scan to run every frame for
+	 * every mirrored scene INCLUDING settled ones, and would make the create-before-delete body
+	 * reachable on frames where nothing resized. A 2D-only scene never calls this and never
+	 * spends the memory (576 KiB at 512x288, 16 MiB at 2048x2048).
+	 *
+	 * The price of lazy is paid here and is deliberate: this owes its own completeness query,
+	 * because it changes the FBO's attachments after createSceneFbo's one check has already
+	 * passed. Attaching without re-checking would leave the incomplete case to surface as a
+	 * scene that composites 2D correctly and renders 3D garbage.
+	 *
+	 * Gated on {@link #maxRenderbufferDimension()} and NOT on {@link #maxSceneDimension()} —
+	 * they are different limits on different attachments, and folding them into one min() would
+	 * refuse a 2D scene a size its own attachment can hold.
+	 *
+	 * The call sequence is vanilla {@code Framebuffer.createFramebuffer}'s own stencil-free
+	 * branch, verbatim, and was proven in the field by the C1.0 spike (FIELD-TEST-C10).
+	 */
+	public static int attachSceneDepth(int fbo, int width, int height) {
+		int max = maxRenderbufferDimension();
+		if (width <= 0 || height <= 0 || width > max || height > max) {
+			return -1;
+		}
+		int previous = GL11.glGetInteger(GL_FRAMEBUFFER_BINDING);
+		OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, fbo);
+		int depthRb = OpenGlHelper.func_153185_f();
+		OpenGlHelper.func_153176_h(OpenGlHelper.field_153199_f, depthRb);
+		OpenGlHelper.func_153186_a(OpenGlHelper.field_153199_f, GL14.GL_DEPTH_COMPONENT24,
+				width, height);
+		OpenGlHelper.func_153190_b(OpenGlHelper.field_153198_e, OpenGlHelper.field_153201_h,
+				OpenGlHelper.field_153199_f, depthRb);
+		int status = OpenGlHelper.func_153167_i(OpenGlHelper.field_153198_e);
+		boolean complete = status == OpenGlHelper.field_153202_i;
+		// FAILURE CLEANUP RUNS WHILE fbo IS STILL BOUND, and that order is load-bearing.
+		// glDeleteRenderbuffers detaches the name only from the CURRENTLY BOUND framebuffer, so
+		// deleting after the rebind below would leave this FBO carrying a dead
+		// GL_DEPTH_ATTACHMENT — permanently incomplete, which then fails every later 2D replay
+		// into the same scene with GL_INVALID_FRAMEBUFFER_OPERATION. That is precisely the
+		// "a 3D failure blanks the 2D layer" outcome depthUnavailable exists to prevent,
+		// arriving one level BELOW the latch where it cannot help. createSceneFbo's twin branch
+		// can afford to delete late only because it destroys the whole FBO; this one keeps it,
+		// so the explicit detach is what replaces that guarantee.
+		if (!complete) {
+			OpenGlHelper.func_153190_b(OpenGlHelper.field_153198_e, OpenGlHelper.field_153201_h,
+					OpenGlHelper.field_153199_f, 0);
+			OpenGlHelper.func_153184_g(depthRb);
+		}
+		// ACCEPTED RESTORE EXCEPTION, written down because this class's contract is "restore by
+		// value, completely" and this is not that. The renderbuffer binding is restored to 0 by
+		// convention rather than to its previous value, because there IS no previous value to
+		// read: GLSM caches no GL_RENDERBUFFER_BINDING (verified zero occurrences in the 2.2.8
+		// source), so a by-value save would be an uncached driver query — the one thing this
+		// class avoids. 0 is GL's own initial binding, and nothing in MC or Angelica holds a
+		// renderbuffer bound across calls. NOTE this differs from the C1.0 spike's reasoning,
+		// which leaned on "deleting the bound RB reverts the binding per spec" — the spike
+		// deleted its renderbuffer immediately and we KEEP ours, so that justification does not
+		// transfer and this one replaces it.
+		OpenGlHelper.func_153176_h(OpenGlHelper.field_153199_f, 0);
+		OpenGlHelper.func_153171_g(OpenGlHelper.field_153198_e, previous);
+		// Same trust reasoning as createSceneFbo's twin branch: a backend that answers COMPLETE
+		// to everything cannot reach the incomplete case, so reaching it is positive evidence.
+		return complete ? depthRb : -1;
+	}
+
+	/**
+	 * Free a scene FBO and its attachments. {@code depthRb} may be -1 for a scene that never
+	 * needed depth, which is the common case — every 2D-only scene.
+	 */
+	public static void deleteSceneFbo(int fbo, int colorTexture, int depthRb) {
 		OpenGlHelper.func_153174_h(fbo);
 		GL11.glDeleteTextures(colorTexture);
+		// -1, never 0: 0 is a legal-looking GL name and glDeleteRenderbuffers(0) is a silent
+		// no-op, so a 0 sentinel would hide a leak rather than trip on it.
+		if (depthRb != -1) {
+			OpenGlHelper.func_153184_g(depthRb);
+		}
 	}
 }
