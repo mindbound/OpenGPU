@@ -1,5 +1,6 @@
 package opengpu.v2.ocsl;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -61,10 +62,11 @@ public class CapIntuitionTest {
 
 		b.out(OcslWire.PROP_COLOR, colour);
 		long charge = b.structuralCount();
-		// THE STAGE'S CAP, not the ceiling. MAX_STRUCTURAL_OPS became a CEILING (1024) when the
-		// caps went per-stage on 2026-08-21, while this pixel-stage example is bounded by 256 —
-		// so printing and asserting against the ceiling reported a denominator four times the
-		// real one, and the assertion stopped being able to fail for any program under 1024. The
+		// THE STAGE'S CAP, not the ceiling. MAX_STRUCTURAL_OPS became a CEILING when the caps
+		// went per-stage on 2026-08-21 (1024 then, 8192 since increment M), while this
+		// pixel-stage example is bounded by 256 — so printing and asserting against the ceiling
+		// reported a denominator four times the real one then and THIRTY-TWO times now, and the
+		// assertion stopped being able to fail for any program under the ceiling. The
 		// number PLAN quotes from this line ("153/256") is the per-stage one.
 		int cap = IrValidator.maxStructuralOps(OcslWire.STAGE_PIXEL_MATERIAL);
 		System.out.println("[cap] example 1 'aurora' (6 octaves + warp + ramp) = " + charge
@@ -118,9 +120,16 @@ public class CapIntuitionTest {
 			// 4 * (per-step SDF portion) + ~20, which is conservative.
 			long total = (long) steps * perStep + 4L * perStep + 20L;
 			System.out.println("[cap]   " + steps + " steps + normal + shading ~= " + total
-					+ " structural ops (" + String.format("%.1f", total / 256.0) + "x the cap)");
+					+ " structural ops (" + String.format("%.1f", total / (double) IrValidator.maxStructuralOps(OcslWire.STAGE_PIXEL_MATERIAL)) + "x the cap)");
 		}
-		assertTrue("if one march step fit in a quarter of the budget this example would be"
-				+ " making the opposite point", perStep > 4);
+		// Pinned, not merely printed, since increment M: PLAN-STAGE-C D7's magnitude derivation
+		// for the 8192 ceiling -- and the javadoc now at IrValidator.MAX_STRUCTURAL_OPS -- is
+		// built on this measured unit. It was a println and an assertion that passes for any
+		// value in [5, infinity), so an edit to the SDF body above would have moved the whole
+		// rationale ladder silently. assertEquals subsumes the old bound.
+		assertEquals("the per-step charge is the unit PLAN-STAGE-C D7's ceiling derivation rests"
+				+ " on (the 24/32/48/64-step ladder = 804/1028/1476/1924 at this value, plus 132"
+				+ " overhead); if this moved, the 8192 ceiling's magnitude argument moved with it"
+				+ " and D7 needs re-deriving rather than this literal patching", 28L, perStep);
 	}
 }

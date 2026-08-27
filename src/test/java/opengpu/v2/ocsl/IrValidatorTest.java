@@ -588,6 +588,14 @@ public class IrValidatorTest {
 	 * suite — the four acceptance programs charge up to 102 (P2, 101 + the prologue), so a cap
 	 * below that refuses a program the suite requires to pass. Without this, "lower it" is
 	 * unbounded and the first sign would be acceptance tests failing for a reason nothing names.
+	 *
+	 * NOTE, increment M (2026-08-27): the ceiling arm's admissible band widened deliberately
+	 * from [102, 1024] to [102, 8192] when the ceiling moved. That is 8x looser, and 16x the
+	 * largest real cap (512) — so this test alone would no longer notice a per-stage cap
+	 * mistyped anywhere in (1024, 8192]. What still catches that is the exact per-stage
+	 * assertEquals set in theStageCapsCarryTheDecidedDivergence, and what bounds the CEILING
+	 * itself from beneath is theCeilingStaysAboveTheShapesItsMagnitudeWasChosenFor. The three
+	 * are one guard in three parts; do not read any of them alone.
 	 */
 	@Test
 	public void everyStagesOpCapSitsBetweenTheConformanceFloorAndTheCodecCeiling() {
@@ -605,6 +613,81 @@ public class IrValidatorTest {
 	}
 
 	/**
+	 * THE CEILING'S FLOOR — the half of the guard that increment M's raise did not widen.
+	 *
+	 * The project's cap rule is "write the lower bound as a test, or 'lower it' is unbounded".
+	 * Before M the ceiling's only lower bound was the exact assertEquals in
+	 * theStageCapsCarryTheDecidedDivergence, which pins the VALUE but moves with it by that
+	 * test's own instructions — no bound with a REASON stood beneath it. Arm (b) is that reason.
+	 *
+	 * Arm (a) deliberately RESTATES the range invariant's ceiling arm (max(caps) <= X is the same
+	 * predicate as the per-stage loop above it); it fires only below 512 and is the loosest guard
+	 * in the set, kept because it reads as one statement rather than a loop. Arm (b) is the floor
+	 * the magnitude was chosen against, written as visible arithmetic so the ladder is readable
+	 * here rather than as an opaque 1924: CapIntuitionTest MEASURES one raymarch step at 28
+	 * structural ops and adds 4 further SDF evaluations plus ~20 for shading. If either moves,
+	 * PLAN-STAGE-C D7's derivation moved with it and needs re-deriving rather than patching.
+	 */
+	@Test
+	public void theCeilingStaysAboveTheShapesItsMagnitudeWasChosenFor() {
+		int widest = 0;
+		for (byte stage = OcslWire.STAGE_PIXEL_MATERIAL; stage <= OcslWire.STAGE_COMPUTE; stage++) {
+			widest = Math.max(widest, IrValidator.maxStructuralOps(stage));
+		}
+		assertTrue("the ceiling (" + IrValidator.MAX_STRUCTURAL_OPS + ") must stay at or above"
+				+ " every per-stage cap (widest " + widest + "), or the validator accepts what"
+				+ " BatchCodec and SnapshotCodec then refuse",
+				widest <= IrValidator.MAX_STRUCTURAL_OPS);
+
+		final int raymarch64 = 64 * 28 + 4 * 28 + 20;   // = 1924, CapIntuitionTest's ladder
+		assertTrue("the ceiling was sized to clear a 64-step raymarch (" + raymarch64 + " ops,"
+				+ " PLAN-STAGE-C D7); below this NO per-stage cap could ever be raised far enough"
+				+ " to admit that shape, since the range invariant forbids a stage cap above the"
+				+ " ceiling — it fits at no stage TODAY (pixel 256, animator 512), which is the"
+				+ " point: this is headroom for a future stage cap, not a claim about now",
+				IrValidator.MAX_STRUCTURAL_OPS >= raymarch64);
+	}
+
+	/**
+	 * THE ARM INCREMENT M MADE DEAD — a single over-trip FOR, now refused only by IrStructure.
+	 *
+	 * Before M the unroll cap (1024) sat BELOW the wire's trip bound (4096), so a single loop of
+	 * 1025..4096 trips died at the unroll cap and IrStructure's check was redundant
+	 * defence-in-depth. At 8192 the ordering inverts: one FOR contributes at most 4096, which no
+	 * longer reaches the cap, so tripping it needs nesting depth >= 2 and the single-loop case
+	 * passes to IrStructure alone. That is a previously-constant condition going live, and the
+	 * project's vacuous-bounds rule says the newly-taken branch is audited as new code.
+	 *
+	 * The EXCLUSION arm is what makes this non-vacuous: a FOR of exactly MAX_LOOP_TRIPS must NOT
+	 * be refused for its trip count. It walks past IrStructure, past the unroll cap, and dies at
+	 * the per-stage op cap instead — so a mutation of IrStructure's `>` to `>=` fails here.
+	 *
+	 * The fragment it matches on is the FULL "over stage N's cap of", not the bare "cap of" this
+	 * arm shipped with for one panel round: expectReject is a lowercased substring match, and
+	 * "cap of" also matches the unroll cap's own "exceeds the cap of" — the single outcome this
+	 * arm exists to exclude. A rejection fragment has to be unique to its throw site or it is a
+	 * coin flip wearing a test's name.
+	 */
+	@Test
+	public void aSingleOverTripLoopIsRefusedByTheStructuralBoundNotTheUnrollCap() throws Exception {
+		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 2,
+				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+				new IrOp(OcslWire.OP_FOR, W + 1, OcslWire.MAX_LOOP_TRIPS + 1, k(0)),
+				new IrOp(OcslWire.OP_ADD, W + 1, W + 1, k(0)),
+				new IrOp(OcslWire.OP_ENDFOR, -1),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)),
+				"over the structural bound of");
+
+		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 2,
+				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
+				new IrOp(OcslWire.OP_FOR, W + 1, OcslWire.MAX_LOOP_TRIPS, k(0)),
+				new IrOp(OcslWire.OP_ADD, W + 1, W + 1, k(0)),
+				new IrOp(OcslWire.OP_ENDFOR, -1),
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)),
+				"over stage " + OcslWire.STAGE_PIXEL_MATERIAL + "'s cap of");
+	}
+
+	/**
 	 * THE DECIDED DIVERGENCE — 2026-08-21, the user's cap-raise decision, pinned stage by stage.
 	 *
 	 * This test's predecessor pinned "every stage at the ceiling" and carried instructions to be
@@ -612,13 +695,23 @@ public class IrValidatorTest {
 	 * decision record: the ANIMATOR at 512 because it is the one stage with a measured cost
 	 * model (0.46 us/op; ~6-9 us/node in the field); everything else at 256 because PLAN's gate
 	 * — the pixel stages need a GLSL-side measurement nobody has taken — is unmet; and the
-	 * CEILING at 1024 so that every future per-stage move up to it is free acceptance policy,
+	 * CEILING at 8192 so that every future per-stage move up to it is free acceptance policy,
 	 * the format-adjacent codec event having been paid once. A stage moving off these numbers
 	 * must move this test with it, with the reason.
+	 *
+	 * The ceiling moved 1024 → 8192 at increment M (2026-08-27), and its reason is the MAGNITUDE
+	 * derivation the 2026-08-21 raise never recorded: sized against the shapes a ceiling gets
+	 * asked for, at CapIntuitionTest's MEASURED 28 ops per raymarch step plus 132 for normal and
+	 * shading — 64 steps = 1924, cleared by 6,268 — and the compute sketch's all-pairs estimate
+	 * of 4,596, cleared by 3,596. Stated with its own caveat: the raymarch half is exact and
+	 * argues for 2048; 8192-over-2048 rests on amortization. No per-stage cap moved with it, so
+	 * nothing refused before M is accepted after it.
 	 */
 	@Test
 	public void theStageCapsCarryTheDecidedDivergence() {
-		assertEquals("the ceiling — the codec bound, paid once", 1024,
+		assertEquals("the ceiling — the codec bound, paid once; 1024 → 8192 at M (2026-08-27)"
+				+ " sized on the raymarch ladder (64 steps = 1924) and the all-pairs estimate"
+				+ " (4,596), both cleared", 8192,
 				IrValidator.MAX_STRUCTURAL_OPS);
 		assertEquals("the animator's measured raise", 512,
 				IrValidator.maxStructuralOps(OcslWire.STAGE_ANIMATOR));
@@ -667,32 +760,55 @@ public class IrValidatorTest {
 		// sequential loops of 20 read as 400 and were refused -- while the frozen entry calls this
 		// cap "equal to the op cap, therefore NON-BINDING" on an argument that is about nesting.
 		// 2 x 20 iterations of one op = 40 structural, nowhere near the 256 op cap.
+		// BOTH arms derive from the constant. The sequential arm's stated target is the
+		// accumulating-product bug, which it can only see if trips*trips EXCEEDS the cap -- and
+		// the old hand-typed 20+20 stopped doing that at the 2026-08-21 raise, so this arm had
+		// been dead for two raises while staying green. It was still hand-typed when the NESTED
+		// arm below was re-derived; a fixture whose siblings disagree about where their numbers
+		// come from is the shape that hides this.
+		final int trips = (int) Math.ceil(Math.sqrt(IrValidator.MAX_UNROLL_PRODUCT + 1.0));
+		assertTrue("a square nest of " + trips + " must exceed the unroll cap, or NEITHER arm of"
+				+ " this test can see an accumulating product",
+				(long) trips * trips > IrValidator.MAX_UNROLL_PRODUCT);
+		assertTrue("and must stay inside the wire's trip bound, or IrStructure refuses it first"
+				+ " and this test stops testing the unroll cap",
+				trips <= OcslWire.MAX_LOOP_TRIPS);
+		final long expected = 2L * trips + 2;   // splat + trips + trips + OUT
+		assertTrue("the SEQUENTIAL pair must still fit under the pixel op cap, or the wrong rule"
+				+ " refuses it and this arm tests nothing",
+				expected <= IrValidator.maxStructuralOps(OcslWire.STAGE_PIXEL_MATERIAL));
+
 		IrProgram p = prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 3,
 				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
-				new IrOp(OcslWire.OP_FOR, W + 1, 20, k(0)),
+				new IrOp(OcslWire.OP_FOR, W + 1, trips, k(0)),
 				new IrOp(OcslWire.OP_ADD, W + 1, W + 1, k(0)),
 				new IrOp(OcslWire.OP_ENDFOR, -1),
-				new IrOp(OcslWire.OP_FOR, W + 2, 20, k(0)),
+				new IrOp(OcslWire.OP_FOR, W + 2, trips, k(0)),
 				new IrOp(OcslWire.OP_ADD, W + 2, W + 2, k(0)),
 				new IrOp(OcslWire.OP_ENDFOR, -1),
 				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W));
-		assertEquals("40 body ops + splat + OUT", 42L, IrValidator.validate(p).structuralOps);
+		assertEquals("2 x " + trips + " body ops + splat + OUT", expected,
+				IrValidator.validate(p).structuralOps);
 
-		// Nesting still multiplies, which is the half that must keep working. Re-derived for the
-		// 2026-08-21 raise: the old 20x20 fixture's product of 400 tripped the 256 unroll cap,
-		// but under the 1024 cap it walks clean and dies at the pixel op cap instead (charge
-		// 402 > 256) — the wrong refusal for this test's claim. 40x40 = 1600 restores the
-		// unroll refusal, which fires MID-WALK at the inner FOR, before the structural check
-		// ever runs — the same ordering the old fixture relied on (its charge of 402 was also
-		// over the op cap, and the unroll message won).
+		// Nesting still multiplies, which is the half that must keep working. This fixture has
+		// now been re-derived TWICE for a ceiling raise -- 20x20=400 tripped the 256 cap; 40x40
+		// =1600 was needed at 1024; neither trips 8192 -- so it is derived FROM the constant
+		// rather than hand-typed, and the next raise moves it for free. Each raise made the
+		// previous fixture walk clean and die at the pixel op cap instead, which is the WRONG
+		// refusal for this test's claim, and the failure is behavioural rather than a stale
+		// literal: expectReject matches on the message.
+		//
+		// Same `trips`, hoisted above: the two arms must agree about where their numbers come
+		// from, which is the defect this pair shipped with.
 		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f }, W + 3,
 				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
-				new IrOp(OcslWire.OP_FOR, W + 1, 40, k(0)),
-				new IrOp(OcslWire.OP_FOR, W + 2, 40, k(0)),
+				new IrOp(OcslWire.OP_FOR, W + 1, trips, k(0)),
+				new IrOp(OcslWire.OP_FOR, W + 2, trips, k(0)),
 				new IrOp(OcslWire.OP_ADD, W + 2, W + 2, k(0)),
 				new IrOp(OcslWire.OP_ENDFOR, -1),
 				new IrOp(OcslWire.OP_ENDFOR, -1),
-				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "unroll product 1600");
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)),
+				"unroll product " + ((long) trips * trips));
 	}
 
 	@Test
@@ -761,7 +877,13 @@ public class IrValidatorTest {
 		expectReject(prog(OcslWire.STAGE_PIXEL_MATERIAL, new float[] { 1.0f },
 				SurfaceTable.MAX_REGISTERS + 1,
 				new IrOp(OcslWire.OP_SPLAT, W, k(0), 4),
-				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)), "over the cap of");
+				new IrOp(OcslWire.OP_OUT, -1, OcslWire.PROP_COLOR, W)),
+				// "registers, over the cap of", not the bare "over the cap of" this shipped with:
+				// expectReject is a substring match and that fragment also names the constant pool
+				// and the FRAME-WIDTH cap -- which is what the second half of this very test
+				// targets, so the two halves could have swapped answers undetected. Same defect,
+				// same file, as the one-sided-fixes rule predicts.
+				"registers, over the cap of");
 
 		// The frame cap has to be tripped INSIDE some stage's op cap or the op cap answers
 		// first. RE-DERIVED TWICE for the 2026-08-21 raise — the first re-derivation claimed

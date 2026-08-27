@@ -194,8 +194,9 @@ public final class StatsOverlay {
 					: RenderStats.animatorChargeTotal / RenderStats.animatorProgramsCompiled;
 			// The ANIMATOR's cap, not the bare ceiling: every charge on this line came from an
 			// animator program, so the denominator has to be the budget those programs were
-			// actually priced against. NOT equal since the same-day raise (animator 512, ceiling 1024);
-			// quoting the ceiling here would overstate the animator's budget by 2x the moment
+			// actually priced against. NOT equal since the 2026-08-21 raise, and 16x apart since
+			// increment M (animator 512, ceiling 8192);
+			// quoting the ceiling here would overstate the animator's budget by 16x the moment
 			// diverge, and then this line would silently quote the wrong one.
 			lines.add(String.format(
 					"  animator %.0f us/eval   programs %d (charge avg %d, max %d/%d)",

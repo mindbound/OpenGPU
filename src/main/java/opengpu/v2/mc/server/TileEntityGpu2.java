@@ -2272,7 +2272,9 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 
 		// THE SEMANTIC CAPS (2026-08-24). Until now this published no OCSL semantic cap, so an
 		// OC-side compiler wanting to refuse a program before submitting it had to hardcode
-		// 512/0/1024/2048/1024/64 — the exact duplicated-wire-constant hazard this callback
+		// 512/0/1024/2048/1024/64 (the values ON THAT DATE -- the fifth, programUnrollProduct,
+		// is 8192 since increment M; left as written because the sentence is about what an
+		// author HAD to do before this callback existed) — the exact duplicated-wire-constant hazard this callback
 		// exists to prevent, and the one the shipped Lua library already fell into once with
 		// MAX_SUBMIT_BYTES. Every value below is READ from the constant that enforces it.
 		//

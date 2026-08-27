@@ -341,7 +341,7 @@ maxRegisters 1024
 maxFrameWidth 2048
 maxSlots 16
 maxUniforms 64
-maxStructuralOps 1024
+maxStructuralOps 8192
 maxStructuralOps.stage1 256
 maxStructuralOps.stage2 256
 maxStructuralOps.stage3 256
@@ -350,7 +350,7 @@ maxStructuralOps.stage5 256
 maxStructuralOps.stage6 512
 maxStructuralOps.stage7 256
 maxFetches 16
-maxUnrollProduct 1024
+maxUnrollProduct 8192
 maxUniformComponents 64
 [not-frozen-here] contract where-it-lives
 # Proved absent by mutation: each of these can change while this file renders

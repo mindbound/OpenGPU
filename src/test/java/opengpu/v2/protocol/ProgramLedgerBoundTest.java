@@ -159,8 +159,8 @@ public class ProgramLedgerBoundTest {
 				opHeavy * 4 < OcslWire.MAX_BLOB_BYTES);
 	}
 
-	/** A large vec4 ADD chain near the PIXEL stage's cap (byte-identical to the pre-raise
-	 *  fixture: the stage stays at 256 while the ceiling constant moved to 1024). */
+	/** A large vec4 ADD chain near the PIXEL stage's cap (byte-identical across both ceiling
+	 *  raises: the stage stays at 256 while the ceiling constant moved 256 -> 1024 -> 8192). */
 	private static IrProgram opHeavyShape() {
 		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_PIXEL_POST);
 		Expr acc = b.constant(0f, 0f, 0f, 1f);

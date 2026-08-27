@@ -62,9 +62,10 @@ public class ProgramStorageTest {
 	 * few hundred creates, which is what these tests need it for.
 	 */
 	private static byte[] ceiling() throws Exception {
-		// The PIXEL-POST stage's cap, not the ceiling constant: since the 2026-08-21 raise the
-		// constant is 1024 while this stage stays at 256, and a 1020-op pixel program would be
-		// refused — this helper's fixture is byte-identical to what it built before the raise.
+		// The PIXEL-POST stage's cap, not the ceiling constant: the constant is 8192 since
+		// increment M (1024 before it) while this stage stays at 256, and an 8188-op pixel
+		// program would be refused — this helper's fixture is byte-identical to what it built
+		// before either raise, which is the point of reading the per-stage cap here.
 		return blob(IrValidator.maxStructuralOps(OcslWire.STAGE_PIXEL_POST) - 4);
 	}
 
@@ -413,10 +414,14 @@ public class ProgramStorageTest {
 	public void aProgramOverTheStructuralCapIsRefusedAndChargesNothing() throws Exception {
 		ServerScene server = new ServerScene(SCENE);
 		// TWO SEQUENTIAL 200-trip loops, the IrValidatorTest idiom: sequential loops do not
-		// multiply against the unroll-product cap (each path is 200 <= 256), but their bodies SUM
-		// into the structural charge — 1 splat + 200 + 200 + 1 out = 402, well past 256. A single
-		// 257-trip loop would be refused too, but by the UNROLL cap with a different message, and
-		// a test that fails for an unintended reason is not evidence about the rule it names.
+		// multiply against the unroll-product cap (each path is 200, far under it), but their
+		// bodies SUM into the structural charge — 1 splat + 200 + 200 + 1 out = 402, well past
+		// the pixel stage's 256. The second sentence here used to read "a single 257-trip loop
+		// would be refused by the UNROLL cap with a different message"; both halves went stale --
+		// 256 stopped being the unroll cap at the 2026-08-21 raise, and since increment M (8192)
+		// a 257-trip loop is refused by the SAME op-cap message. The idiom is kept because it
+		// still demonstrates unroll-independence, not because it is needed to dodge a confusing
+		// refusal.
 		final int w = SurfaceTable.WORKING_BASE;
 		final int k0 = OcslWire.OPERAND_CONST_FLAG; // constant-pool index 0
 		java.util.ArrayList<IrOp> ops = new java.util.ArrayList<IrOp>();

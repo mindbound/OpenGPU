@@ -255,15 +255,25 @@ public final class OcslWire {
 	 * than its own size. A 6-op blob reading {@code FOR 65535 / FOR 65535 / ADD / ENDFOR / ENDFOR
 	 * / OUT} is otherwise perfectly valid and denotes 4.29e9 executed instructions.
 	 *
-	 * These are DELIBERATELY far above the validator's unroll-product cap
-	 * ({@code IrValidator.MAX_UNROLL_PRODUCT}, deliberately not quoted here as the operative
-	 * number, only recounted as history: it moved 256 -> 1024 on
-	 * 2026-08-21 in lockstep with the ceiling, and this sentence still read "(256, frozen)" on
-	 * 2026-08-23 — a number copied into prose drifts, and "frozen" was wrong about a cap that is
-	 * pinned to a moving one). They are
-	 * not that cap and must not be confused with it: this bounds what can be *described*, the
-	 * validator bounds what is *accepted*, and only the latter is raiseable under the monotonicity
-	 * rule.
+	 * The DEPTH bound is what keeps the describable space far above anything the validator
+	 * accepts: 4096^16 is ~6.3e57 executed instructions from a 34-op blob, against an acceptance
+	 * ceiling in the thousands. The TRIP bound no longer is — see the ordering note below.
+	 *
+	 * These are not the validator's unroll-product cap ({@code IrValidator.MAX_UNROLL_PRODUCT},
+	 * deliberately not quoted here as the operative number, only recounted as history: it moved
+	 * 256 -> 1024 on 2026-08-21 and 1024 -> 8192 at M on 2026-08-27, in lockstep with the ceiling
+	 * both times; and this sentence still read "(256, frozen)" on 2026-08-23 — a number copied
+	 * into prose drifts, and "frozen" was wrong about a cap that is pinned to a moving one).
+	 * They are not that cap and must not be confused with it: this bounds what can be
+	 * *described*, the validator bounds what is *accepted*, and only the latter is raiseable
+	 * under the monotonicity rule.
+	 *
+	 * ORDERING INVERTED AT M, and it moved a refusal: {@code MAX_LOOP_TRIPS} (4096) used to sit
+	 * ABOVE the unroll cap and was therefore redundant defence-in-depth — anything this bound
+	 * refused, that cap refused first. At 8192 it sits BELOW, so a single FOR of 4097..8192 trips
+	 * is refused HERE and nowhere else, and a single loop can no longer reach the unroll cap at
+	 * all. {@code IrStructure.check} is the site that enforces it; {@code IrValidator}'s FOR arm
+	 * carries the matching note.
 	 */
 	public static final int MAX_LOOP_TRIPS = 4096;
 	public static final int MAX_LOOP_DEPTH = 16;

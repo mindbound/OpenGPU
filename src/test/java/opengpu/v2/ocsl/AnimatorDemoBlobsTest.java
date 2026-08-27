@@ -207,9 +207,9 @@ public class AnimatorDemoBlobsTest {
 			IrValidator.Validated validated = IrValidator.validate(program);
 			// The ANIMATOR's cap, not the ceiling — the panel found this was the one
 			// animator-denominated headroom check left dividing MAX_STRUCTURAL_OPS after the
-			// per-stage split. NOT equal since the same-day raise (animator 512 vs ceiling 1024):
-			// dividing the ceiling here would already loosen this bound 2x past the budget these
-			// programs are actually priced against.
+			// per-stage split. NOT equal since the 2026-08-21 raise, and 16x apart since increment
+			// M (animator 512 vs ceiling 8192): dividing the ceiling here would loosen this bound
+			// 16x past the budget these programs are actually priced against.
 			int animCap = IrValidator.maxStructuralOps(OcslWire.STAGE_ANIMATOR);
 			if ("HEAVY".equals(demo.getKey())) {
 				// THE ONE DELIBERATE EXEMPTION, and it is exempt from the HEADROOM rule only —

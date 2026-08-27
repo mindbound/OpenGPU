@@ -695,7 +695,10 @@ public class OcslBuilderTest {
 		OcslBuilder b = OcslBuilder.forStage(OcslWire.STAGE_PIXEL_MATERIAL);
 		Expr x = b.builtin(SurfaceTable.REG_TIME);
 		try {
-			for (int i = 0; i < IrValidator.MAX_STRUCTURAL_OPS + 10; i++) {
+			// The PER-STAGE cap + 10, not the ceiling: the refusal under test reads the per-stage
+			// number, and anchoring the fail-safe to the ceiling made "ten past the cap" mean
+			// 7,946 past it after increment M.
+			for (int i = 0; i < IrValidator.maxStructuralOps(OcslWire.STAGE_PIXEL_MATERIAL) + 10; i++) {
 				x = x.sin();
 			}
 			fail("the op cap must stop this");
@@ -948,8 +951,16 @@ public class OcslBuilderTest {
 	 * Programs are stored INLINE in the scene snapshot under a per-scene byte ledger. Two caps
 	 * are easy to confuse and the first draft of this test confused them:
 	 *
-	 *   OcslWire.MAX_OPS = 4096          the CODEC's structural wire bound
-	 *   IrValidator.MAX_STRUCTURAL_OPS = 256   what a program may actually CHARGE
+	 *   OcslWire.MAX_OPS = 4096                  the CODEC's structural wire bound
+	 *   IrValidator.MAX_STRUCTURAL_OPS = 8192    the acceptance CEILING (1024 before M)
+	 *   IrValidator.maxStructuralOps(stage) = 256 (pixel) / 512 (animator)   what a program
+	 *                                            may actually CHARGE, and what the assertion
+	 *                                            at the end of this test reads
+	 *
+	 * Note the inversion increment M created: the acceptance ceiling now sits ABOVE the
+	 * codec's static-op bound. They bound different things -- post-unroll charge vs static op
+	 * RECORDS -- so it is not a contradiction, but the contrast this table draws no longer
+	 * reads the way it did.
 	 *
 	 * The validator's is the one that binds acceptance (its caps are policy, raiseable under
 	 * monotonicity; the codec's are format identity — IrCodec's class contrast), so sizing the
@@ -957,12 +968,18 @@ public class OcslBuilderTest {
 	 * op cap does not bound BYTES — the constant pool is uncharged, so the byte-maximal program
 	 * is pool-heavy, not op-heavy; ProgramLedgerBoundTest measures that axis. An earlier draft
 	 * here also misquoted IrValidator ("refuses anything the 4096 wire bound would") as being
-	 * about this pair — that sentence is OP_FOR's, about MAX_LOOP_TRIPS vs MAX_UNROLL_PRODUCT,
-	 * which merely share the numbers.
+	 * about this pair — that sentence was OP_FOR's, about MAX_LOOP_TRIPS vs MAX_UNROLL_PRODUCT,
+	 * which merely shared the numbers. Increment M rewrote that sentence: at 8192 the unroll
+	 * cap sits ABOVE the 4096 trip bound and no longer subsumes it, so IrStructure is what
+	 * refuses an over-trip loop. The quotation above is kept as the record of the misquote.
 	 *
 	 * This builds the largest program of THE CHEAPEST BYTES-PER-OP SHAPE and measures its blob.
-	 * If MAX_STRUCTURAL_OPS or MAX_FRAME_WIDTH is ever raised (ANIM-16), this number moves and
-	 * the ledger's arithmetic must be re-derived, not assumed.
+	 * If maxStructuralOps(stage) or MAX_FRAME_WIDTH is ever raised, this number moves and the
+	 * ledger's arithmetic must be re-derived, not assumed. REACHED AND CHECKED at increment M
+	 * (2026-08-27): M raised the CEILING, not the per-stage cap, and that assertion reads the per-stage
+	 * one — so the arithmetic did NOT move and nothing here needed re-deriving. The obligation
+	 * is re-pointed at maxStructuralOps(stage) so the next raise trips it for the right
+	 * reason; naming the ceiling here was what made it fire spuriously.
 	 */
 	@Test
 	public void aProgramAtTheAcceptanceCeilingEncodesWithinTheLedgersArithmetic() throws Exception {

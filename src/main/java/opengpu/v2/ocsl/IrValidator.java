@@ -43,14 +43,49 @@ public final class IrValidator {
 	 * above the ceiling would have this validator accepting programs the decoders then refuse.
 	 *
 	 * RAISED 256 → 1024 on 2026-08-21 (user decision, against the cap-adequacy review), and
-	 * DELIBERATELY PAST today's largest per-stage cap: the ceiling move is the format-adjacent
-	 * event — after it, every per-stage adjustment up to 1024 is free acceptance policy, so
-	 * paying the event once buys the whole band. The known cost, stated rather than hidden:
-	 * the moment a >256-charge program is saved or sent, an OLDER build's decoder refuses the
-	 * whole batch or save with a generic CodecException — monotonicity covers upgrades only.
+	 * RAISED AGAIN 1024 → 8192 on 2026-08-27 (increment M). DELIBERATELY PAST today's largest
+	 * per-stage cap both times: the ceiling move is the format-adjacent event — after it, every
+	 * per-stage adjustment up to the ceiling is free acceptance policy, so paying the event once
+	 * buys the whole band. The known cost, stated rather than hidden: the moment a program is
+	 * saved or sent whose charge exceeds what an OLDER build's ceiling allowed, that build's
+	 * decoder refuses the whole batch or save with a generic CodecException — monotonicity
+	 * covers upgrades only. There are now two such thresholds in the wild, and they are not
+	 * equally live: builds before 2026-08-21 refuse >256, which a 512-charge animator program
+	 * reaches today; builds between then and M refuse >1024, which nothing reachable can trip
+	 * while every per-stage cap stays at or under 512 — {@code ServerScene}'s postcondition
+	 * bounds the createProgram path by {@code maxStructuralOps(stage)}, not by this. That second
+	 * threshold is a cost the increment which first raises a per-stage cap past 1024 inherits,
+	 * not one M paid.
 	 * One-way door: never tightenable once such blobs exist.
+	 *
+	 * THE MAGNITUDE, which the 2026-08-21 raise never recorded and M owes. The direction was
+	 * always argued; the NUMBER never was. Sized against the shapes a ceiling would be asked
+	 * for, measured rather than guessed — {@code CapIntuitionTest} charges ONE raymarch step at
+	 * 28 structural ops and adds 132 for the normal and shading (4 further SDF evaluations plus
+	 * ~20), so the ladder is 24 steps → 804, 32 → 1028, 48 → 1476, 64 → 1924; the compute
+	 * sketch's all-pairs kernel estimates 456 + 276×15 = 4,596. 8192 clears raymarch-64 by 6,268
+	 * and the all-pairs estimate by 3,596. 2048 would clear the first by 124.
+	 *
+	 * BUT PRICE THE ALL-PAIRS SHAPE IN THE FORM OCSL CAN ACTUALLY WRITE, which the paragraph
+	 * below concedes and this one must not gloss: 276 pairs needs a TRIANGULAR nest that
+	 * {@code OP_FOR}'s immediate trip count cannot express. The expressible square form is
+	 * 24x24 = 576 pairs, so 456 + 576x15 = 9,096 — which 8192 REFUSES. The all-pairs point
+	 * therefore does not separate 8192 from 2048 at all: neither admits a writable all-pairs
+	 * kernel. On evidence the raymarch ladder is the whole case, and it argues for 2048.
+	 *
+	 * The evidence is not uniform and the record should not read as though it were: the raymarch
+	 * ladder is EXACT and on its own argues for 2048. The all-pairs figure estimates a program
+	 * {@code OP_FOR}'s immediate trip count cannot express at any ceiling (a triangular nest;
+	 * the expressible square form is 576 pairs), at ±276 ops per ±1 op/pair. 8192-over-2048
+	 * rests on amortization — paying the codec-adjacent event once — which is a values call the
+	 * user made, not an evidence call. PLAN-STAGE-C's D9 is the posture that made it cheap:
+	 * unpublished, single-user, one-way doors at LOW weight until publication.
+	 *
+	 * What M did NOT move, so nobody reads the raise as wider than it is: no per-stage cap
+	 * (animator 512, everything else 256), so no program refused before M is accepted after it.
+	 * The raise serves the pixel and compute stages later and nothing today.
 	 */
-	public static final int MAX_STRUCTURAL_OPS = 1024;
+	public static final int MAX_STRUCTURAL_OPS = 8192;
 	/** Texture fetches, post-unroll, user tier. */
 	public static final int MAX_FETCHES = 16;
 
@@ -112,7 +147,7 @@ public final class IrValidator {
 				// gate — "the pixel stages need a GLSL-side measurement nobody has taken" — is
 				// unmet, and these stages execute nothing today, so a raise would spend a number
 				// that should come from data while refusing nothing anyone can run. When the
-				// measurement lands, each stage gets a case HERE, under the 1024 ceiling.
+				// measurement lands, each stage gets a case HERE, under the 8192 ceiling.
 				return 256;
 		}
 	}
@@ -161,14 +196,21 @@ public final class IrValidator {
 	/** Uniform COMPONENTS, against the GL 2.1 minimum of 64 fragment components. */
 	public static final int MAX_UNIFORM_COMPONENTS = 64;
 	/**
-	 * Product of all loop trip counts. Equal to the CEILING, in lockstep since 2026-08-21 —
-	 * raised with it precisely so it stays non-binding: unrollProduct <= charged ops (the
-	 * empty-body rule) <= the stage's cap <= this. Left at 256 while the ceiling moved to 1024,
-	 * a thin FOR-512 loop with a one-op body would charge legally under the animator's 512 and
-	 * still be refused at the FOR — loop-heavy shapes becoming second-class exactly where a
-	 * raise aims.
+	 * Product of all loop trip counts. Equal to the CEILING, in lockstep since 2026-08-21 and
+	 * moved with it again at M (2026-08-27) — raised with it precisely so it stays non-binding:
+	 * unrollProduct <= charged ops (the empty-body rule) <= the stage's cap <= this. Left at 256
+	 * while the ceiling moved to 1024, a thin FOR-512 loop with a one-op body would charge
+	 * legally under the animator's 512 and still be refused at the FOR — loop-heavy shapes
+	 * becoming second-class exactly where a raise aims. The chain now reads
+	 * unrollProduct <= charge <= 512 <= 8192, so the slack is now 16x, up from 2x.
+	 *
+	 * ORDERING NOTE, new at M and worth knowing before reading the FOR arm: this cap is now
+	 * ABOVE {@code OcslWire.MAX_LOOP_TRIPS} (4096), where it used to sit below it. A SINGLE loop
+	 * can therefore no longer reach this cap at all — the most one FOR can contribute is 4096 —
+	 * so tripping it now requires nesting depth 2 or more. {@code IrStructure} is what refuses an
+	 * over-trip single loop; see the FOR arm's comment.
 	 */
-	public static final int MAX_UNROLL_PRODUCT = 1024;
+	public static final int MAX_UNROLL_PRODUCT = 8192;
 
 	private IrValidator() {}
 
@@ -357,10 +399,16 @@ public final class IrValidator {
 							+ " accumulator would be its init value, which the program can write"
 							+ " directly");
 				}
-				// No MAX_LOOP_TRIPS check here on purpose: trips is always <= multiplier <=
-				// unrollProduct, so the unroll cap below (1024 since 2026-08-21) refuses anything the
-				// 4096 wire bound would
-				// have, and a second check that can never fire reads like protection it is not.
+				// No MAX_LOOP_TRIPS check here on purpose -- but the REASON changed at M and the
+				// old one is now false, so it is written out rather than trimmed. It used to be
+				// "trips <= multiplier <= unrollProduct, so the unroll cap below refuses anything
+				// the 4096 wire bound would": true while that cap was 1024, since {T > 4096} was a
+				// subset of {T > 1024}. At 8192 it is FALSE -- a single FOR of 5000 trips is over
+				// the wire bound and UNDER the unroll cap. The conclusion survives for a different
+				// reason: IrStructure.check runs FIRST (see validate()'s opening try) and refuses
+				// any FOR whose immediate exceeds MAX_LOOP_TRIPS, wrapping it as a
+				// ValidationException. So the trip bound is enforced, just not here -- and a
+				// duplicate check here would still be protection it is not.
 				multiplier *= trips;
 				// The cap is on the deepest NESTING PATH, not on every loop in the program
 				// multiplied together. `multiplier` is already the per-nest product and ENDFOR
