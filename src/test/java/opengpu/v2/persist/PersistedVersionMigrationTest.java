@@ -910,14 +910,6 @@ public class PersistedVersionMigrationTest {
 	}
 
 	/**
-	 * The guard that makes the NEXT bump decide, instead of silently repeating this bug.
-	 *
-	 * Nothing else can catch the omission. A persisted-version gap is invisible on the build that
-	 * introduces it — every save that build writes is current-version, so every test is green and
-	 * every in-game load works. It only appears on a world written by the PREVIOUS build, which
-	 * nothing in CI has. This fails the moment PROTOCOL_VERSION moves, next to the instructions.
-	 */
-	/**
 	 * A v5 structure: everything v4 wrote plus `parent`, and NO program section — which is
 	 * exactly what every world saved before the 5 -> 6 bump holds on disk. Pinned to a LITERAL
 	 * 5, never to PROTOCOL_VERSION, for the reason this file states throughout: a fixture that
@@ -1415,8 +1407,145 @@ public class PersistedVersionMigrationTest {
 				result.scene.state().programs.isEmpty());
 	}
 
-	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 10;
+	/**
+	 * A v10 structure, pinned to the LITERAL 10 — what every world saved between the 9 → 10 and
+	 * 10 → 11 bumps holds on disk.
+	 *
+	 * v10's layout IS v11's: the 10 → 11 bump (C1.3.2, lighting) claimed one node-type id and
+	 * changed no record. So this differs from a current fixture only in its version short, which
+	 * is the 8 → 9 shape again — and the reason that shape still needs a fixture is unchanged.
+	 * What is being proved is not that the layout survived (it did not change) but that the v11
+	 * READER ACCEPTS A 10. The whole risk of this bump lives in the version gate, where
+	 * forgetting to whitelist 10 answers every existing world by deleting its scenes.
+	 *
+	 * Unlike the v9 fixture this one carries a MESH, a non-identity 3D TRS and a UNIFORM ENTRY —
+	 * everything the 9 → 10 bump appended. A v10 fixture that omitted them would still exercise
+	 * the version gate, but it would not exercise the gate ON THE SECTIONS v10 ADDED, and those
+	 * are the reads that a mis-gated v11 would misalign. The uniform name is __proj because a
+	 * reserved name is the one entry whose meaning the renderer acts on.
+	 */
+	private static byte[] v10Structure() throws IOException {
+		final int canvasId = 1;
+		final int meshId = 2;
+		// Three vertices at the frozen stride, and a three-index triangle. The CONTENT is
+		// irrelevant to the version gate; the LENGTHS are not, since the record declares both a
+		// vertex count and a byte size and the decoder checks them against each other.
+		byte[] vertexBytes = new byte[3 * V2Wire.MESH_VERTEX_STRIDE];
+		for (int i = 0; i < vertexBytes.length; i++) {
+			vertexBytes[i] = (byte) (i & 0x7F);
+		}
+		byte[] indexBytes = new byte[3 * V2Wire.MESH_INDEX_BYTES];
+		indexBytes[0] = 0; indexBytes[2] = 1; indexBytes[4] = 2;
 
+		StructureWriter w = new StructureWriter((short) 10, "gpu-addr", EPOCH, 7, 900L, 3, 3);
+		w.resources(2)
+				.canvasWithContent(canvasId, 64, 32, 16)
+				.meshV10(meshId, vertexBytes, indexBytes);
+		// Values no field swap survives, the v8 fixture's rule: tz, sz and each quaternion
+		// component differ from one another, so a decoder reading the six doubles in the wrong
+		// order produces different numbers rather than the same ones.
+		w.nodes(2)
+				.nodeV10(1, V2Wire.NODE_CANVAS, canvasId, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L,
+						0, 1, 0, 0, 0, 1)
+				.nodeV10(2, V2Wire.NODE_MESH_INSTANCE, meshId, 1.5, -2.5, 3, 0x80FF00FF, 1, 0, 0L,
+						7.25, 2.5, 0.125, 0.25, 0.375, 0.5);
+		w.programsV6(5, 1);
+		w.creationWorldTimeV7(4242L);
+		w.worldTimeAnchorV8(0x0000000500000006L);
+		w.uniformSectionV10(1)
+				.uniformGroupV10(2, 1)
+				.uniformEntryV10("__proj", 1.0, 0.75, 0.1, 100.0);
+		return w.done();
+	}
+
+	/**
+	 * THE 10 → 11 BUMP'S OBLIGATION, discharged: a v10 save must still load after NODE_LIGHT
+	 * joined the node-type table.
+	 *
+	 * This is the "easiest obligation in the file" shape for the third time, and the reasoning
+	 * that makes it skippable is the reasoning that makes it necessary. The 10 → 11 bump changed
+	 * NO layout — it widened the legal VALUE SPACE of an existing field — so every test built
+	 * from PROTOCOL_VERSION stayed green on the build that introduced it, and every save that
+	 * build writes is a v11. The gap would appear only on a world written by the previous build,
+	 * which nothing in CI has. That is exactly the invisibility the guard below describes.
+	 *
+	 * Driven through restore as well as the codec, because those are different policies:
+	 * restoreOrFresh turns a CodecException into deletion of the stored bodies, so a codec-only
+	 * pass would not see the expensive half of the failure.
+	 */
+	@Test
+	public void aV10StructureStillDecodesAfterNodeLightJoinedTheTypeTable() throws Exception {
+		byte[] structure = v10Structure();
+
+		SceneSnapshot decoded = SnapshotCodec.decodePersisted(structure);
+		assertEquals("a v10 scene restores its nodes", 2, decoded.state.nodes.size());
+		assertEquals("and both resources, the mesh included", 2, decoded.state.resources.size());
+		assertEquals("and its programs", 1, decoded.state.programs.size());
+
+		SceneNode two = decoded.state.nodes.get(Integer.valueOf(2));
+		assertEquals("the mesh instance kept its ref", 2, two.ref);
+		// The six v10 doubles, each distinct, read back at their own offsets. A reader that
+		// swapped any pair returns a different number here rather than the same one.
+		assertEquals("tz", 7.25, two.tz, 0.0);
+		assertEquals("sz", 2.5, two.sz, 0.0);
+		assertEquals("qx", 0.125, two.qx, 0.0);
+		assertEquals("qy", 0.25, two.qy, 0.0);
+		assertEquals("qz", 0.375, two.qz, 0.0);
+		assertEquals("qw", 0.5, two.qw, 0.0);
+
+		assertEquals("the v10 uniform section survived the gate", 1, two.uniforms.size());
+		double[] proj = two.uniforms.get("__proj");
+		assertTrue("__proj is present under its reserved name", proj != null);
+		assertEquals("and carries all four components", 4, proj.length);
+		assertEquals("mode", 1.0, proj[0], 0.0);
+		assertEquals("far", 100.0, proj[3], 0.0);
+
+		ScenePersistence.RestoreResult result = ScenePersistence.restore(structure, store);
+		assertEquals("restore agrees with the codec rather than deleting the scene",
+				2, result.scene.state().nodes.size());
+		assertEquals("and keeps the mesh resource", 2, result.scene.state().resources.size());
+
+		// AND THROUGH restoreOrFresh, which is the leg this file's own bump instruction asks for
+		// and which no fixture here had ever run on a VALID structure — every one of them stops
+		// at restore(). The distinction is the whole point of the instruction: restore() throws
+		// on a bad structure and deletes nothing, while restoreOrFresh() is the caller that turns
+		// a CodecException into deleteScene. Only this leg exercises the policy that costs a save.
+		//
+		// Worth being precise about what it adds and what it does not, so the next bump does not
+		// over-trust it: restoreOrFresh's version gate is DERIVED (version >= V2_VERSION &&
+		// version <= PROTOCOL_VERSION), so unlike SnapshotCodec's hand-maintained list it picked
+		// up v10 automatically and cannot suffer the forgot-to-whitelist failure. The whitelist
+		// obligation is covered by the decodePersisted leg above, which goes red if 10 is dropped
+		// from LAYOUT_COMPATIBLE_PERSISTED_VERSIONS. What THIS leg covers is the end-to-end claim
+		// the instruction actually makes: a v10 world loads under v11 without being archived.
+		ScenePersistence.RestoreResult viaOrFresh =
+				ScenePersistence.restoreOrFresh("gpu-addr", structure, store);
+		assertEquals("a v10 world survives the path that is allowed to delete it",
+				2, viaOrFresh.scene.state().nodes.size());
+		assertEquals("with its mesh resource intact", 2, viaOrFresh.scene.state().resources.size());
+		// The wrong answer written in: a fresh scene ALSO has a ServerScene and would pass a
+		// null check, so the failure mode being excluded is "archived and started blank", which
+		// announces itself in warnings and nowhere else.
+		assertTrue("and with NO warnings — an archived or degraded load says so here, and a"
+				+ " silently blank scene is exactly what this leg exists to catch, got: "
+				+ viaOrFresh.warnings, viaOrFresh.warnings.isEmpty());
+	}
+
+	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 11;
+
+	/**
+	 * The guard that makes the NEXT bump decide, instead of silently repeating this bug.
+	 *
+	 * Nothing else can catch the omission. A persisted-version gap is invisible on the build that
+	 * introduces it — every save that build writes is current-version, so every test is green and
+	 * every in-game load works. It only appears on a world written by the PREVIOUS build, which
+	 * nothing in CI has. This fails the moment PROTOCOL_VERSION moves, next to the instructions.
+	 *
+	 * (RE-HOMED 2026-08-28. This javadoc had drifted ~500 lines away from the test it describes
+	 * and sat immediately above v5Structure's own javadoc, where javac keeps only the second and
+	 * discards this one. It documented nothing, and the guard it explains is the one thing in
+	 * this file that a future bump reads first.)
+	 */
 	@Test
 	public void aProtocolBumpMustDecideWhatHappensToTheOutgoingFormat() {
 		assertEquals("PROTOCOL_VERSION moved to " + V2Wire.PROTOCOL_VERSION + ". Decide, in the"

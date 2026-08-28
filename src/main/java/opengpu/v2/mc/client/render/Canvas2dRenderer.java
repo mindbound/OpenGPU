@@ -301,11 +301,11 @@ public final class Canvas2dRenderer {
 	 * where "visible" and "drawn" part company.
 	 */
 	static boolean isDrawn(SceneNode n, SceneState state) {
-		if (!n.visible) {
-			return false;
-		}
-		SceneNode parent = parentOf(n, state);
-		return parent == null || parent.visible;
+		// DELEGATES since C1.3.2 — the rule itself lives in SceneState.isEffectivelyVisible,
+		// because the 3D layer's light selection needs the same question answered from a
+		// different package and two copies of a visibility rule is how they drift apart. This
+		// method stays as the package-local name its own callers and javadoc are written around.
+		return state.isEffectivelyVisible(n);
 	}
 
 	/**

@@ -325,6 +325,40 @@ public final class ServerScene {
 	}
 
 	/**
+	 * The reserved light entry's name: {@code __light = vec4(kind, r, g, b)} (v11, C1.3.2).
+	 *
+	 * The SECOND reserved name, and it follows {@code __proj}'s shape for {@code __proj}'s
+	 * reasons: one atomic vec4 rather than four scalars, so a table-full refusal is a clean
+	 * whole refusal with nothing staged and no torn half-written light.
+	 *
+	 * It rides a {@link V2Wire#NODE_LIGHT} node, whose own quaternion carries the DIRECTION —
+	 * which is why the colour needs only four components and why the 10 → 11 bump added no
+	 * field.
+	 *
+	 * <b>THERE IS NO HOST VERB THAT WRITES THIS YET, and nothing in this class validates it.</b>
+	 * The constants are declared here because this is where the reserved-name vocabulary lives,
+	 * but the authoring verb is C1.3.2 group C. Until it lands, the ONLY gate on {@code __light}
+	 * — type check and value band alike — is on the READ side, in
+	 * {@link SceneState#lightParams}. Said explicitly because the sibling paragraph twelve lines
+	 * above carries the scar of getting exactly this wrong: a javadoc that described renderer
+	 * behaviour which no renderer implemented (CASEBOOK D11).
+	 *
+	 * When the verb does land it is expected to gate on NODE_LIGHT the way
+	 * {@link #setProjection} gates on NODE_CAMERA, at which point {@code lightParams} becomes
+	 * the second check rather than the only one — the position {@code cameraProjection} already
+	 * holds. That is a plan, not a description of present code.
+	 */
+	public static final String LIGHT_UNIFORM = "__light";
+	/**
+	 * {@code __light} kind component. DIRECTIONAL and POINT each consume one of the renderer's
+	 * two hardware light slots; AMBIENT consumes NONE — it folds into the light-model ambient
+	 * term, which is what makes a two-light ceiling usable rather than cramped.
+	 */
+	public static final double LIGHT_DIRECTIONAL = 1;
+	public static final double LIGHT_POINT = 2;
+	public static final double LIGHT_AMBIENT = 3;
+
+	/**
 	 * Write packed RGBA pixels into a texture region. The pixels always travel with the
 	 * delta — there is no invalidate-and-refetch form, because that costs sizeBytes per
 	 * watcher per refresh with no bound.

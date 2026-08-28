@@ -85,7 +85,33 @@ public final class V2Wire {
 	 * v8's; every v10 change is an append behind version >= 10 gates), and the v9 golden
 	 * fixture + frozen v10 writers land in PersistedVersionMigrationTest in this same change.
 	 */
-	public static final short PROTOCOL_VERSION = 10;
+	/*
+	 * Bumped 10 -> 11 on 2026-08-28 for Stage C's C1.3.2 — lighting. ONE id is claimed:
+	 * NODE_LIGHT = 6. Nothing else moves.
+	 *
+	 * Answering both questions aProtocolBumpMustDecideWhatHappensToTheOutgoingFormat asks:
+	 *
+	 *  (1) THE RECORDS: UNCHANGED. A light is an ordinary node — it carries its colour in the
+	 *      uniform table v10 already built (__light), and its direction in the quaternion v10
+	 *      already appended. No field is added, widened, moved or reordered, so a v10 node
+	 *      record and a v11 node record are the same bytes. v10 therefore joins
+	 *      LAYOUT_COMPATIBLE_PERSISTED_VERSIONS unconditionally, with no read gated on
+	 *      version >= 11 anywhere.
+	 *  (2) THE OP TABLE: did NOT move. No new canvas op, no arity change, no retired id reused.
+	 *
+	 * Why a bump at all, when nothing structural changed: the byte 6 in a node record's type
+	 * field means "a node exists here" to a v11 jar and "this save is corrupt" to a v10 one.
+	 * SnapshotCodec's unknown-type check throws from the SHARED decode, and on the persisted
+	 * path ScenePersistence.restoreOrFresh answers a CodecException by DELETING the scene's
+	 * stored bodies. Widening the value space of an existing field is a format change even
+	 * when the layout is untouched, and the version is the only thing that says so.
+	 *
+	 * KNOWN AND ACCEPTED, not an oversight: this is one-directional. A v11 save loaded by a
+	 * v10 jar loses the scene. That is the pre-existing shape of every bump here and it is
+	 * priced against a single-user, unpublished mod; the DOWNGRADE path is not defended. The
+	 * forward path — a v10 save loaded by v11 — is defended, by the list entry above.
+	 */
+	public static final short PROTOCOL_VERSION = 11;
 
 	// Delta type ids
 	public static final byte DELTA_NODE_CREATE = 1;
@@ -190,6 +216,20 @@ public final class V2Wire {
 	// lookAt math, parenting and interpolation all reuse the one machine (DESIGN's decision).
 	public static final byte NODE_MESH_INSTANCE = 4;
 	public static final byte NODE_CAMERA = 5;
+	/*
+	 * Stage C (v11): a light, by the same decision as the camera above — it is a NODE so that
+	 * parenting, the visible flag and the transform tree all reuse the one machine. A light
+	 * that follows a rig is then free rather than a special case.
+	 *
+	 * It adds NO FIELD to the node record. Colour rides the v10 uniform table as the reserved
+	 * __light entry; direction is the node's own quaternion, read the same way a camera's is.
+	 * That is why the 10 -> 11 bump could leave the layout alone — see PROTOCOL_VERSION.
+	 *
+	 * ADDING A SEVENTH IS NOT FREE. isKnownNodeType is a whitelist consulted at three sites
+	 * (BatchCodec, SnapshotCodec, DeltaApplier) and the FFP ceiling is two lights, enforced
+	 * where the lights are selected rather than where they are created.
+	 */
+	public static final byte NODE_LIGHT = 6;
 
 	// Resource types
 	public static final byte RES_TEXTURE = 1;
@@ -469,9 +509,23 @@ public final class V2Wire {
 	public static final int PERSIST_BODY_MAGIC = 0x4F475042;
 	public static final short PERSIST_BODY_FORMAT = 1;
 
+	/**
+	 * The node-type whitelist, consulted at three sites: BatchCodec (network decode),
+	 * SnapshotCodec (both decode paths) and DeltaApplier (server and mirror apply).
+	 *
+	 * Every id this accepts is a format commitment, because the three callers answer "no"
+	 * DESTRUCTIVELY on one path — SnapshotCodec throws from the shared decode, and the
+	 * persisted caller answers a CodecException by deleting the scene's bodies. Adding an id
+	 * here without moving PROTOCOL_VERSION is therefore how an old jar deletes a new world;
+	 * {@code ProtocolVersionTest.everyWireIdTableIsPinnedToThisVersion} is the test that
+	 * refuses it — and it guards this whitelist, isKnownResType, the canvas op table and the
+	 * delta type ids alike, by reading the constants off this class rather than by walking any
+	 * one predicate.
+	 */
 	public static boolean isKnownNodeType(byte type) {
 		return type == NODE_CANVAS || type == NODE_SPRITE || type == NODE_GROUP
-				|| type == NODE_MESH_INSTANCE || type == NODE_CAMERA;
+				|| type == NODE_MESH_INSTANCE || type == NODE_CAMERA
+				|| type == NODE_LIGHT;
 	}
 
 	public static boolean isKnownResType(byte type) {

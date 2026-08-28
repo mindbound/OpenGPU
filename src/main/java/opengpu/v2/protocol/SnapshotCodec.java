@@ -246,6 +246,20 @@ public final class SnapshotCodec {
 	 *       with identity 3D transforms (sz = 1, qw = 1 — the gate arms restore the IDENTITY, not
 	 *       zeros), no meshes and empty uniform tables, which is what it had. The op table did
 	 *       not change in this bump.
+	 *  10 — BYTE-IDENTICAL, and the first entry here whose bump changed no LAYOUT at all. The
+	 *       10 → 11 bump (C1.3.2, lighting) claimed ONE node-type id, NODE_LIGHT = 6. A light
+	 *       carries its colour in the v10 uniform table and its direction in the v10 quaternion,
+	 *       so no field was added, widened, moved or reordered: a v10 node record and a v11 node
+	 *       record are the same bytes, and NOTHING is gated on version >= 11. The op table did
+	 *       not change in this bump.
+	 *
+	 *       Worth being precise about why the bump happened anyway, because this list's own rule
+	 *       is about layout and this entry is not: the change is to the VALUE SPACE of an
+	 *       existing field. Byte 6 in a node's type field is a node to v11 and a corrupt save to
+	 *       v10, since isKnownNodeType gates the read and the throw lands on the persisted path.
+	 *       Widening what an existing field may legally CONTAIN is a format change even when
+	 *       every offset is untouched, and only the version records it. The compatibility this
+	 *       entry buys is one-directional (v10 save → v11 jar); the reverse is not defended.
 	 *
 	 * IF A FUTURE BUMP MOVES, RESIZES OR REORDERS AN EXISTING FIELD, IT DOES NOT BELONG HERE, and
 	 * no gate rescues it. Write a decoder for the old layout instead, as
@@ -268,7 +282,7 @@ public final class SnapshotCodec {
 	 * TE saves before its scene is initialised. A world can therefore carry a v3 structure
 	 * through any number of v4 sessions.
 	 */
-	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4, 5, 6, 7, 8, 9 };
+	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4, 5, 6, 7, 8, 9, 10 };
 
 	/**
 	 * Legality of a decoded parent, answered identically on both paths — and answered DIFFERENTLY

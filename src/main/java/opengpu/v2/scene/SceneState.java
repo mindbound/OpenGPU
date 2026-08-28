@@ -223,6 +223,165 @@ public final class SceneState {
 	}
 
 	/**
+	 * Whether this node is visible AND not hidden by its parent — EFFECTIVE visibility.
+	 *
+	 * One lookup, never a loop, because nesting is capped at one level (see
+	 * {@link Transform3d#parentOf}). Lives here rather than in the renderer because two
+	 * consumers in different packages now need it and a second copy is how the two drift:
+	 * {@code Canvas2dRenderer.isDrawn} delegates to this, and the 3D layer's light selection
+	 * calls it directly.
+	 *
+	 * <b>Contrast {@link #activeCamera()}, which deliberately does NOT use this.</b> The two
+	 * predicates disagree on exactly one scene — a node parented to a hidden group — and each
+	 * rule is correct for its own consumer. Read both javadocs before unifying them.
+	 */
+	public boolean isEffectivelyVisible(SceneNode node) {
+		if (node == null || !node.visible) {
+			return false;
+		}
+		SceneNode parent = Transform3d.parentOf(node, this);
+		return parent == null || parent.visible;
+	}
+
+	/**
+	 * The renderer's hardware light ceiling: at most this many NON-AMBIENT lights are selected.
+	 *
+	 * Two, because Angelica's fixed-function emulation packs exactly two
+	 * ({@code VertexKey.FFP_LIGHT_COUNT = 2}); {@code GL_LIGHT2..GL_LIGHT7} are accepted,
+	 * tracked, and then DROPPED by the pack loop, warning once per index per JVM. So the
+	 * ceiling is enforced HERE, where the drop is visible and deterministic, rather than being
+	 * discovered as missing light in the picture.
+	 *
+	 * Deliberately NOT a server admission gate. The server accepts any number of light nodes —
+	 * gating creation on a client-side rendering limit would make a scene un-authorable on the
+	 * machine that can render it least, and the caps doctrine keeps renderer limits out of the
+	 * server's ledger. What the ceiling costs is that the third light does not LIGHT, not that
+	 * it cannot EXIST.
+	 */
+	public static final int MAX_ACTIVE_LIGHTS = 2;
+
+	/**
+	 * A light node's validated {@code __light} entry, or null when it does not have a usable one.
+	 *
+	 * <b>THIS IS PRESENTLY THE ONLY VALIDATION OF {@code __light} ANYWHERE — not a second line
+	 * of defence.</b> The paragraph this method's shape was copied from,
+	 * {@link #cameraProjection}, can honestly say "{@link ServerScene#setProjection} validates
+	 * on admission and this re-checks"; that sentence is FALSE here and was written anyway in
+	 * the first draft. No host verb writes {@code __light} yet (the authoring verb is C1.3.2
+	 * group C), and {@code ServerScene}'s only contact with the name is the blanket refusal that
+	 * stops authors writing any {@code __} uniform. So there is no admission gate behind this
+	 * one, and the usual reassurance does not apply.
+	 *
+	 * The mirror-path half of the argument does hold and is why this method must exist at all:
+	 * a payload arriving through {@code DeltaApplier}/{@code SnapshotCodec} is checked for name
+	 * legality and value COUNT and never for the band. When a light verb ships it must carry its
+	 * own band gate; this then becomes the second check rather than the first.
+	 *
+	 * Null is returned — never a substituted default — for an absent entry, a malformed one, an
+	 * unrecognised kind, or a negative/non-finite colour. A negative component is refused rather
+	 * than clamped because it would SUBTRACT light, and a light that darkens is a defect that
+	 * reads as an artist's choice. The whole entry is refused rather than the bad component, so
+	 * that a light is either fully authored or absent; this matches {@code __proj} exactly, where
+	 * a camera with a malformed projection is treated as unconfigured rather than partly usable.
+	 *
+	 * The returned array is the node's own storage, so callers must read it and never mutate it.
+	 */
+	public double[] lightParams(SceneNode light) {
+		if (light == null || light.type != opengpu.v2.protocol.V2Wire.NODE_LIGHT) {
+			return null;
+		}
+		double[] p = light.uniforms.get(ServerScene.LIGHT_UNIFORM);
+		if (p == null || p.length != 4) {
+			return null;
+		}
+		double kind = p[0];
+		if (kind != ServerScene.LIGHT_DIRECTIONAL && kind != ServerScene.LIGHT_POINT
+				&& kind != ServerScene.LIGHT_AMBIENT) {
+			return null;
+		}
+		for (int i = 1; i < 4; i++) {
+			if (Double.isNaN(p[i]) || Double.isInfinite(p[i]) || p[i] < 0) {
+				return null;
+			}
+		}
+		return p;
+	}
+
+	/**
+	 * The lights that will actually light this frame: effectively-visible NODE_LIGHTs carrying a
+	 * valid non-ambient {@code __light}, lowest id first, at most {@link #MAX_ACTIVE_LIGHTS}.
+	 *
+	 * <b>EFFECTIVE visibility, deliberately unlike {@link #activeCamera()}.</b> The camera rule
+	 * consults the node's OWN flag so that a camera riding a hidden rig keeps working — a camera
+	 * is a VIEWPOINT, not scene content. A light IS content: hiding a rig that carries a lamp
+	 * must turn the lamp off, exactly as it hides the rig's canvases and meshes. C1.3.1 already
+	 * paid for getting this backwards once, in the other direction — copying the camera rule to
+	 * MESHES made hiding a group hide its canvas children while its meshes kept drawing, half a
+	 * rig vanishing silently. Lights follow meshes, not cameras.
+	 *
+	 * Ambient lights are excluded here and summed by {@link #ambientLight()} instead, because
+	 * they cost no hardware slot; a scene may therefore have ambient plus two directionals.
+	 * Excluding them from this list is what stops an ambient light from silently consuming the
+	 * budget the ceiling exists to ration.
+	 *
+	 * Scanned per call rather than cached, for the reasons {@link #activeCamera()} and
+	 * {@link #hasAnimator()} both give: a cache would be a second source of truth needing
+	 * invalidation on every path that creates, frees, hides or re-parents a node, and silent
+	 * promotion (hide a light, the next one takes its slot) falls out of re-scanning for free.
+	 */
+	public java.util.List<SceneNode> activeLights() {
+		java.util.List<SceneNode> out = new java.util.ArrayList<SceneNode>(MAX_ACTIVE_LIGHTS);
+		for (SceneNode node : nodes.values()) {
+			if (node.type != opengpu.v2.protocol.V2Wire.NODE_LIGHT) {
+				continue;
+			}
+			double[] p = lightParams(node);
+			if (p == null || p[0] == ServerScene.LIGHT_AMBIENT || !isEffectivelyVisible(node)) {
+				continue;
+			}
+			out.add(node);
+			if (out.size() == MAX_ACTIVE_LIGHTS) {
+				break;
+			}
+		}
+		return out;
+	}
+
+	/**
+	 * The scene's ambient term: the component-wise SUM over every effectively-visible ambient
+	 * light, or null when there is none.
+	 *
+	 * Summed rather than last-wins or first-wins because ambient light is physically additive and
+	 * because any other rule makes the result depend on node id, which authors do not control
+	 * and cannot see. Unclamped on purpose — the components are already unclamped as authored
+	 * (that is how intensity is expressed), and clamping here would silently cap a scene that
+	 * deliberately over-drives its ambient.
+	 *
+	 * Null, never a substituted default: no ambient light authored means no ambient term is
+	 * written at all, so the renderer leaves whatever the light model already holds. Inventing a
+	 * "reasonable" grey here is exactly the invented-default defect CASEBOOK D11 records.
+	 */
+	public double[] ambientLight() {
+		double[] sum = null;
+		for (SceneNode node : nodes.values()) {
+			if (node.type != opengpu.v2.protocol.V2Wire.NODE_LIGHT) {
+				continue;
+			}
+			double[] p = lightParams(node);
+			if (p == null || p[0] != ServerScene.LIGHT_AMBIENT || !isEffectivelyVisible(node)) {
+				continue;
+			}
+			if (sum == null) {
+				sum = new double[] { 0, 0, 0 };
+			}
+			sum[0] += p[1];
+			sum[1] += p[2];
+			sum[2] += p[3];
+		}
+		return sum;
+	}
+
+	/**
 	 * Whether any node here has an animator attached — ANIM-19's re-render term.
 	 *
 	 * SCANNED, NOT CACHED, and that is a deliberate trade rather than the lazy option. A cached
