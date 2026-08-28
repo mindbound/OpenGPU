@@ -19,7 +19,8 @@ import opengpu.v2.protocol.V2Wire;
  *
  * Oracles are pinned against {@link Look}, which fixed these conventions for the server's
  * lookAt; if the two ever disagree, a camera aimed by lookAt renders down a different axis than
- * it was aimed, so T4 ties the new code to that existing pin rather than to my arithmetic.
+ * it was aimed, so {@code everyLookAtQuaternionAimsTheLocalMinusZAtTheTarget} ties the new code
+ * to that existing pin rather than to my arithmetic.
  */
 public class Transform3dTest {
 

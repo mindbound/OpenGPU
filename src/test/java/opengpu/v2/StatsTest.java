@@ -142,6 +142,38 @@ public class StatsTest {
 		assertEquals("4ms over 2000 commands", 2000.0, RenderStats.nanosPerCommand(), 1e-6);
 	}
 
+	/**
+	 * The 3D subtraction, driven and asserted — without this, deleting it leaves the suite green.
+	 *
+	 * The panel that found the gap put it precisely: no test drove {@code threeDNanos} non-zero
+	 * and then read {@code nanosPerCommand()}, so the arithmetic the whole counter exists for was
+	 * never exercised. The reflection sweep touches {@code onThreeDLayer} but asserts only
+	 * "non-zero before reset, zero after", which any accumulator satisfies.
+	 */
+	@Test
+	public void nanosPerCommandExcludesTheThreeDLayersTime() {
+		RenderStats.onSceneRender(4_000_000L, 1000, false);   // whole window: 4 ms, 1000 commands
+		RenderStats.onThreeDLayer(1_000_000L, 3);             // 1 ms of it was the 3D layer
+
+		assertEquals("3 ms of 2D over 1000 commands, NOT 4 ms",
+				3000.0, RenderStats.nanosPerCommand(), 1e-6);
+		assertTrue("4000 is the un-subtracted answer — the exact value that shipping without the"
+				+ " subtraction would produce",
+				Math.abs(RenderStats.nanosPerCommand() - 4000.0) > 1.0);
+		assertEquals("the 3D time is kept, not discarded", 1_000_000L, RenderStats.threeDNanos());
+		assertEquals(3L, RenderStats.threeDDraws());
+	}
+
+	@Test
+	public void aThreeDOnlyFrameReportsZeroRatherThanANegativeRate() {
+		// The clamp's guard. Not reachable through the production call order (the 3D bracket is
+		// strictly inside the render window), which is exactly why it is driven by hand here.
+		RenderStats.onSceneRender(1_000_000L, 10, false);
+		RenderStats.onThreeDLayer(5_000_000L, 1);
+		assertEquals("a negative rate must never reach a caller", 0.0,
+				RenderStats.nanosPerCommand(), 0.0);
+	}
+
 	@Test
 	public void resetClearsEverything() {
 		stats.onTick();
@@ -207,6 +239,11 @@ public class StatsTest {
 		RenderStats.animatorScenePassesSettled += 7L;
 		RenderStats.animatorBudgetFrames += 11L;
 		RenderStats.animatorBudgetAdmissions += 13L;
+		// C1.3.1 group F's pair. Driven through the public entry point rather than by direct
+		// write because these two are private — which is fine for the sweep, since it reads
+		// them reflectively either way. This test is what caught them being added without a
+		// reset() arm, exactly as its name promises.
+		RenderStats.onThreeDLayer(19L, 2);
 
 		java.util.List<java.lang.reflect.Field> counters =
 				new java.util.ArrayList<java.lang.reflect.Field>();
@@ -221,12 +258,13 @@ public class StatsTest {
 			}
 			counters.add(f);
 		}
-		// 29 as of 2026-08-24, and the floor is the COUNT, not a comfortable fraction of it: at
-		// 15 it had gone slack by 2x, so fourteen counters could have been deleted before the
-		// guard that exists to catch a drop would fire. Raise this in the same edit that adds a
-		// counter -- that is the whole obligation, and it is cheap only while it is exact.
+		// 31 as of 2026-08-27 (29 at 2026-08-24, +2 for group F's threeDNanos/threeDDraws), and
+		// the floor is the COUNT, not a comfortable fraction of it: at 15 it had gone slack by
+		// 2x, so fourteen counters could have been deleted before the guard that exists to catch
+		// a drop would fire. Raise this in the same edit that adds a counter -- that is the whole
+		// obligation, and it is cheap only while it is exact.
 		assertTrue("reflection found " + counters.size() + " counters; if this dropped, the sweep"
-				+ " is covering less than it claims", counters.size() >= 29);
+				+ " is covering less than it claims", counters.size() >= 31);
 		for (java.lang.reflect.Field f : counters) {
 			f.setAccessible(true);
 			assertTrue("precondition: " + f.getName() + " must be non-zero BEFORE reset, or its"

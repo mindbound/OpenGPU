@@ -570,12 +570,14 @@ public final class FramebufferPass {
 	 * Attach a {@code GL_DEPTH_COMPONENT24} renderbuffer to an existing scene FBO. Returns the
 	 * renderbuffer name, or -1 if it could not be allocated.
 	 *
-	 * <b>NO CALLER YET — the 3D pass that invokes this arrives in C1.3.1 group F.</b> Every
-	 * path below is therefore unexercised by the suite and by any in-game run so far; the
-	 * argument order, the D24 constant and the attach target are checkable only by reading
-	 * them against vanilla's own sequence, which is why that provenance is cited below.
+	 * <b>STILL UNEXERCISED, though no longer uncalled.</b> C1.3.1 group F added the caller (the
+	 * 3D pass, via SceneRenderer), so "no caller yet" is false — but the conclusion it supported
+	 * survives on its own: the JVM suite makes zero GL calls and the field test has not been run,
+	 * so every path below has never executed. The argument order, the D24 constant and the attach
+	 * target remain checkable only by reading them against vanilla's own sequence, which is why
+	 * that provenance is cited below. FIELD-TEST-C131 is what will first execute this.
 	 *
-	 * <b>To be called LAZILY, on a scene's first 3D frame — not from createSceneFbo.</b> That is the
+	 * <b>Called LAZILY, on a scene's first 3D frame — not from createSceneFbo.</b> That is the
 	 * settled lifetime decision (PLAN-STAGE-C.md, depth lifetime: "allocate lazily on first
 	 * need, then keep"), and this is the only shape that honours it without cost elsewhere:
 	 * allocating inside the create window would force the camera scan to run every frame for

@@ -58,12 +58,17 @@ public final class StatsOverlay {
 	private long windowStart;
 	private long lastPrePasses, lastFramesWithWork, lastRenders, lastInterpRenders;
 	private long lastNanos, lastCommands;
+	/** 3D-layer time at the window's start, so ns/command can exclude it. See sample(). */
+	private long lastThreeDNanos;
+	private long lastThreeDDraws;
 	private long lastUploadBytes, lastUploads;
 
 	// Latest computed rates, held so the overlay draws steady numbers between samples rather
 	// than flickering with whatever the instantaneous delta happened to be.
 	private double fps, rendersPerSec, interpPct, meanMicros, workPct;
 	private double uploadKbPerSec, nanosPerCommand;
+	/** 3D-layer cost, shown only once a mesh has actually drawn. */
+	private double threeDMicrosPerSec, threeDDrawsPerSec;
 	private long maxMicros;
 
 	private StatsOverlay(KeyBinding toggle) {
@@ -123,6 +128,8 @@ public final class StatsOverlay {
 		lastInterpRenders = RenderStats.interpolationRenders;
 		lastNanos = RenderStats.renderNanos;
 		lastCommands = RenderStats.commandsReplayed;
+		lastThreeDNanos = RenderStats.threeDNanos();
+		lastThreeDDraws = RenderStats.threeDDraws();
 		lastUploadBytes = RenderStats.uploadBytes;
 		lastUploads = RenderStats.uploads;
 	}
@@ -146,8 +153,20 @@ public final class StatsOverlay {
 		rendersPerSec = renders / seconds;
 		interpPct = renders == 0 ? 0.0 : 100.0 * interp / renders;
 		workPct = prePasses == 0 ? 0.0 : 100.0 * framesWithWork / prePasses;
+		// meanMicros keeps the WHOLE scene's cost, 3D included — it is per-render, and the 3D
+		// layer is part of a render.
 		meanMicros = renders == 0 ? 0.0 : nanos / (double) renders / 1000.0;
-		nanosPerCommand = commands == 0 ? 0.0 : nanos / (double) commands;
+		// ns/command EXCLUDES the 3D layer, because the 3D layer contributes no commands. Folding
+		// it in would inflate the figure by a term that grows with mesh count and shrinks with
+		// command count, against a number PERF-BASELINE compares to and this overlay prints.
+		// Subtracted HERE rather than only in RenderStats.nanosPerCommand(), because this class
+		// computes its own windowed figure and never calls that method — so the subtraction added
+		// there reached nothing a player can see.
+		long threeD = RenderStats.threeDNanos() - lastThreeDNanos;
+		long twoD = nanos - threeD;
+		nanosPerCommand = commands == 0 || twoD <= 0 ? 0.0 : twoD / (double) commands;
+		threeDMicrosPerSec = (RenderStats.threeDNanos() - lastThreeDNanos) / 1000.0 / seconds;
+		threeDDrawsPerSec = (RenderStats.threeDDraws() - lastThreeDDraws) / seconds;
 		uploadKbPerSec = uploadBytes / 1024.0 / seconds;
 		maxMicros = RenderStats.renderNanosMax / 1000L;   // high-water since reset; labelled below
 
@@ -180,6 +199,12 @@ public final class StatsOverlay {
 				maxMicros));
 		lines.add(String.format("  %.0f ns/command   upload %.1f KiB/s", nanosPerCommand,
 				uploadKbPerSec));
+		// The subtrahend, shown rather than hidden: ns/command above EXCLUDES this, so a reader
+		// who wants the whole per-scene cost adds it back. Costs no line until a mesh draws.
+		if (threeDDrawsPerSec > 0.0 || threeDMicrosPerSec > 0.0) {
+			lines.add(String.format("  3D %.0f us/s over %.1f draws/s (excluded from ns/command)",
+					threeDMicrosPerSec, threeDDrawsPerSec));
+		}
 
 		// Shown only once an animator has actually run, so the overlay costs no line on the
 		// scenes that predate the feature. "us/eval": the mean is per EVALUATION of a scene

@@ -304,6 +304,37 @@ public final class RenderStats {
 		}
 	}
 
+	/**
+	 * 3D-layer time, accumulated separately and SUBTRACTED from the per-command figure.
+	 *
+	 * The 3D pass runs inside the render window but contributes ZERO commands, so folding it
+	 * into {@code renderNanos} would inflate {@link #nanosPerCommand()} by a term that grows
+	 * with mesh count and shrinks with command count — against a figure PERF-BASELINE compares
+	 * to and {@code StatsOverlay} prints on screen. Declaring the number "2D-only" in a document
+	 * would not have helped: the player still reads it, and the document is not where they read
+	 * it.
+	 *
+	 * Kept rather than discarded, because it is the only measurement of what the 3D layer costs
+	 * and because a hidden subtraction is worse than a visible one.
+	 */
+	private static long threeDNanos;
+	private static long threeDDraws;
+
+	public static void onThreeDLayer(long nanos, int meshesDrawn) {
+		threeDNanos += nanos;
+		threeDDraws += meshesDrawn;
+	}
+
+	/** Total nanoseconds spent in the 3D layer. */
+	public static long threeDNanos() {
+		return threeDNanos;
+	}
+
+	/** Mesh instances drawn across all 3D passes. */
+	public static long threeDDraws() {
+		return threeDDraws;
+	}
+
 	public static void onSceneRender(long nanos, int commands, boolean drivenByInterpolation) {
 		sceneRenders++;
 		renderNanos += nanos;
@@ -343,9 +374,30 @@ public final class RenderStats {
 		return sceneRenders == 0 ? 0.0 : renderNanos / (double) sceneRenders / 1000.0;
 	}
 
-	/** Nanoseconds per replayed canvas command — the figure that decides if replay is the cost. */
+	/**
+	 * Nanoseconds per replayed 2D command since load — the figure that decides if replay is the
+	 * cost — with the 3D layer's time REMOVED.
+	 *
+	 * {@code renderNanos} covers the whole render window, which since C1.3.1 group F includes the
+	 * 3D pass: work that adds no commands. Subtracting it keeps this a measure of 2D replay,
+	 * which is what PERF-BASELINE measured.
+	 *
+	 * <b>This is the SINCE-LOAD figure and is not what the overlay prints.</b> {@code StatsOverlay}
+	 * computes its own rolling-window value and subtracts there too; the two are separate
+	 * arithmetic over the same counters, and both must carry the subtraction. An earlier version
+	 * of this javadoc claimed the overlay printed THIS method's result — it never has.
+	 *
+	 * Clamped at zero defensively, not for a known mechanism: with one clock, strictly nested
+	 * windows and long accumulators, {@code renderNanos - threeDNanos} is positive by the cost of
+	 * two {@code nanoTime} calls. The clamp exists so that a future caller who accumulates the two
+	 * on different paths cannot turn a bookkeeping slip into a negative rate on screen.
+	 */
 	public static double nanosPerCommand() {
-		return commandsReplayed == 0 ? 0.0 : (double) renderNanos / (double) commandsReplayed;
+		if (commandsReplayed == 0) {
+			return 0.0;
+		}
+		long twoD = renderNanos - threeDNanos;
+		return twoD <= 0 ? 0.0 : (double) twoD / (double) commandsReplayed;
 	}
 
 	public static void reset() {
@@ -378,5 +430,7 @@ public final class RenderStats {
 		animatorScenePassesSettled = 0;
 		animatorBudgetFrames = 0;
 		animatorBudgetAdmissions = 0;
+		threeDNanos = 0;
+		threeDDraws = 0;
 	}
 }

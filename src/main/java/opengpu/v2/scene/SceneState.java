@@ -173,9 +173,9 @@ public final class SceneState {
 	 * A camera's projection, or null when it has none the renderer can use.
 	 *
 	 * <b>There are no renderer projection defaults</b> (camera decision 4): a null here means
-	 * the 3D layer is SKIPPED, exactly as no visible camera does — a contract the renderer
-	 * will honour from C1.3.1 group F, where the 3D pass that consults this lands. Today this
-	 * method has no caller outside its tests. Returning invented values
+	 * the 3D layer is SKIPPED, exactly as no visible camera does — a contract the renderer has
+	 * honoured since C1.3.1 group F, whose 3D decision calls this before the pass opens and
+	 * skips the layer on null. Returning invented values
 	 * would render a believable picture from numbers nobody supplied — see CASEBOOK D11.
 	 *
 	 * Null covers three cases the renderer must treat identically, because the author's remedy

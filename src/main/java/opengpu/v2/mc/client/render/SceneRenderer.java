@@ -56,12 +56,12 @@ public final class SceneRenderer {
 		 * Depth renderbuffer, or -1 while this scene has never needed one — every 2D-only
 		 * scene, permanently.
 		 *
-		 * <b>CONTRACT, not yet current behaviour:</b> to be allocated lazily on the first 3D
-		 * frame and then kept for the FBO's lifetime; a resize destroys the FBO and so resets
-		 * this to -1, which is what will make the next 3D frame re-allocate at the new size.
-		 * Until group F lands the allocator's caller this is ALWAYS -1, so the teardown and
-		 * reset paths below are correct but unexercised, and retarget()'s hasDepth argument is
-		 * a constant false.
+		 * Allocated lazily on the scene's first 3D frame and then kept for the FBO's lifetime; a
+		 * resize destroys the FBO and so resets this to -1, which is what makes the next 3D
+		 * frame re-allocate at the new size. LIVE since C1.3.1 group F — the caller is in
+		 * renderIfNeeded, before the pass opens, because retarget() reads this to choose its
+		 * clear mask. (Two earlier drafts of this paragraph described it as unwired; group F is
+		 * the increment that wired it, and left both standing.)
 		 *
 		 * -1 rather than 0 for the same reason fbo and colorTex use it: 0 is a legal-looking
 		 * GL name, so a 0 sentinel turns a leak into a silent no-op instead of a trip.
@@ -94,15 +94,18 @@ public final class SceneRenderer {
 		 * 2D-only feature. The plan requires the latch to COVER the depth mode; it does not
 		 * require it to share the fields, and sharing them is the reading that breaks 2D.
 		 *
-		 * Cleared wherever depthRb is reset to -1, so a resize retries naturally.
-		 * <b>NOT YET LOAD-BEARING.</b> The resize path below already CLEARS this to false, but
-		 * nothing ever sets it true and nothing reads it, so it cannot yet change any
-		 * behaviour; the setter and the reader both arrive with the 3D pass in C1.3.1 group F
-		 * (the mesh draw). An earlier draft said "nothing sets or reads this field", which the
-		 * clear four lines further down already contradicted. Group E, which
-		 * shipped, is the camera scan and does NOT discharge this — an earlier draft of this
-		 * line said "group E", which would have let a reader tick off the plan's "the latch
-		 * must cover the depth failure mode too" obligation against work that had not happened.
+		 * LIVE since C1.3.1 group F: set where attachSceneDepth returns -1, read by the 3D
+		 * decision that runs before the pass opens.
+		 *
+		 * <b>THE CLEAR IS WEAKER THAN IT SOUNDS, and that is the honest statement.</b> The only
+		 * clear sits inside {@code if (gl.fbo == -1 || resized)}, so it fires on a genuine
+		 * RESIZE — and the scene shape this increment ships against is an implicit canvas
+		 * created once at a fixed size, which never resizes. For that scene the latch is
+		 * effectively permanent: a machine whose renderbuffer limit refuses the canvas turns its
+		 * 3D layer off for the session and recovers only on a rejoin. That is the right trade
+		 * for now (retrying a failing allocation every frame is the cost this latch exists to
+		 * avoid) but it is NOT the "retries naturally" an earlier draft claimed, and a reader
+		 * chasing "why did 3D never come back" deserves to find the answer here.
 		 */
 		boolean depthUnavailable;
 		/** Smooths node transforms across the 20 tps channel; see NodeInterpolator. */
@@ -124,6 +127,15 @@ public final class SceneRenderer {
 		long fedTick;
 		boolean fedTickKnown;
 		final Map<Integer, TexEntry> textures = new HashMap<Integer, TexEntry>();
+		/**
+		 * Mesh GL buffers, keyed by resource id exactly as {@code textures} is.
+		 *
+		 * Separate map rather than a widened TexEntry: the two hold different GL object
+		 * KINDS with different delete calls, and the prune below has to pick the right one.
+		 * A single map would make the entry a tagged union and the delete a branch, which is
+		 * the shape that eventually deletes a buffer name through glDeleteTextures.
+		 */
+		final Map<Integer, MeshGl> meshes = new HashMap<Integer, MeshGl>();
 	}
 
 	private final Map<String, SceneGl> scenes = new HashMap<String, SceneGl>();
@@ -153,6 +165,8 @@ public final class SceneRenderer {
 	 * A field, not a local, so the per-frame roll allocates nothing.
 	 */
 	private final List<String> walk = new ArrayList<String>();
+	/** The 3D layer. One instance, like the pass it draws inside. */
+	private final Mesh3dPass mesh3d = new Mesh3dPass();
 	private final FramebufferPass pass = new FramebufferPass();
 	/**
 	 * Whether {@link #pass} is open this pre-pass. Not a duplicate of the pass's own {@code
@@ -402,6 +416,19 @@ public final class SceneRenderer {
 				GL11.glDeleteTextures(entry.getValue().glId);
 				iter.remove();
 				gl.uploadDirty = true;
+			}
+		}
+		// The mesh mirror of that prune, in the SAME pass and over the SAME resource map —
+		// one population feeding both, for the reason the walk field's javadoc gives at
+		// length. A mesh freed while its scene lives on leaks its two buffers otherwise, and
+		// nothing on screen changes when it does: only a VRAM graph would ever show it.
+		Iterator<Map.Entry<Integer, MeshGl>> meshIter = gl.meshes.entrySet().iterator();
+		while (meshIter.hasNext()) {
+			Map.Entry<Integer, MeshGl> entry = meshIter.next();
+			ResourceInfo res = resources.get(entry.getKey());
+			if (res == null || res.type != V2Wire.RES_MESH) {
+				entry.getValue().free();
+				meshIter.remove();
 			}
 		}
 		for (ResourceInfo res : resources.values()) {
@@ -737,6 +764,33 @@ public final class SceneRenderer {
 		boolean interpolationDriven = interpolating && !mirror.isDirty() && !gl.uploadDirty
 				&& gl.everRendered;
 		int commandCount = countCommands(mirror);
+		// THE 3D DECISION IS MADE BEFORE THE PASS OPENS, and the order is load-bearing.
+		// retarget() picks its clear mask from gl.depthRb, so the depth renderbuffer has to exist
+		// by the time it runs — allocating later would render the first 3D frame against
+		// undefined depth, and since a resize resets depthRb to -1 that is a recurring flicker
+		// rather than a one-off. Three ways to skip, all leaving the 2D layer untouched: no
+		// visible camera, no usable projection, or depth unavailable on this machine.
+		SceneNode camera3d = gl.depthUnavailable ? null : mirror.state().activeCamera();
+		double[] proj3d = camera3d == null ? null : mirror.state().cameraProjection(camera3d);
+		if (proj3d != null && gl.depthRb == -1) {
+			gl.depthRb = FramebufferPass.attachSceneDepth(gl.fbo, gl.width, gl.height);
+			if (gl.depthRb == -1) {
+				// Latched per scene, NOT through failedWidth/failedHeight: that latch's consumer
+				// returns before rendering anything, so sharing it would blank this scene's 2D
+				// layer over a 3D-only failure. Cleared only on a genuine RESIZE, which a
+				// fixed-size scene never has — see the field's javadoc: for the default scene
+				// shape this latch is effectively permanent for the session.
+				gl.depthUnavailable = true;
+				proj3d = null;
+				OpenGPU.logger.warn("OpenGPU could not allocate a " + gl.width + "x" + gl.height
+						+ " depth buffer for scene " + mirror.sceneId + "; its 3D layer is disabled"
+						+ " while 2D keeps rendering. This context allows renderbuffers up to "
+						+ FramebufferPass.maxRenderbufferDimension() + " on a side.");
+			}
+		}
+		if (proj3d != null) {
+			mesh3d.ensureUploaded(mirror.state(), gl.meshes, mirror.knownEpoch());
+		}
 		// The pass opens here, on the first scene of the frame that actually renders, and stays
 		// open until prePass closes it.
 		openPass();
@@ -748,8 +802,20 @@ public final class SceneRenderer {
 		// fixed term was measured the old way.
 		long renderStart = System.nanoTime();
 		pass.retarget(gl.fbo, gl.width, gl.height, gl.depthRb != -1);
+		// 3D FIRST, under all 2D. The framebuffer has just been cleared in colour AND depth and
+		// nothing has drawn into it; the 2D replay below runs with GL_DEPTH_TEST disabled, so
+		// every 2D fragment composites over this regardless of the depth written here. That
+		// layering is the design of record, not an artefact of where the call happens to sit.
+		if (proj3d != null) {
+			long t0 = System.nanoTime();
+			int drawn = mesh3d.draw(mirror.state(), camera3d, proj3d, gl.meshes,
+					gl.width, gl.height);
+			RenderStats.onThreeDLayer(System.nanoTime() - t0, drawn);
+		}
 		canvasRenderer.renderScene(mirror.state(), gl.width, gl.height, glMap, gl.interp, now,
 				gl.overlay);
+		// The window still charges the whole scene; nanosPerCommand subtracts the 3D share so the
+		// per-COMMAND figure keeps measuring 2D replay, which is what it claims to be.
 		RenderStats.onSceneRender(System.nanoTime() - renderStart, commandCount, interpolationDriven);
 		gl.everRendered = true;
 		gl.uploadDirty = false;
@@ -857,5 +923,12 @@ public final class SceneRenderer {
 			GL11.glDeleteTextures(entry.glId);
 		}
 		gl.textures.clear();
+		// The second free arm, and it is NOT redundant with the prune above: prune handles a
+		// mesh freed while its scene lives, this handles the scene going away with meshes
+		// still in it. Each covers what the other cannot see.
+		for (MeshGl entry : gl.meshes.values()) {
+			entry.free();
+		}
+		gl.meshes.clear();
 	}
 }
