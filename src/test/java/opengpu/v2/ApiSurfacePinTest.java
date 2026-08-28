@@ -139,6 +139,40 @@ public class ApiSurfacePinTest {
 				+ "programFrameFloats,programUnrollProduct,programUniforms,"
 				+ "meshVertexBytes,meshIndexBytes,meshBytes,nodeUniforms");
 
+		// Level 10 (2026-08-28, Stage C C1.3.2) — the four light verbs: createLight,
+		// setDirectionalLight, setPointLight, setAmbientLight. 80 callbacks become 84.
+		// A FRESH sorted literal, per the never-edit-a-shipped-row rule, and SORTED BY MACHINE
+		// rather than by eye: three of the four insertions land at adjacencies that are easy to
+		// get wrong (setAmbientLight before setAnimator; setPerspective before setPointLight;
+		// createGroup, createLight, createMesh), and a mis-sorted row fails as a diff nobody
+		// reads rather than as a clear message.
+		//
+		// NO NEW LIMIT KEY, and that is a decision rather than an omission — see API_LEVEL's
+		// javadoc. The two-light ceiling is a client rendering limit the server does not
+		// enforce; publishing it among server admission bounds would assert a gate that does not
+		// exist. Level 10's key row is therefore level 9's set, rewritten fresh rather than
+		// chained, because that rule applies to unchanged rows too.
+		String callbacks10 = "autopresent,bind,canvasOps,canvasSubmit,clear,clearNodes,"
+				+ "clearRectangle,createCamera,createCanvas,createCanvasNode,createGroup,"
+				+ "createLight,createMesh,createMeshNode,createProgram,createSprite,"
+				+ "createTexture,createTextureFrom,drawText,drawTexture,fill,filledOval,"
+				+ "filledRectangle,filledTriangle,freeCanvas,freeMesh,freeNode,freeProgram,"
+				+ "freeTexture,getColor,getEpoch,getFontMetrics,getFreeMemory,getLimits,"
+				+ "getMeshBudget,getProgramBudget,getResolution,getScreen,getSize,getStats,"
+				+ "getSubmitBudget,getTextWidth,getTotalMemory,getUsedMemory,getVersion,"
+				+ "getWriteBudget,line,lookAt,maxResolution,meshes,nodes,origin,oval,plot,pop,"
+				+ "present,programs,push,rectangle,resetStats,rotate,rotateAround,scale,"
+				+ "setAmbientLight,setAnimator,setColor,setDirectionalLight,setFont,"
+				+ "setNodeTint,setNodeTransform,setNodeTransform3d,setNodeVisible,setNodeZ,"
+				+ "setOrtho,setPerspective,setPointLight,setResolution,setUniform,"
+				+ "setUniformImmediate,swapVisibility,translate,triangle,unbind,writeRegion";
+		CALLBACKS_AT.put(Integer.valueOf(10), callbacks10);
+		LIMIT_KEYS_AT.put(Integer.valueOf(10), "submitBytes,submitBytesPerTick,commandCap,"
+				+ "textChars,writeBytes,writeBytesPerTick,textureDim,standingCommandBytes,"
+				+ "programBytes,programBlobBytes,animatorOps,animatorFetches,programRegisters,"
+				+ "programFrameFloats,programUnrollProduct,programUniforms,"
+				+ "meshVertexBytes,meshIndexBytes,meshBytes,nodeUniforms");
+
 		// THE STAGE ARGUMENT IS PART OF THE VALUE. Checking only that the expression names some
 		// constant let STAGE_ANIMATOR -> STAGE_PIXEL_MATERIAL through, which publishes 16 for
 		// animatorFetches where the comment three lines above insists on 0 — the exact lie the
@@ -310,6 +344,85 @@ public class ApiSurfacePinTest {
 					+ " itself: " + expr.trim(),
 					!Pattern.compile("[0-9]").matcher(stripped).find());
 		}
+	}
+
+	/**
+	 * THE RELAY FAMILIES: each twin verb must pass its OWN discriminator to the shared relay.
+	 *
+	 * Seven Lua verbs are thin wrappers that differ only in one constant handed to a private
+	 * relay — {@code setPerspective}/{@code setOrtho} (a boolean into {@code projectionRelay}),
+	 * {@code setUniform}/{@code setUniformImmediate} (a boolean into {@code uniformSetRelay}),
+	 * and the three light setters (a {@code double} kind into {@code lightRelay}). For those
+	 * verbs the constant IS the entire semantics, and NOTHING else in the suite reads it:
+	 *
+	 * <ul>
+	 * <li>{@link #luaSurface} reflects annotation NAMES, so a swapped discriminator leaves the
+	 *     surface list byte-identical.</li>
+	 * <li>{@code limitsBody} slices only {@code getLimits}, nowhere near these methods.</li>
+	 * <li>Every behavioural test enters through {@code ServerScene} with the value supplied by
+	 *     the test, so all of them pass under a mis-bound verb.</li>
+	 * <li>The kinds are all {@code double} and the flags all {@code boolean}, so every swap
+	 *     COMPILES.</li>
+	 * </ul>
+	 *
+	 * The worst variant is not subtle: give {@code setAmbientLight} the POINT kind and an ambient
+	 * light validates, is collected as a hardware light, spends one of only two slots, and drops
+	 * out of the ambient sum — a scene lit wrongly with no error anywhere.
+	 *
+	 * ASSERTED PER ENTRY, not "all three constants appear somewhere in the file": each body must
+	 * name its own discriminator AND none of its siblings', so a straight swap fails twice.
+	 * That is the lesson CASEBOOK recorded earlier in this same increment, when a light kind
+	 * could be deleted from a whitelist with every test still green because no test named it.
+	 *
+	 * Written as a SOURCE-TEXT pin because {@code TileEntityGpu2} cannot be instantiated in a JVM
+	 * test — the same constraint, and the same idiom, as
+	 * {@link #eachSemanticCapNamesTheConstantThatEnforcesIt} above.
+	 */
+	@Test
+	public void eachTwinVerbPassesItsOwnDiscriminatorToTheSharedRelay() throws Exception {
+		String src = source();
+		// verb -> { the token its body MUST contain, then the sibling tokens it must NOT }
+		Map<String, String[]> expected = new LinkedHashMap<String, String[]>();
+		expected.put("setDirectionalLight", new String[] {
+				"LIGHT_DIRECTIONAL", "LIGHT_POINT", "LIGHT_AMBIENT" });
+		expected.put("setPointLight", new String[] {
+				"LIGHT_POINT", "LIGHT_DIRECTIONAL", "LIGHT_AMBIENT" });
+		expected.put("setAmbientLight", new String[] {
+				"LIGHT_AMBIENT", "LIGHT_DIRECTIONAL", "LIGHT_POINT" });
+		expected.put("setPerspective", new String[] { "projectionRelay(args, false)" });
+		expected.put("setOrtho", new String[] { "projectionRelay(args, true)" });
+		expected.put("setUniform", new String[] { "uniformSetRelay(args, false)" });
+		expected.put("setUniformImmediate", new String[] { "uniformSetRelay(args, true)" });
+
+		for (Map.Entry<String, String[]> e : expected.entrySet()) {
+			String body = methodBody(src, e.getKey());
+			String[] tokens = e.getValue();
+			assertTrue(e.getKey() + " must pass " + tokens[0] + " to its relay; its body is:\n"
+					+ body, body.contains(tokens[0]));
+			for (int i = 1; i < tokens.length; i++) {
+				assertTrue(e.getKey() + " must NOT name " + tokens[i] + " — that is a SIBLING"
+						+ " verb's kind, and a swap between them compiles and passes every"
+						+ " behavioural test. Body:\n" + body, !body.contains(tokens[i]));
+			}
+		}
+	}
+
+	/**
+	 * The source text of one callback method, declaration to its closing brace.
+	 *
+	 * Slices to the first {@code "\n\t}"} the way {@code limitsBody} does — these are all
+	 * one-line relay bodies, so nothing nested can end the slice early. It FAILS rather than
+	 * returning empty when the method is absent, because a rename that silently emptied every
+	 * body would make the caller's assertions vacuous instead of red.
+	 */
+	private static String methodBody(String src, String name) {
+		String decl = "public Object[] " + name + "(";
+		int start = src.indexOf(decl);
+		assertTrue("no method named " + name + " in " + SOURCE + " — if it was renamed, this pin"
+				+ " must be updated in the same edit", start >= 0);
+		int end = src.indexOf("\n\t}", start);
+		assertTrue("could not find the end of " + name, end > start);
+		return src.substring(start, end);
 	}
 
 	/**

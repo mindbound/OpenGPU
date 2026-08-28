@@ -335,18 +335,16 @@ public final class ServerScene {
 	 * which is why the colour needs only four components and why the 10 → 11 bump added no
 	 * field.
 	 *
-	 * <b>THERE IS NO HOST VERB THAT WRITES THIS YET, and nothing in this class validates it.</b>
-	 * The constants are declared here because this is where the reserved-name vocabulary lives,
-	 * but the authoring verb is C1.3.2 group C. Until it lands, the ONLY gate on {@code __light}
-	 * — type check and value band alike — is on the READ side, in
-	 * {@link SceneState#lightParams}. Said explicitly because the sibling paragraph twelve lines
-	 * above carries the scar of getting exactly this wrong: a javadoc that described renderer
-	 * behaviour which no renderer implemented (CASEBOOK D11).
+	 * Written by {@link #setLight} below, which gates on NODE_LIGHT the way
+	 * {@link #setProjection} gates on NODE_CAMERA, and refused to authors by
+	 * {@link #setUniform}'s blanket {@code __} rule — one state, one door.
 	 *
-	 * When the verb does land it is expected to gate on NODE_LIGHT the way
-	 * {@link #setProjection} gates on NODE_CAMERA, at which point {@code lightParams} becomes
-	 * the second check rather than the only one — the position {@code cameraProjection} already
-	 * holds. That is a plan, not a description of present code.
+	 * <i>These two paragraphs said the opposite one increment ago, and the correction is the
+	 * point.</i> Group A declared the constants with no verb behind them, and its first draft
+	 * described this gate as though it existed; a panel caught it, and the honest replacement
+	 * said plainly that the read side was the only check. Group C then made that true statement
+	 * false by building the verb. Both edits are the same discipline: the sentence changes in the
+	 * commit that changes the code, in whichever direction. See CASEBOOK D11.
 	 */
 	public static final String LIGHT_UNIFORM = "__light";
 	/**
@@ -357,6 +355,56 @@ public final class ServerScene {
 	public static final double LIGHT_DIRECTIONAL = 1;
 	public static final double LIGHT_POINT = 2;
 	public static final double LIGHT_AMBIENT = 3;
+
+	/**
+	 * Write a light's kind and colour (v11, C1.3.2) — the host door for {@link #LIGHT_UNIFORM},
+	 * built to {@link #setProjection}'s pattern because it is the same problem.
+	 *
+	 * ONE atomic vec4, not four scalars, for {@code setProjection}'s reason: a single UniformSet
+	 * delta means even a 64-full-table refusal is a clean whole refusal with nothing staged, where
+	 * a four-delta write could tear mid-sequence at the cap and leave a light carrying a kind
+	 * without a colour.
+	 *
+	 * Staged {@code immediate}, also for {@code setProjection}'s reason and with a sharper edge:
+	 * component 0 is the KIND, and interpolating a kind through 2.5 for a tick is not a dim light,
+	 * it is a light that briefly is not any kind at all.
+	 *
+	 * NODE_LIGHT-gated, and that gate does not conflict with the ungated-writer doctrine for
+	 * {@code setProjection}'s reason: no ungated verb can write reserved state, because
+	 * {@link #setUniform} refuses every {@code __} name. One state, one door.
+	 *
+	 * Validation: kind must be one this build defines, and each colour component must be finite
+	 * and non-negative. Negative is refused rather than clamped because it would SUBTRACT light —
+	 * a light that darkens reads as an artist's choice rather than as a defect. Components are
+	 * NOT bounded above: intensity is expressed by over-driving them, so a clamp here would cap a
+	 * scene that meant it.
+	 *
+	 * Like the projection, the entry is author-unclearable short of {@code freeNode} — and unlike
+	 * the projection that costs nothing, because {@code setNodeVisible(false)} already turns a
+	 * light off and is the verb an author reaches for.
+	 */
+	public void setLight(int nodeId, double kind, double r, double g, double b) {
+		requireNode(nodeId);
+		SceneNode node = state.nodes.get(nodeId);
+		if (node.type != V2Wire.NODE_LIGHT)
+			throw new IllegalStateException("node " + nodeId + " is not a light");
+		if (kind != LIGHT_DIRECTIONAL && kind != LIGHT_POINT && kind != LIGHT_AMBIENT)
+			throw new IllegalArgumentException("unknown light kind " + kind);
+		double[] rgb = { r, g, b };
+		String[] names = { "red", "green", "blue" };
+		for (int i = 0; i < 3; i++) {
+			if (Double.isNaN(rgb[i]) || Double.isInfinite(rgb[i]))
+				throw new IllegalArgumentException("light " + names[i]
+						+ " must be a finite number");
+			if (rgb[i] < 0)
+				throw new IllegalArgumentException("light " + names[i] + " must be >= 0, got "
+						+ rgb[i] + " (a negative component would subtract light)");
+		}
+		// Bypasses setUniform deliberately: that method's __ refusal guards AUTHORS out of the
+		// reserved space; this method IS the host door it points them to.
+		applyAndStage(new Delta.UniformSet(nodeId, LIGHT_UNIFORM, (byte) 4,
+				new double[] { kind, r, g, b }, true));
+	}
 
 	/**
 	 * Write packed RGBA pixels into a texture region. The pixels always travel with the

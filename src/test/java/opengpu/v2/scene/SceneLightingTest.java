@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.util.List;
 
@@ -29,11 +30,19 @@ import opengpu.v2.protocol.V2Wire;
  * <li><b>"No lights authored" must stay null</b>, not become a helpful grey — CASEBOOK D11.</li>
  * </ul>
  *
- * The uniform is written DIRECTLY into the node's table rather than through a host verb, and that
- * is deliberate rather than a shortcut. {@code lightParams} exists to re-validate payloads that
- * reached this side through the mirror path, which checks name legality and value count and never
- * the band — so the malformed entries below are exactly the ones no host verb would ever produce
- * and only this method stands between them and the renderer.
+ * <b>The file has two halves, and they enter through different doors on purpose.</b> Everything
+ * up to "the host verb" writes {@code __light} DIRECTLY into the node's table — the shape a
+ * MIRROR payload arrives in, having passed {@code DeltaApplier}/{@code SnapshotCodec}, which check
+ * name legality and value count and never the band. Those malformed entries are exactly the ones
+ * no host verb would ever produce, and {@code lightParams} is the only thing standing between
+ * them and the renderer.
+ *
+ * The last section goes through {@link ServerScene#setLight} instead, exercising the ADMISSION
+ * gate. Neither half substitutes for the other: the server refuses bad input at the door, and the
+ * reader re-checks because the mirror never runs that door. The pair that matters most is
+ * {@code theHostVerbWritesAnEntryTheRendererAccepts} — if the writer's output ever stops
+ * satisfying the reader's validator, one of them is wrong and the symptom is a light that
+ * silently never appears.
  */
 public class SceneLightingTest {
 
@@ -391,5 +400,217 @@ public class SceneLightingTest {
 		assertTrue("ambient alone lights nothing through a hardware slot",
 				s.state().activeLights().isEmpty());
 		assertTrue("but the term is still there", s.state().ambientLight() != null);
+	}
+
+	// ------------------------------------------------------------- the host verb (group C)
+	//
+	// Everything above writes __light straight into the table, which is the MIRROR's shape. These
+	// exercise the ADMISSION gate instead. Both matter and neither substitutes for the other: the
+	// server refuses bad input at the door, and lightParams re-checks because the mirror path
+	// never runs that door.
+
+	@Test
+	public void theHostVerbWritesAnEntryTheRendererAccepts() {
+		ServerScene s = scene();
+		int id = s.createNode(V2Wire.NODE_LIGHT, 0);
+		s.setLight(id, ServerScene.LIGHT_DIRECTIONAL, 1, 0.5, 0.25);
+
+		double[] p = s.state().lightParams(node(s, id));
+		assertTrue("the verb's output must satisfy the reader's validator — if these two ever"
+				+ " disagree, one of them is wrong and the scene silently loses a light",
+				p != null);
+		assertEquals("kind", ServerScene.LIGHT_DIRECTIONAL, p[0], 0.0);
+		assertEquals("r", 1.0, p[1], 1e-12);
+		assertEquals("g", 0.5, p[2], 1e-12);
+		assertEquals("b", 0.25, p[3], 1e-12);
+		assertSame("and it is selected", node(s, id), s.state().activeLights().get(0));
+	}
+
+	@Test
+	public void theHostVerbRefusesANodeThatIsNotALight() {
+		ServerScene s = scene();
+		int group = s.createNode(V2Wire.NODE_GROUP, 0);
+		try {
+			s.setLight(group, ServerScene.LIGHT_DIRECTIONAL, 1, 1, 1);
+			fail("a group is not a light");
+		} catch (IllegalStateException expected) {
+			assertTrue("the message should name the node, got: " + expected.getMessage(),
+					expected.getMessage().contains(String.valueOf(group)));
+		}
+		// The wrong answer written in: a verb that wrote the entry anyway would leave a group
+		// carrying __light, which lightParams refuses by type — so the scene would look correct
+		// and the light would simply never appear.
+		assertTrue("and nothing was written", node(s, group).uniforms.isEmpty());
+	}
+
+	@Test
+	public void theHostVerbRefusesAnUnknownNode() {
+		ServerScene s = scene();
+		try {
+			s.setLight(9999, ServerScene.LIGHT_DIRECTIONAL, 1, 1, 1);
+			fail("node 9999 does not exist");
+		} catch (IllegalStateException expected) {
+			assertTrue("the message names the id, got: " + expected.getMessage(),
+					expected.getMessage().contains("9999"));
+		}
+	}
+
+	@Test
+	public void theHostVerbRefusesBadColoursAndLeavesThePreviousValue() {
+		ServerScene s = scene();
+		int id = s.createNode(V2Wire.NODE_LIGHT, 0);
+		s.setLight(id, ServerScene.LIGHT_DIRECTIONAL, 0.75, 0.75, 0.75);
+
+		double[][] bad = {
+			{ -0.1, 1, 1 },
+			{ 1, Double.NaN, 1 },
+			{ 1, 1, Double.POSITIVE_INFINITY },
+		};
+		for (double[] c : bad) {
+			try {
+				s.setLight(id, ServerScene.LIGHT_DIRECTIONAL, c[0], c[1], c[2]);
+				fail("expected refusal for " + java.util.Arrays.toString(c));
+			} catch (IllegalArgumentException expected) {
+				// The pinned set-call rule: rejection by throw retains the previous value BY
+				// CONSTRUCTION, because applyAndStage never ran. Asserted rather than assumed —
+				// a verb that validated after staging would leave the light corrupted.
+			}
+		}
+		assertEquals("the previous colour survived every refusal", 0.75,
+				s.state().lightParams(node(s, id))[1], 1e-12);
+	}
+
+	@Test
+	public void theHostVerbRefusesAKindItDoesNotDefine() {
+		ServerScene s = scene();
+		int id = s.createNode(V2Wire.NODE_LIGHT, 0);
+		try {
+			s.setLight(id, 4, 1, 1, 1);
+			fail("kind 4 is not defined");
+		} catch (IllegalArgumentException expected) {
+			// Reachable only from Java — the three Lua verbs each pass a fixed kind — so this is
+			// defence-in-depth, priced honestly. It exists because the kind is a DOUBLE on the
+			// wire and a mirror payload can carry any value at all.
+		}
+	}
+
+	@Test
+	public void anAuthorStillCannotWriteTheReservedNameDirectly() {
+		ServerScene s = scene();
+		int id = s.createNode(V2Wire.NODE_LIGHT, 0);
+		try {
+			s.setUniform(id, ServerScene.LIGHT_UNIFORM, new double[] { 1, 1, 1, 1 }, false);
+			fail("__light is reserved for the host");
+		} catch (IllegalArgumentException expected) {
+			// ONE STATE, ONE DOOR. If setUniform ever stopped refusing __ names, setLight's
+			// validation would become optional rather than mandatory, and every band check above
+			// would be bypassable by an author who guessed the name.
+			assertTrue("the message should explain the reservation, got: "
+					+ expected.getMessage(), expected.getMessage().contains("__"));
+		}
+	}
+
+	@Test
+	public void aLightIsWrittenAsONEDeltaSoItCannotTearAtTheUniformCap() {
+		ServerScene s = scene();
+		int id = s.createNode(V2Wire.NODE_LIGHT, 0);
+		s.setLight(id, ServerScene.LIGHT_POINT, 1, 2, 3);
+		// The atomicity claim, checked where it is observable: one NAME holding four values, not
+		// four names holding one each. A four-entry design could half-apply at a full table and
+		// leave a light with a kind and no colour, which lightParams would refuse whole — a light
+		// that vanishes because a DIFFERENT node filled the table.
+		assertEquals("exactly one uniform entry", 1, node(s, id).uniforms.size());
+		assertEquals("carrying all four components", 4,
+				node(s, id).uniforms.get(ServerScene.LIGHT_UNIFORM).length);
+	}
+
+	// ------------------------------------------------------- the light survives the wire
+	//
+	// GROUP C IS WHAT MAKES THESE NECESSARY. Until an author could CREATE a light, no NODE_LIGHT
+	// could reach a save or a batch, and the type's presence in isKnownNodeType was a dormant
+	// branch. The moment createLight shipped, every light in every scene starts being encoded —
+	// so the codecs are now on the path and were being trusted rather than tested. Before this,
+	// NODE_LIGHT appeared in the persistence test suite only inside a javadoc COMMENT.
+
+	@Test
+	public void aLightSurvivesTheNETWORKSnapshotRoundTrip() throws Exception {
+		ServerScene s = scene();
+		int id = s.createNode(V2Wire.NODE_LIGHT, 0);
+		s.setLight(id, ServerScene.LIGHT_POINT, 0.25, 0.5, 0.75);
+		s.sealBatch();
+
+		SceneSnapshot back = opengpu.v2.protocol.SnapshotCodec.decode(
+				opengpu.v2.protocol.SnapshotCodec.encode(s.snapshot()));
+
+		SceneNode light = back.state.nodes.get(Integer.valueOf(id));
+		assertTrue("the light node itself survived", light != null);
+		assertEquals("as a light, not as some other type", V2Wire.NODE_LIGHT, light.type);
+		// The whole point: the far side must find it USABLE, not merely present. A node that
+		// decodes with its uniform mangled is a light that silently never appears.
+		double[] p = back.state.lightParams(light);
+		assertTrue("and the decoded __light passes the reader's validator", p != null);
+		assertEquals("kind", ServerScene.LIGHT_POINT, p[0], 0.0);
+		assertEquals("r", 0.25, p[1], 1e-12);
+		assertEquals("g", 0.5, p[2], 1e-12);
+		assertEquals("b", 0.75, p[3], 1e-12);
+		assertSame("and it is still selected on the far side", light,
+				back.state.activeLights().get(0));
+	}
+
+	@Test
+	public void aLightSurvivesThePERSISTEDRoundTrip() throws Exception {
+		ServerScene s = scene();
+		int amb = s.createNode(V2Wire.NODE_LIGHT, 0);
+		s.setLight(amb, ServerScene.LIGHT_AMBIENT, 0.125, 0.25, 0.375);
+		s.sealBatch();
+
+		// decodePersisted, not decode: it is the arm whose failure DELETES the scene's bodies,
+		// so a light that the network path tolerates and the save path refuses would cost a world
+		// rather than a frame.
+		SceneSnapshot back = opengpu.v2.protocol.SnapshotCodec.decodePersisted(
+				opengpu.v2.protocol.SnapshotCodec.encode(s.snapshot()));
+
+		SceneNode light = back.state.nodes.get(Integer.valueOf(amb));
+		assertEquals("the light survives the save path as a light", V2Wire.NODE_LIGHT, light.type);
+		assertEquals("and its ambient term is intact", 0.125, back.state.ambientLight()[0], 1e-12);
+		assertTrue("spending no hardware slot, as before", back.state.activeLights().isEmpty());
+	}
+
+	@Test
+	public void aParentedLightKeepsItsRigAcrossTheWire() throws Exception {
+		ServerScene s = scene();
+		int rig = s.createNode(V2Wire.NODE_GROUP, 0);
+		int lamp = s.createNode(V2Wire.NODE_LIGHT, 0, rig);
+		s.setLight(lamp, ServerScene.LIGHT_DIRECTIONAL, 1, 1, 1);
+		s.setVisible(rig, false);
+		s.sealBatch();
+
+		SceneSnapshot back = opengpu.v2.protocol.SnapshotCodec.decode(
+				opengpu.v2.protocol.SnapshotCodec.encode(s.snapshot()));
+
+		// The EFFECTIVE-visibility rule depends on the parent link surviving. If `parent` were
+		// dropped in transit the lamp would decode as unparented, its rig's hidden flag would
+		// stop reaching it, and a light the author switched off would come back ON after a
+		// reconnect — a defect visible only across a rejoin.
+		assertEquals("the parent link survived", rig,
+				back.state.nodes.get(Integer.valueOf(lamp)).parent);
+		assertTrue("so the hidden rig still suppresses it on the far side",
+				back.state.activeLights().isEmpty());
+	}
+
+	@Test
+	public void changingAKindOverwritesRatherThanAccumulates() {
+		ServerScene s = scene();
+		int id = s.createNode(V2Wire.NODE_LIGHT, 0);
+		s.setLight(id, ServerScene.LIGHT_DIRECTIONAL, 1, 1, 1);
+		assertEquals("spends a slot as a directional", 1, s.state().activeLights().size());
+
+		s.setLight(id, ServerScene.LIGHT_AMBIENT, 0.5, 0.5, 0.5);
+		// The three verbs write the SAME reserved entry, so switching kind must move the light
+		// between the hardware list and the ambient term rather than leaving it in both.
+		assertTrue("and stops spending one as an ambient", s.state().activeLights().isEmpty());
+		assertEquals("having moved into the ambient term", 0.5,
+				s.state().ambientLight()[0], 1e-12);
+		assertEquals("still one entry, overwritten", 1, node(s, id).uniforms.size());
 	}
 }

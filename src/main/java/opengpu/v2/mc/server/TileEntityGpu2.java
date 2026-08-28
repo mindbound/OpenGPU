@@ -125,8 +125,16 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 * lookAt / setPerspective / setOrtho / setUniform / setUniformImmediate — and the
 	 * meshVertexBytes / meshIndexBytes / meshBytes / nodeUniforms keys to getLimits. Same
 	 * edit, same reason — and the first bump the level-8 guardian actually watched.
+	 *
+	 * Level 10 (2026-08-28, Stage C C1.3.2) adds the four light verbs — createLight /
+	 * setDirectionalLight / setPointLight / setAmbientLight — and NO getLimits key. That
+	 * omission is a decision: the two-light ceiling is a CLIENT rendering limit that the server
+	 * deliberately does not enforce (a scene stays authorable on the machine least able to draw
+	 * it), so publishing it in a table of server admission bounds would assert a gate that does
+	 * not exist. It is stated in the verbs' own doc strings instead, which is where an author
+	 * meets it.
 	 */
-	public static final int API_LEVEL = 9;
+	public static final int API_LEVEL = 10;
 	/**
 	 * Server-side VRAM budget in bytes. Charged today: textures (w*h*4), canvases (command
 	 * slots + pixels), and meshes (vertex+index bytes, v10 — DESIGN's "VRAM-charged at
@@ -2678,6 +2686,56 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 			requireNodeLocked(id);
 			try {
 				scene.setProjection(id, ortho, a, near, far);
+			} catch (IllegalArgumentException e) {
+				throw new Exception(e.getMessage());
+			} catch (IllegalStateException e) {
+				throw new Exception(e.getMessage());
+			}
+			chunkDirty = true;
+		}
+		return null;
+	}
+
+	@Callback(direct = true, limit = 16, doc = "function([parentId:number]):number -- Create a light node; returns its node id. A light is an ordinary transform node: aim a directional light with lookAt or setNodeTransform3d (its DIRECTION is the node's own rotation), and parent it to a rig to make it follow. It lights nothing until you give it a colour with setDirectionalLight/setPointLight/setAmbientLight -- there are no default colours, and a light with none set is skipped exactly as a hidden one is. Unlike a camera, a light obeys EFFECTIVE visibility: hiding its PARENT turns it off too, because a light is scene content rather than a viewpoint. Consumed by the renderer from C1.3.2 group D; before that these verbs author state that nothing reads.")
+	public Object[] createLight(Context context, Arguments args) throws Exception {
+		if (args.count() > 1) {
+			throw new Exception("createLight takes only an optional parent id; a light"
+					+ " references no resource");
+		}
+		return createNodeLocked(V2Wire.NODE_LIGHT, 0, (byte) 0, optParent(args, 0));
+	}
+
+	@Callback(direct = true, limit = 32, doc = "function(lightNodeId:number, r:number, g:number, b:number) -- Make this light DIRECTIONAL: parallel rays whose direction is the node's own rotation (aim it with lookAt). Components are >= 0 and are NOT clamped above -- over-drive them for intensity. Costs one of the TWO hardware light slots: the two lowest-id eligible non-ambient lights win and the rest are ignored, so hide or free one to promote another. Stored as the reserved __light entry (1 of the node's 64 uniform slots); once set, use setNodeVisible to switch the light off rather than trying to clear it.")
+	public Object[] setDirectionalLight(Context context, Arguments args) throws Exception {
+		return lightRelay(args, ServerScene.LIGHT_DIRECTIONAL);
+	}
+
+	@Callback(direct = true, limit = 32, doc = "function(lightNodeId:number, r:number, g:number, b:number) -- Make this light a POINT light at the node's own position. Components are >= 0 and are NOT clamped above -- over-drive them for intensity. Costs one of the TWO hardware light slots, same rule as setDirectionalLight: lowest-id eligible non-ambient lights win. Stored as the reserved __light entry (1 of the node's 64 uniform slots); switch it off with setNodeVisible rather than clearing it.")
+	public Object[] setPointLight(Context context, Arguments args) throws Exception {
+		return lightRelay(args, ServerScene.LIGHT_POINT);
+	}
+
+	@Callback(direct = true, limit = 32, doc = "function(lightNodeId:number, r:number, g:number, b:number) -- Make this light AMBIENT: a uniform term added everywhere, with no direction and no position, so the node's transform does not matter. Costs NO hardware light slot -- ambient plus two directionals is a legal setup -- and every visible ambient light is SUMMED, so two at 0.1 give 0.2. Components are >= 0 and are NOT clamped above. Stored as the reserved __light entry (1 of the node's 64 uniform slots); switch it off with setNodeVisible.")
+	public Object[] setAmbientLight(Context context, Arguments args) throws Exception {
+		return lightRelay(args, ServerScene.LIGHT_AMBIENT);
+	}
+
+	/**
+	 * The one door for {@link ServerScene#LIGHT_UNIFORM}, shared by the three kind verbs exactly
+	 * as {@code projectionRelay} is shared by setPerspective and setOrtho.
+	 *
+	 * THREE VERBS RATHER THAN ONE WITH A KIND ARGUMENT, following that precedent deliberately:
+	 * the kind rides component 0 of the same reserved vec4 the projection's mode does, and
+	 * splitting by verb is what keeps bare 1/2/3 out of every Lua program that authors a light.
+	 */
+	private Object[] lightRelay(Arguments args, double kind) throws Exception {
+		int id = args.checkInteger(0);
+		double r = args.checkDouble(1), g = args.checkDouble(2), b = args.checkDouble(3);
+		synchronized (sceneLock) {
+			requireScene();
+			requireNodeLocked(id);
+			try {
+				scene.setLight(id, kind, r, g, b);
 			} catch (IllegalArgumentException e) {
 				throw new Exception(e.getMessage());
 			} catch (IllegalStateException e) {

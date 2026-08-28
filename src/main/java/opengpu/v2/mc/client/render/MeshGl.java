@@ -76,6 +76,40 @@ final class MeshGl {
 	static final int POSITION_OFFSET = 0;
 
 	/**
+	 * The record's float-attribute widths, naming the frozen format field by field:
+	 * "pos f32 x3 @0, normal f32 x3 @12, uv f32 x2 @24, color u8 x4 @32".
+	 *
+	 * <b>TWO of these feed a derivation; TWO are test-only.</b> {@link #NORMAL_OFFSET} is built
+	 * from {@code POSITION_COMPONENTS * FLOAT_BYTES} alone — an attribute's offset depends on
+	 * what precedes it, never on its own width — so {@code NORMAL_COMPONENTS} and
+	 * {@code UV_COMPONENTS} have no main-code call site at all.
+	 *
+	 * That is their job rather than an oversight: without them the record cannot be SUMMED, and a
+	 * derivation nothing checks is decoration. MeshGlLayoutTest adds the four widths and asserts
+	 * they account for the whole {@link V2Wire#MESH_VERTEX_STRIDE}, so a stride change these
+	 * constants do not follow fails there instead of in the picture.
+	 *
+	 * Deriving {@code NORMAL_OFFSET} rather than writing the literal 12 avoids repeating, in this
+	 * file, the exact defect {@link #COLOR_OFFSET}'s javadoc memorialises three declarations
+	 * above — a hardcoded offset under a comment claiming derivation, which keeps compiling and
+	 * starts reading garbage the day the layout moves.
+	 */
+	static final int FLOAT_BYTES = 4;
+	static final int POSITION_COMPONENTS = 3;
+	static final int NORMAL_COMPONENTS = 3;
+	static final int UV_COMPONENTS = 2;
+
+	/**
+	 * Byte offset of the normal attribute: immediately after position.
+	 *
+	 * DERIVED, for {@link #COLOR_OFFSET}'s reason and by the opposite route — colour is derived
+	 * backwards from the stride because it is LAST, and normal forwards from position because it
+	 * is SECOND. Both assumptions are the format's own statement, and both are checked by the
+	 * reconciliation test rather than trusted.
+	 */
+	static final int NORMAL_OFFSET = POSITION_OFFSET + POSITION_COMPONENTS * FLOAT_BYTES;
+
+	/**
 	 * Upload (or re-upload) a mesh resource's blobs. Returns false if the resource cannot be
 	 * drawn, leaving this entry unusable rather than half-built.
 	 *

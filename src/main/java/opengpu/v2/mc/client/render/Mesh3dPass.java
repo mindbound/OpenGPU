@@ -44,11 +44,52 @@ import opengpu.v2.scene.Transform3d;
  * look worse than stepping everything. Recorded so the next increment knows it is completing this
  * rather than discovering it.
  *
- * <b>No normals, deliberately.</b> The wire carries them at offset 12 and they are the right
- * bytes, but there is no lighting in this increment. Enabling {@code GL_NORMAL_ARRAY} would flip
- * a bit in Angelica's fixed-function {@code VertexKey} and select a different generated shader
- * variant for a pass with no lights — pre-spending the exact bit C1.3.2's normals arm exists to
- * test. A later increment ADDS normals; it is not fixing an omission.
+ * <b>Normals ARRIVE as of C1.3.2 group B</b>, completing the omission C1.3.1 recorded here
+ * rather than fixing a bug. The paragraph this replaces said the wire carried them "at offset 12"
+ * — a literal that is now {@link MeshGl#NORMAL_OFFSET}, derived.
+ *
+ * <b>The enable is the load-bearing half, not the pointer.</b> GLSM takes {@code hasNormal} — the
+ * bit that selects a lit shader variant — from CLIENT state, not from whether a pointer was set.
+ * {@code glNormalPointer} without {@code glEnableClientState(GL_NORMAL_ARRAY)} leaves every
+ * vertex lit from the single current-normal uniform, which renders a mesh that is uniformly lit
+ * and looks entirely plausible. There is no error, no warning and no readback that distinguishes
+ * it. That failure is invisible on any mesh whose vertex normals are all equal, which is why the
+ * field arm for this is a FANNED-normal triangle and not the existing one.
+ *
+ * <b>This group changes the shader variant while lighting is still off, and that is expected.</b>
+ * The normal attribute now reaches a different generated program than C1.3.1 used. With no
+ * lights enabled the normals go unread, so the picture must be UNCHANGED — a visible difference
+ * here would mean the variant switch altered something it should not, and is worth stopping for
+ * rather than explaining.
+ *
+ * <b>DEBT THIS GROUP CREATES, owed by whichever edit first enables {@code GL_LIGHTING} in this
+ * method: {@code GL_NORMALIZE}.</b> {@link Transform3d#modelMatrix} applies PER-AXIS scale
+ * ({@code sx}, {@code sy}, {@code sz}), and under a non-uniform scale the normals stop being
+ * UNIT LENGTH — which the fixed-function light model assumes, since it takes a raw dot product.
+ * Their DIRECTION survives: Angelica applies a normal matrix unconditionally
+ * ({@code Uniforms.stageNormalMatrix} → JOML {@code Matrix4f.normal}, the inverse transpose,
+ * emitted at {@code VertexShaderGenerator.java:143} at 2.2.8), and the inverse transpose is
+ * precisely the construction that PRESERVES perpendicularity. Unlit, none of this is visible,
+ * which is why it is not fixed here and why it is easy to miss later: the defect arrives with the
+ * lighting, not with the scale.
+ *
+ * Angelica honours {@code GL_NORMALIZE} for real — {@code emitNormalTransform} emits
+ * {@code normal = normalize(normal)} under {@code key.normalizeEnabled()} (2.2.8
+ * {@code VertexShaderGenerator.java:145-146}) — so the fix is the enable plus its restore, not a
+ * renormalise in the mesh data.
+ *
+ * <b>Do NOT reach for {@code GL_RESCALE_NORMAL} instead.</b> It is the {@code else if} arm two
+ * lines below ({@code :147-148}), so the two are mutually exclusive, and it multiplies by a
+ * single {@code u_NormalScale} = {@code 1/‖col2‖} ({@code Uniforms.java:238-241}) — one scalar
+ * from ONE column, which corrects a uniform scale and leaves the {@code sx≠sy≠sz} case wrong.
+ * That is exactly the case this note exists for.
+ *
+ * Written HERE, at the site that must change, because a note in a plan is not an obligation
+ * anything enforces. <i>The first draft of this paragraph got both facts backwards — it credited
+ * {@code u_NormalScale} to GL_NORMALIZE and claimed perpendicularity was lost — by paraphrasing
+ * ANGELICA-NOTES from memory rather than re-reading the row, which states both correctly. A panel
+ * caught it against the shipped 2.2.8 tree. The row is at ANGELICA-NOTES.md's GL_NORMALIZE entry;
+ * read it, do not recall it.</i>
  */
 final class Mesh3dPass {
 
@@ -135,12 +176,23 @@ final class Mesh3dPass {
 			GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, mesh.ebo);
 			// Pointers are re-issued per mesh because the bound buffer changed; the offsets are
 			// buffer-relative and come from the format's constants, never literals.
-			GL11.glVertexPointer(3, GL11.GL_FLOAT, MeshGl.stride(), MeshGl.POSITION_OFFSET);
+			GL11.glVertexPointer(MeshGl.POSITION_COMPONENTS, GL11.GL_FLOAT, MeshGl.stride(),
+					MeshGl.POSITION_OFFSET);
+			// glNormalPointer takes NO size argument — fixed-function normals are always three
+			// components, so MeshGl.NORMAL_COMPONENTS has no call site here and none in MeshGl
+			// either: the normal's own WIDTH does not affect where the normal BEGINS. It is
+			// test-only, like UV_COMPONENTS, and exists so the layout can be summed against the
+			// stride. Passing it here would not compile.
+			GL11.glNormalPointer(GL11.GL_FLOAT, MeshGl.stride(), MeshGl.NORMAL_OFFSET);
 			GL11.glColorPointer(4, GL11.GL_UNSIGNED_BYTE, MeshGl.stride(), MeshGl.COLOR_OFFSET);
 			GL11.glEnableClientState(GL11.GL_VERTEX_ARRAY);
 			// The colour array must be ENABLED, not merely pointed at: a pointer without this
 			// renders the whole mesh in the current flat glColor, with no error anywhere.
 			GL11.glEnableClientState(GL11.GL_COLOR_ARRAY);
+			// And the SAME rule for normals, with a worse failure. GLSM reads hasNormal from
+			// CLIENT state, so a pointer without this enable lights every vertex from the current
+			// normal uniform — a uniformly lit mesh that looks correct. See the class javadoc.
+			GL11.glEnableClientState(GL11.GL_NORMAL_ARRAY);
 
 			load(view);
 			GL11.glLoadMatrix(matrix);
@@ -152,9 +204,16 @@ final class Mesh3dPass {
 		}
 
 		// --- exit. Buffer bindings and GL_DEPTH_TEST are restored BY VALUE; client state is left
-		// disabled by the accepted deviation above, not restored. Disabling the two we enabled is
+		// disabled by the accepted deviation above, not restored. Disabling what we enabled is
 		// required either way: leaving GL_COLOR_ARRAY enabled would make the 2D replay read a
 		// stale colour pointer into a buffer we unbind two lines later.
+		//
+		// THREE, NOT TWO, as of group B. This block and the enables in the loop are ONE list
+		// split across two places, and the split is the whole hazard: adding the normal enable
+		// without adding it here leaks GL_NORMAL_ARRAY into the 2D replay, where the pointer it
+		// carries aims into a VBO unbound on the next line. Disabled in REVERSE order of the
+		// enables, so the two blocks read as mirrors and a missing line is visible by shape.
+		GL11.glDisableClientState(GL11.GL_NORMAL_ARRAY);
 		GL11.glDisableClientState(GL11.GL_COLOR_ARRAY);
 		GL11.glDisableClientState(GL11.GL_VERTEX_ARRAY);
 		GL15.glBindBuffer(GL15.GL_ELEMENT_ARRAY_BUFFER, savedElementBuffer);

@@ -263,19 +263,18 @@ public final class SceneState {
 	/**
 	 * A light node's validated {@code __light} entry, or null when it does not have a usable one.
 	 *
-	 * <b>THIS IS PRESENTLY THE ONLY VALIDATION OF {@code __light} ANYWHERE — not a second line
-	 * of defence.</b> The paragraph this method's shape was copied from,
-	 * {@link #cameraProjection}, can honestly say "{@link ServerScene#setProjection} validates
-	 * on admission and this re-checks"; that sentence is FALSE here and was written anyway in
-	 * the first draft. No host verb writes {@code __light} yet (the authoring verb is C1.3.2
-	 * group C), and {@code ServerScene}'s only contact with the name is the blanket refusal that
-	 * stops authors writing any {@code __} uniform. So there is no admission gate behind this
-	 * one, and the usual reassurance does not apply.
+	 * Re-validated on the READ side for the same reason {@link #cameraProjection} is:
+	 * {@link ServerScene#setLight} validates on admission, but a mirror payload arrives through
+	 * {@code DeltaApplier}/{@code SnapshotCodec}, which check name legality and value COUNT and
+	 * never the band. A light that reached this side any other way must not be trusted.
 	 *
-	 * The mirror-path half of the argument does hold and is why this method must exist at all:
-	 * a payload arriving through {@code DeltaApplier}/{@code SnapshotCodec} is checked for name
-	 * legality and value COUNT and never for the band. When a light verb ships it must carry its
-	 * own band gate; this then becomes the second check rather than the first.
+	 * <i>That sentence was FALSE when this method was written and is true now, which is worth a
+	 * line rather than a silent edit.</i> Group A shipped the read side alone, and its first
+	 * draft claimed this admission gate already existed — copied from {@code cameraProjection},
+	 * where it does. A panel caught it; the correction said plainly that this was the only
+	 * validation anywhere. Group C then built {@link ServerScene#setLight}, so the original
+	 * sentence became accurate and is restored. The rule that survives both edits: the claim
+	 * moves in the commit that moves the code.
 	 *
 	 * Null is returned — never a substituted default — for an absent entry, a malformed one, an
 	 * unrecognised kind, or a negative/non-finite colour. A negative component is refused rather
