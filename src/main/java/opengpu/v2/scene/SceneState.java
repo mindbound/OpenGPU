@@ -356,9 +356,22 @@ public final class SceneState {
 	 * (that is how intensity is expressed), and clamping here would silently cap a scene that
 	 * deliberately over-drives its ambient.
 	 *
-	 * Null, never a substituted default: no ambient light authored means no ambient term is
-	 * written at all, so the renderer leaves whatever the light model already holds. Inventing a
-	 * "reasonable" grey here is exactly the invented-default defect CASEBOOK D11 records.
+	 * Null, never a substituted default. Inventing a "reasonable" grey HERE is exactly the
+	 * invented-default defect CASEBOOK D11 records: this method reports what the author wrote,
+	 * and nothing else.
+	 *
+	 * <b>What the RENDERER does with that null is a separate decision, and it is NOT "leave
+	 * whatever is already there".</b> This javadoc said so for one increment and it was wrong —
+	 * an inherited {@code GL_LIGHT_MODEL_AMBIENT} is nondeterministic in a modded client (the
+	 * GL default is 0.2, but vanilla raises it while a container GUI is open), so an identical
+	 * scene would render differently depending on what the world did last frame. Read as a
+	 * renderer instruction, "leave what is there" produces precisely the inherited-state defect
+	 * this increment exists to close.
+	 *
+	 * {@code Mesh3dPass} therefore writes {@code (0,0,0,1)} on null — the literal meaning of
+	 * "no ambient authored", which is a different thing from an invented value. The distinction
+	 * that keeps both halves honest: the MODEL must not invent, and the RENDERER must not
+	 * inherit.
 	 */
 	public double[] ambientLight() {
 		double[] sum = null;

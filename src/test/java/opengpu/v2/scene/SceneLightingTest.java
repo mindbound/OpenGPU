@@ -524,6 +524,114 @@ public class SceneLightingTest {
 				node(s, id).uniforms.get(ServerScene.LIGHT_UNIFORM).length);
 	}
 
+	// --------------------------------------------------- which way a directional light points
+	//
+	// THE SIGN. GL's directional GL_POSITION is the vector TOWARD the light, and this project's
+	// forward axis is local -Z, so the value the binder uploads is COLUMN 2 of the node's world
+	// rotation — which Look builds as -forward.
+	//
+	// These pin the arithmetic the binder depends on, and they exist because a sign error here
+	// renders PLAUSIBLY: the shader clamps with max(dot(n, L), 0), so getting it backwards lights
+	// the far side of the mesh instead of producing an error or a black frame. Until the field
+	// run grades orientation directly, this is the only thing standing between a flipped sign and
+	// a lit picture that looks fine and is wrong.
+	//
+	// The binder itself is GL code and cannot be unit-tested; what is tested here is the exact
+	// expression it uses, so a change to Look's or Transform3d's convention fails HERE rather
+	// than as a scene lit from the wrong side.
+
+	/**
+	 * CALLS the production expression; does not restate it.
+	 *
+	 * An earlier draft of these tests recomputed column 2 here, which made all five pin a COPY —
+	 * changing the binder to read a different column would have left every one of them green.
+	 * The derivation now lives in {@link Transform3d#towardLight} and both sides call it.
+	 */
+	private static double[] towardLight(ServerScene s, int id) {
+		return Transform3d.towardLight(node(s, id), s.state());
+	}
+
+	private static void aim(ServerScene s, int id, double tx, double ty, double tz) {
+		double[] q = Look.quat(0, 0, 0, tx, ty, tz, 0, 1, 0);
+		SceneNode n = node(s, id);
+		n.qx = q[0];
+		n.qy = q[1];
+		n.qz = q[2];
+		n.qw = q[3];
+	}
+
+	@Test
+	public void anUnrotatedLightPointsTowardPositiveZ() {
+		ServerScene s = scene();
+		int id = light(s, ServerScene.LIGHT_DIRECTIONAL, 1, 1, 1);
+		double[] toward = towardLight(s, id);
+		// Identity rotation: the node looks down -Z, so the light ARRIVES from +Z.
+		assertEquals("x", 0.0, toward[0], 1e-9);
+		assertEquals("y", 0.0, toward[1], 1e-9);
+		assertEquals("toward-light is +Z, NOT the -Z the node faces", 1.0, toward[2], 1e-9);
+	}
+
+	@Test
+	public void aLightAimedDownNegativeXIlluminatesFromPositiveX() {
+		ServerScene s = scene();
+		int id = light(s, ServerScene.LIGHT_DIRECTIONAL, 1, 1, 1);
+		aim(s, id, -1, 0, 0);   // rays travel toward -X
+		double[] toward = towardLight(s, id);
+		// The wrong answer written in: (-1, 0, 0) is the direction the light SHINES, and handing
+		// that to GL lights the opposite face of every mesh — plausibly, with no error.
+		assertEquals("toward-light is +X when the rays travel toward -X",
+				1.0, toward[0], 1e-9);
+		assertEquals("y", 0.0, toward[1], 1e-9);
+		assertEquals("z", 0.0, toward[2], 1e-9);
+	}
+
+	@Test
+	public void aLightAimedDownwardIlluminatesFromAbove() {
+		ServerScene s = scene();
+		int id = light(s, ServerScene.LIGHT_DIRECTIONAL, 1, 1, 1);
+		// Up must not be parallel to the view direction, so aim straight down with a Z-ish up.
+		double[] q = Look.quat(0, 0, 0, 0, -1, 0, 0, 0, -1);
+		SceneNode n = node(s, id);
+		n.qx = q[0]; n.qy = q[1]; n.qz = q[2]; n.qw = q[3];
+
+		double[] toward = towardLight(s, id);
+		// The everyday case — a sun overhead. Rays travel down, so the light is ABOVE.
+		assertEquals("x", 0.0, toward[0], 1e-9);
+		assertEquals("toward-light is +Y for a light shining downward", 1.0, toward[1], 1e-9);
+		assertEquals("z", 0.0, toward[2], 1e-9);
+	}
+
+	@Test
+	public void aLightInheritsItsRigsRotation() {
+		ServerScene s = scene();
+		int rig = s.createNode(V2Wire.NODE_GROUP, 0);
+		int lamp = s.createNode(V2Wire.NODE_LIGHT, 0, rig);
+		node(s, lamp).uniforms.put(ServerScene.LIGHT_UNIFORM,
+				new double[] { ServerScene.LIGHT_DIRECTIONAL, 1, 1, 1 });
+		// The lamp is unrotated; the RIG turns to face -X.
+		aim(s, rig, -1, 0, 0);
+
+		double[] toward = towardLight(s, lamp);
+		// This is what "parent a light to a rig and it follows" MEANS, asserted rather than
+		// promised in a doc string. A binder reading the node's own quaternion instead of its
+		// world rotation would return +Z here and the rig would do nothing.
+		assertEquals("the rig's rotation reaches the lamp", 1.0, toward[0], 1e-9);
+		assertEquals("y", 0.0, toward[1], 1e-9);
+		assertEquals("z", 0.0, toward[2], 1e-9);
+	}
+
+	@Test
+	public void theTowardLightVectorStaysUnitLength() {
+		ServerScene s = scene();
+		int id = light(s, ServerScene.LIGHT_DIRECTIONAL, 1, 1, 1);
+		aim(s, id, 1, 2, -3);
+		double[] t = towardLight(s, id);
+		double len = Math.sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
+		// GL does not normalise a directional GL_POSITION, and the shader feeds it straight into
+		// a dot product — so a non-unit vector silently scales every light's intensity.
+		assertEquals("a rotation column is unit length by construction", 1.0, len, 1e-9);
+	}
+
 	// ------------------------------------------------------- the light survives the wire
 	//
 	// GROUP C IS WHAT MAKES THESE NECESSARY. Until an author could CREATE a light, no NODE_LIGHT

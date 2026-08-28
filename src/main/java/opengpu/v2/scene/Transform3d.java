@@ -108,6 +108,31 @@ public final class Transform3d {
 	}
 
 	/**
+	 * The unit vector pointing TOWARD a directional light — what GL wants in a {@code w = 0}
+	 * {@code GL_POSITION}, in world space.
+	 *
+	 * This is column 2 of {@link #worldRotation}, which {@link Look} builds as <b>-forward</b>
+	 * ("+X -&gt; right, +Y -&gt; true up, +Z -&gt; -forward"). A node looks down its local -Z, so
+	 * its rays travel along -Z and the light ARRIVES from +Z. Aim a light at the ground and this
+	 * returns +Y: the sun is above.
+	 *
+	 * <b>Lives here, and is called by the renderer rather than reimplemented there, for a
+	 * specific reason.</b> The first version of the lighting tests recomputed this expression in
+	 * a test helper — so they pinned a COPY, and changing the binder to read a different column
+	 * would have left all five green. A sign or column error in this expression is the worst kind
+	 * of graphics defect to catch late: the shader clamps with {@code max(dot(n, L), 0)}, so it
+	 * renders a perfectly plausible picture lit from the wrong side, with no error and no black
+	 * frame. One implementation, one place to test.
+	 *
+	 * Deliberately NOT routed through {@link #apply}: that is a POINT transform and adds the
+	 * translation column, which would turn a direction into a position.
+	 */
+	public static double[] towardLight(SceneNode light, SceneState state) {
+		double[][] r = worldRotation(light, state);
+		return new double[] { r[0][2], r[1][2], r[2][2] };
+	}
+
+	/**
 	 * The camera's view matrix, 16 floats column-major, ready for {@code glLoadMatrix}.
 	 *
 	 * <b>The view matrix is the INVERSE of the camera's world transform</b> — the single most
