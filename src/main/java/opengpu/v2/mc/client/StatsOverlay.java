@@ -321,6 +321,20 @@ public final class StatsOverlay {
 			// costs nothing to compute because both counters are already being kept.
 			lines.add(String.format("    render total %.1f ms over %d renders",
 					RenderStats.renderNanos / 1.0e6, RenderStats.sceneRenders));
+			// The 3D layer's cumulative cost, and the 2D figure with it removed — BOTH shown, so
+			// the subtraction is checkable rather than asserted.
+			//
+			// CUMULATIVE, NOT A RATE, and that distinction is the whole reason this row exists.
+			// The windowed 3D row on the first page is gated on a non-zero rate, and a scene stops
+			// re-rendering the moment it settles — so during FIELD-TEST-C131 the line appeared for
+			// under a second at the start of an arm and then vanished, which no operator can read
+			// two numbers off. These totals do not decay: they are readable at leisure, minutes
+			// after the scene went quiet, which is what makes "did the subtraction happen" an
+			// answerable question. An arm that reads a RATE must create the activity it measures;
+			// an arm that reads a TOTAL need not.
+			lines.add(String.format("    3D layer %.1f ms over %d mesh draws; 2D-only %.1f ms",
+					RenderStats.threeDNanos() / 1.0e6, RenderStats.threeDDraws(),
+					(RenderStats.renderNanos - RenderStats.threeDNanos()) / 1.0e6));
 			// The stall share of that total, so a run-scoped mean can be taken with and without
 			// hitches. Without it a benchmark cannot tell a real effect from one 33 ms stall,
 			// which at this frame rate is worth 13 us on a 20 s run -- the size of the effects
