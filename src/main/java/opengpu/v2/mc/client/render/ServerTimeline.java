@@ -54,27 +54,81 @@ final class ServerTimeline {
 	 * here — neither 1 nor 2 is right in general.</b> Measured 2026-08-29, then measured again
 	 * after a change to 1 was nearly shipped.
 	 *
-	 * In closed form, for a paced server: the render clock is {@code t1 - D*TICK + d} with
-	 * {@code d} the wall time since the keyframe arrived, {@code d} in {@code [0, G*TICK)} for a
-	 * keyframe gap of {@code G} ticks, and the window {@code sampleGroup} divides by is
-	 * {@code [t1 - G*TICK, t1]}. So the clock spends <b>{@code min(D,G)/G}</b> of each interval
-	 * inside the window, sweeping it at <b>{@code (G/D)x}</b> nominal speed. Exact only for
-	 * {@code G == D}; every other cadence surges and then freezes.
+	 * In closed form, for a paced server and a CONSTANT cadence: the render clock is
+	 * {@code t1 - D*TICK + d} with {@code d} the wall time since the keyframe arrived, {@code d} in
+	 * {@code [0, G*TICK)} for a keyframe gap of {@code G} ticks, and the window
+	 * {@code sampleGroup} divides by is {@code (t1 - G*TICK, t1)}. That window has width
+	 * {@code G*TICK} and the delay only TRANSLATES it, so the clock spends
 	 *
-	 * What that costs at each value, driven at exactly 20 tps with paced arrivals and no jitter:
+	 * <pre>   max(0, G - |D - G|) / G</pre>
+	 *
+	 * of each interval inside it, <b>sweeping at exactly 1x nominal speed throughout</b>. The
+	 * penalty is symmetric in {@code |D - G|} and total at {@code D == 2G}: two ticks of delay
+	 * against a one-tick cadence interpolates NOTHING. Exact only for {@code G == D}; every other
+	 * cadence spends one discontinuity per keyframe of
+	 *
+	 * <pre>   min(|1 - D/G|, 1)</pre>
+	 *
+	 * of a keyframe span, and the visible artefact is carried entirely by that jump — never by a
+	 * fast or slow sweep. <b>The jump always lands on the FIRST frame after a keyframe boundary;
+	 * what moves with the sign of {@code D - G} is where the freeze sits:</b>
+	 *
+	 * <pre>
+	 *   D &lt; G     alpha starts at 1-D/G in (0,1)   jump, then sweep, then freeze at the TAIL
+	 *   D &gt; G     alpha starts below 0             jump, then freeze at the HEAD, then sweep
+	 *   D &gt;= 2G   alpha never reaches (0,1)        jump, then frozen for the WHOLE interval
+	 * </pre>
+	 *
+	 * The observed first STEP is the jump plus up to one frame's travel, since the frame grid does
+	 * not generally land on the boundary instant.
+	 *
+	 * <b>An earlier revision of this paragraph said {@code min(D,G)/G} and {@code (G/D)x}, and both
+	 * halves were false.</b> {@code min(D,G)/G} claims 100% interpolation at {@code G=1, D=2}, which
+	 * the measured table below contradicts in this same javadoc; {@code (G/D)x} is wrong for
+	 * every {@code D != G}, since the true rate is 1x always. Driven to correct it, 2026-08-29:
+	 * measured sweep rate is {@code 1.000000x} in every one of the five {@code (G,D)} cells of
+	 * {@code {1,2,3} x {1,2}} where a sweep exists at all, against {@code (G/D)x} predictions
+	 * spanning 0.5x to 3x. The sixth, {@code (1,2)}, has no interpolating frame to measure — which
+	 * is itself the closed form's own prediction there, and the reason this correction matters.
+	 *
+	 * <b>THE JUMP FORMULA TOOK THREE ATTEMPTS AND THE FIRST TWO FAILED ON THE SAME BRANCH AS THE
+	 * THING THEY WERE FIXING.</b> Recorded because the pattern is the point, not the arithmetic.
+	 * Draft 1 wrote {@code (1 - D/G)}: right for {@code D < G}, negative and meaningless for
+	 * {@code D > G}. Draft 2 wrote {@code |1 - D/G|}: right for {@code G <= D < 2G}, but it grows
+	 * without bound while the real jump SATURATES at one span — at {@code G=1, D=3} it claims two
+	 * spans where the class moves one. Both drafts were reasoned; the third was driven, over
+	 * {@code (G,D)} in {@code {1,2,3,4} x {1,..,8}}, and {@code min(|1 - D/G|, 1)} is the only one
+	 * of the three that matches in all 32 cells. If this sentence is edited again, drive it.
+	 *
+	 * What the value costs at each cadence, driven against this class at exactly 20 tps with paced
+	 * arrivals, no jitter, and three display frames per tick:
 	 *
 	 * <pre>
 	 *   gap 1 (a program updating every tick, which needs a busy loop):
-	 *     D=2  0 of 360 frames interpolate -- the clock never enters the window at all
-	 *     D=1  67% interpolate
+	 *     D=2  0 of 360 frames interpolate -- the clock never enters the window at all.
+	 *          Steps 100.00, 0, 0 repeating: the node STEPS at 20 Hz and never glides
+	 *     D=1  33.33 every frame, continuous
 	 *   gap 2 (os.sleep(0.1), or any loop costing more than a tick):
 	 *     D=2  16.67 units per frame, every frame, continuous
-	 *     D=1  66.67, 16.67, 16.67, 0, 0, 0 repeating -- a 4x jump to the interval's midpoint,
-	 *          then a 50 ms FREEZE, ten times a second
+	 *     D=1  50.00, 16.67, 16.67, 16.67, 0, 0 repeating -- a 3x jump to the interval's
+	 *          MIDPOINT, then a 50 ms FREEZE, ten times a second
 	 *   gap 3:
-	 *     D=2  moves on 6 frames of every 9
-	 *     D=1  moves on 3 of every 9; 100 ms frozen out of every 150
+	 *     D=2  moves on 6 frames of every 9; 33.33 entry jump (3x), then 50 ms frozen
+	 *     D=1  moves on 3 of every 9; 100 ms frozen out of every 150; 66.67 entry jump (6x)
 	 * </pre>
+	 *
+	 * The fractions above are the CONTINUOUS measure — wall time on which the node does not move.
+	 * <b>A frame counter reads AT OR BELOW it, never above</b>, because a run of N still frames
+	 * yields only N-1 zero STEPS: each freeze episode can lose up to one frame to the motion
+	 * bordering it. Over the eight cadences {@code tools/interp-cadence} publishes, the two agree
+	 * exactly in most cells and differ by one frame per episode in the rest. Quote the continuous
+	 * column; the tool prints both.
+	 *
+	 * <i>(An earlier revision of this paragraph claimed the frame column reads ABOVE the continuous
+	 * one about as often as below, on the strength of cells printing 33.5% against a continuous
+	 * 33.3%. That excess was the harness dividing a zero-step count by the number of STEPS rather
+	 * than the number of FRAMES — n steps span n+1 frames. Fixed in the tool; the inequality above
+	 * is exact.)</i>
 	 *
 	 * <b>So 2 stays.</b> The surge-and-freeze at D=1 is the exact artefact this class's own header
 	 * names as the thing it exists to remove ("motion surged and stalled"), and it lands on the

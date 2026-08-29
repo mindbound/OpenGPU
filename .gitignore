@@ -296,3 +296,6 @@ gradle-app.setting
 # End of https://www.toptal.com/developers/gitignore/api/java,scala,gradle,kotlin,forgegradle,intellij+all,eclipse,emacs
 # OCSL dry-run harness output (regenerable: tools/ocsl-dryrun/run.sh)
 tools/ocsl-dryrun/build/
+
+# Interpolation cadence harness output (regenerable: tools/interp-cadence/run.sh)
+tools/interp-cadence/build/

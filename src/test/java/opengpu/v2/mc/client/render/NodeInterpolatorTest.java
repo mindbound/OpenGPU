@@ -101,8 +101,21 @@ public class NodeInterpolatorTest {
 	 * independence.</b> {@code localShowing} ADDS the delay to the wall time, so every vector built
 	 * on it stays green whatever the constant is set to — which is how a value that stopped
 	 * interpolation happening at all survived a 961-test suite.
-	 * {@code aNodeUpdatingEveryTickActuallyInterpolates} derives its instants from real arrival
-	 * pacing instead and is the only vector here that fails if the constant regresses.
+	 * {@code aNodeWhoseGapMatchesTheDelayMovesAtConstantSpeed} derives its instants from real
+	 * arrival pacing instead and is the only vector here that can SEE the cadence at all.
+	 * <b>It does not fail if the constant changes, and that is deliberate</b> — it reads the
+	 * constant reflectively and pins the {@code D == G} relationship, so it stays meaningful at any
+	 * admissible value rather than having to be rewritten with the next retune. Nothing in this
+	 * file fails on a mere change of the constant; what the vector catches is the RELATIONSHIP
+	 * breaking.
+	 * <p>
+	 * (Two corrections to this sentence, 2026-08-29. It named
+	 * {@code aNodeUpdatingEveryTickActuallyInterpolates}, a method already renamed away and absent
+	 * from the tree — and the first repair fixed the name while leaving the claim "fails if the
+	 * constant regresses", which the rewritten vector had made false. Note also that NOTHING in
+	 * this build resolves javadoc references: there is no javadoc or doclint task at all, so a
+	 * {@code {@link}} to a missing method would compile just as cleanly as this {@code {@code}}
+	 * span did. Only a reader or a grep finds either.)
 	 *
 	 * The helper stays, for a reason that survives both corrections: measuring the fraction makes
 	 * the quaternion assertions independent of the clock ENTIRELY, so a future change to
@@ -576,14 +589,30 @@ public class NodeInterpolatorTest {
 		// is. Those are sound as tests of the interpolation ARITHMETIC and structurally blind to
 		// the cadence. This one derives its instants from the ARRIVALS, as a display frame does.
 		//
-		// WHAT IT PINS. In closed form, for a paced server, the clock spends min(D,G)/G of each
-		// interval inside the window and sweeps it at (G/D)x nominal speed, for a delay D and a
-		// keyframe gap G. Exact only where G == D. So: a node whose gap EQUALS the delay must move
-		// by an equal amount on every frame, and a node whose gap EXCEEDS it must not — it surges
-		// then freezes. Both halves hold whatever D is set to, which is what makes this vector
-		// outlive the next change to the constant. (An earlier version asserted "a node updating
-		// every tick interpolates", which is a claim about D == 1 specifically and would have had
-		// to be deleted when the constant went back to 2.)
+		// WHAT IT PINS. In closed form, for a paced server and a constant cadence, the clock spends
+		// max(0, G - |D - G|)/G of each interval inside the window and sweeps it at EXACTLY 1x
+		// nominal speed, for a delay D and a keyframe gap G. Exact only where G == D; away from
+		// there the artefact is a JUMP of min(|1 - D/G|, 1) of a span plus a freeze, never a fast or
+		// slow sweep. So: a node whose gap EQUALS the delay must move by an equal amount on every
+		// frame, and a node whose gap EXCEEDS it must not — it jumps then freezes. Both halves hold
+		// for D in 1..MAX_GAP_TICKS-1, which is what makes this vector outlive the next change to
+		// the constant. AT D == MAX_GAP_TICKS THE SECOND HALF GOES VACUOUS: perFrameSteps(delay + 1)
+		// then has a gap of 4, which snaps rather than interpolating, so the node holds curr on
+		// every frame and jumps a whole span at each keyframe. Both assertions still PASS — frozen
+		// frames exist and the biggest step is 100 — but they would be measuring the snap rule
+		// rather than the cadence, and passing would mean nothing. If MAX_GAP_TICKS or the delay
+		// ever changes so that delay + 1 > MAX_GAP_TICKS, this vector needs a third arm.
+		//
+		// THIS COMMENT SAID min(D,G)/G AND (G/D)x UNTIL 2026-08-29, and both halves were false —
+		// see the ServerTimeline javadoc for the correction, the driven numbers, and the two
+		// further wrong drafts the repair itself went through. The assertions below were never
+		// wrong: they were derived from the measured behaviour rather than from the formula, which
+		// is the only reason a false closed form could sit above a green test at all. It sat there
+		// for one commit and about nine hours (git log -S 'min(D,G)' returns only b0cbd0e) — the
+		// "eleven increments" in the neighbouring casebook entry is the lifetime of the CONSTANT's
+		// wrongness at gap 1, which is a different defect. (An earlier version asserted "a node
+		// updating every tick interpolates", which is a claim about D == 1 specifically and would
+		// have had to be deleted when the constant went back to 2.)
 		java.lang.reflect.Field df =
 				ServerTimeline.class.getDeclaredField("INTERPOLATION_DELAY_TICKS");
 		df.setAccessible(true);
@@ -592,19 +621,48 @@ public class NodeInterpolatorTest {
 		double[] matched = perFrameSteps(delay);
 		double[] wider = perFrameSteps(delay + 1);
 
+		// THE GUARD THAT KEEPS THE SECOND ARM HONEST, rather than a comment asking a future reader
+		// to remember. If gap = delay + 1 ever stops being interpolated, the wider arm silently
+		// starts measuring the SNAP rule instead of the cadence: a snapping node holds curr on
+		// every frame and jumps a whole span at each keyframe, so `frozen > 0` and
+		// `biggest > hi` both still hold and the arm passes while testing nothing.
+		//
+		// IT ASSERTS ON THE BEHAVIOUR, NOT ON THE CONSTANT, and that distinction was earned. A
+		// first version compared delay + 1 <= MAX_GAP_TICKS by reflection. That reads the input to
+		// the snap decision without reading the DECISION: mutating NodeInterpolator's predicate
+		// from `> MAX_GAP_TICKS` to `>= MAX_GAP_TICKS` leaves the constant untouched, makes the
+		// wider arm snap, and the constant-based guard passes. A snapping node's steps are all
+		// either zero or a full span; an interpolating one has intermediate steps. That is the
+		// property the arm actually needs, so that is what is checked.
+		double span = 100.0;
+		boolean widerInterpolates = false;
+		for (int i = 0; i < wider.length; i++) {
+			if (wider[i] > 1e-6 && wider[i] < span * 0.9) {
+				widerInterpolates = true;
+			}
+		}
+		assertTrue("this vector's wider arm uses gap = delay + 1 = " + (delay + 1) + ", which must"
+				+ " still INTERPOLATE for the arm to mean anything — but every step it produced is"
+				+ " either zero or a whole keyframe span, which is what SNAPPING looks like."
+				+ " Check MAX_GAP_TICKS and the predicate that reads it. Steps: "
+				+ java.util.Arrays.toString(wider), widerInterpolates);
+
 		double lo = matched[0], hi = matched[0];
 		for (int i = 0; i < matched.length; i++) {
 			lo = Math.min(lo, matched[i]);
 			hi = Math.max(hi, matched[i]);
 		}
-		// TOLERANCE 1e-3, AND THE RESIDUE HAS AN EXACT CAUSE rather than being slack. Frame
-		// instants are spaced by integer nanoseconds: TICK/3 is 16_666_666 by integer division, so
-		// three frames span 49_999_998 ns — two short of a tick. Over 100 units per 50 ms that is
-		// 100 * 2/50_000_000 = 4e-6 units of position, which is the spread actually observed
-		// (16.666665999999964 to 16.66667000000001). A first draft asserted 1e-6 and failed on it.
+		// TOLERANCE 1e-3, AND THE RESIDUE NOW HAS A DIFFERENT AND SMALLER CAUSE. It used to be
+		// 4e-6, from perFrameSteps spacing frames by f * (TICK/3) — 16_666_666 by integer
+		// division, two nanoseconds short per frame. That was an instrument defect, not a property
+		// of the class, and it was fixed 2026-08-29; the helper now spaces by f * TICK / 3, which
+		// lands every frame on an exact third and every third frame exactly on a tick. What
+		// remains is double rounding in the lerp itself, orders of magnitude below this band.
 		//
-		// The discriminator is unharmed: the mismatched cadence below surges by 66.67 units in one
-		// frame, four orders of magnitude outside this band.
+		// The tolerance is deliberately NOT tightened to match. It is a discriminator, not a
+		// measurement: the mismatched cadence below jumps 33.33 units in one frame against this
+		// cadence's uniform 16.67, which is four orders of magnitude outside the band either way.
+		// Tightening it would couple this vector to floating-point details it does not test.
 		assertTrue("gap == delay must move by an equal amount every frame; saw steps from "
 				+ lo + " to " + hi, hi - lo < 1e-3);
 		assertTrue("and must actually be moving", lo > 1e-6);
@@ -616,8 +674,9 @@ public class NodeInterpolatorTest {
 			}
 			biggest = Math.max(biggest, wider[i]);
 		}
-		assertTrue("gap > delay must surge then freeze — that is the (G/D)x sweep running out of"
-				+ " window. Frozen frames: " + frozen + "/" + wider.length, frozen > 0);
+		assertTrue("gap > delay must jump then freeze — that is the window, whose width is the GAP"
+				+ " and whose position is the DELAY, sliding off the interval. Frozen frames: "
+				+ frozen + "/" + wider.length, frozen > 0);
 		assertTrue("and its biggest step must exceed the matched cadence's uniform one",
 				biggest > hi + 1e-6);
 	}
@@ -637,7 +696,16 @@ public class NodeInterpolatorTest {
 			interp.capture(stateWith(n), T0 + (long) k * gapTicks, arrival, NONE);
 			for (int f = 0; f < 3 * gapTicks; f++) {
 				double[] out = new double[NodeFold.TRS_WIDTH];
-				interp.transformOf(n, arrival + f * (TICK / 3), out);
+				// f * TICK / 3, NOT f * (TICK / 3). The second form truncates once per frame --
+				// TICK/3 is 16_666_666, two nanoseconds short -- and the error accumulates until
+				// the frame that should land exactly on alpha == 1 lands 4 ns inside the window
+				// instead, reporting a step of 2.67e-6 rather than 0. That is ABOVE the 1e-6
+				// threshold the frozen counter below uses, so the counter misses the first frame
+				// of every episode: it read 4 frozen frames at gap 3 where the truth is 8.
+				// Fixed 2026-08-29, AFTER the identical defect was found and fixed in
+				// tools/interp-cadence and this copy was left standing -- a one-sided fix, with
+				// the mirror one directory away and a README section written about it.
+				interp.transformOf(n, arrival + f * TICK / 3, out);
 				xs.add(Double.valueOf(out[NodeFold.TRS_X]));
 			}
 		}
