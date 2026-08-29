@@ -48,13 +48,49 @@ final class ServerTimeline {
 	 *
 	 * This is the jitter buffer, and it is the whole reason the class exists: to interpolate
 	 * toward a keyframe we must already HOLD it, so we must render far enough in the past that
-	 * the next keyframe has normally arrived. One tick is the theoretical minimum and leaves
-	 * nothing for a late batch — the display would stall on the newest keyframe whenever a
-	 * batch slipped even slightly. Two ticks tolerates a batch arriving a full tick late.
+	 * the next keyframe has normally arrived.
+	 *
+	 * <b>THE VALUE IS ONLY CORRECT WHERE IT EQUALS THE KEYFRAME GAP, and that is the real finding
+	 * here — neither 1 nor 2 is right in general.</b> Measured 2026-08-29, then measured again
+	 * after a change to 1 was nearly shipped.
+	 *
+	 * In closed form, for a paced server: the render clock is {@code t1 - D*TICK + d} with
+	 * {@code d} the wall time since the keyframe arrived, {@code d} in {@code [0, G*TICK)} for a
+	 * keyframe gap of {@code G} ticks, and the window {@code sampleGroup} divides by is
+	 * {@code [t1 - G*TICK, t1]}. So the clock spends <b>{@code min(D,G)/G}</b> of each interval
+	 * inside the window, sweeping it at <b>{@code (G/D)x}</b> nominal speed. Exact only for
+	 * {@code G == D}; every other cadence surges and then freezes.
+	 *
+	 * What that costs at each value, driven at exactly 20 tps with paced arrivals and no jitter:
+	 *
+	 * <pre>
+	 *   gap 1 (a program updating every tick, which needs a busy loop):
+	 *     D=2  0 of 360 frames interpolate -- the clock never enters the window at all
+	 *     D=1  67% interpolate
+	 *   gap 2 (os.sleep(0.1), or any loop costing more than a tick):
+	 *     D=2  16.67 units per frame, every frame, continuous
+	 *     D=1  66.67, 16.67, 16.67, 0, 0, 0 repeating -- a 4x jump to the interval's midpoint,
+	 *          then a 50 ms FREEZE, ten times a second
+	 *   gap 3:
+	 *     D=2  moves on 6 frames of every 9
+	 *     D=1  moves on 3 of every 9; 100 ms frozen out of every 150
+	 * </pre>
+	 *
+	 * <b>So 2 stays.</b> The surge-and-freeze at D=1 is the exact artefact this class's own header
+	 * names as the thing it exists to remove ("motion surged and stalled"), and it lands on the
+	 * COMMON cadence: OpenComputers charges ~13 ms of {@code executionDelay} per component call, so
+	 * a loop with a few calls costs more than a tick and gap 2 or 3 is ordinary. Gap 1 is the case
+	 * this class's header claims to serve and simultaneously says a program cannot sustain without
+	 * "burning its whole call budget" — the header contradicts itself, and the 20 Hz stepping it
+	 * suffers is at least REGULAR, where D=1's surge is not.
+	 *
+	 * The honest fix is neither constant: <b>the delay wants to track the observed keyframe gap.</b>
+	 * Scoped in {@code PLAN-STAGE-C}, together with the TPS-deficit drift, which is the same
+	 * "a delay counted in ticks is the wrong unit" problem seen from another side.
 	 *
 	 * The cost is honest and worth stating: node motion appears 100 ms behind the server. For a
-	 * program that moves a sprite in response to a click, that is added to the click's own
-	 * round trip. Canvas CONTENT is unaffected — it never interpolates and is drawn as soon as
+	 * program that moves a sprite in response to a click, that is added to the click's own round
+	 * trip. Canvas CONTENT is unaffected — it never interpolates and is drawn as soon as
 	 * it applies. DESIGN records 1-2 ticks with the exact value to be tuned in Stage B.
 	 *
 	 * <b>MEASURED 2026-08-29, AND THE VALUE 2 DEFEATS THE FEATURE AT THE COMMONEST CADENCE.</b>
@@ -64,11 +100,21 @@ final class ServerTimeline {
 	 * node STEPS at 20 Hz, two ticks stale. Smoothing is live only for programs updating slower
 	 * than once per tick (a gap of 2 or 3; 4 and above snaps at {@code MAX_GAP_TICKS}).
 	 *
-	 * Not fixed here, deliberately: the constant cannot be retuned without also fixing
-	 * {@code NodeInterpolatorTest.localShowing}, which adds this delay to the wall time and so
-	 * manufactures frame instants two ticks after the arrivals they are paired with — the whole
-	 * test file currently exercises a cadence production cannot produce, and would not see either
-	 * state change. Scoped as its own increment in {@code PLAN-STAGE-C}.
+	 * <b>{@code NodeInterpolatorTest.localShowing} CANNOT SEE THIS CONSTANT and that is why a
+	 * separate vector exists.</b> The helper derives its frame instants by ADDING this delay to the
+	 * wall time, so it self-adjusts to any value and every vector built on it stays green whatever
+	 * this is set to. That makes those vectors sound as tests of the interpolation ARITHMETIC and
+	 * blind to the cadence. {@code aNodeWhoseGapMatchesTheDelayMovesAtConstantSpeed} derives its
+	 * instants from real arrival pacing instead, and pins the {@code D == G} relationship rather
+	 * than the constant's value — so it stays meaningful whatever this becomes.
+	 *
+	 * <b>What this does NOT fix: a sustained TPS deficit.</b> When ticks take longer than
+	 * {@code TICK_NANOS} of wall time, server time advances more slowly than the render clock, so
+	 * the clock drifts UP through the keyframe window and out of it — measured at 15 tps, the
+	 * interpolating fraction decays from 48% over 14 ticks to 6% over 120, with the same 20
+	 * absolute frames at the start of each run. Both 1 and 2 are broken there, in the same
+	 * direction and for the same reason, so this is a separate defect rather than an argument for
+	 * either value. Ledgered in {@code PLAN-STAGE-C}.
 	 */
 	static final int INTERPOLATION_DELAY_TICKS = 2;
 

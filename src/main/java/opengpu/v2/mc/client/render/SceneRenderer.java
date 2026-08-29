@@ -301,8 +301,13 @@ public final class SceneRenderer {
 	 * with {@code now} was worth the whole look-away in one re-base.
 	 */
 	static void captureFrom(NodeInterpolator interp, SceneMirror mirror) {
+		// BOTH HALVES OF THE SAME SAMPLE. This used to read lastObservedAtNanos() here — the
+		// arrival of the newest tick from ANY message, which a heartbeat advances while only a
+		// batch advances lastServerTick. A heartbeat landing between a batch and the render that
+		// consumes it therefore dated this keyframe with someone else's instant, and the error was
+		// the whole gap between them: -30 seconds on a look-back in the probe that found it.
 		interp.capture(mirror.state(), mirror.lastServerTick(),
-				mirror.lastObservedAtNanos(), mirror.teleportedNodes());
+				mirror.lastBatchAtNanos(), mirror.teleportedNodes());
 	}
 
 	/**

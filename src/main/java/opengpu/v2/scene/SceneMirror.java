@@ -33,6 +33,26 @@ public final class SceneMirror {
 	private int knownEpoch;
 	private int lastSeq;
 	private long lastServerTick;
+	/**
+	 * When the batch carrying {@link #lastServerTick} arrived — its OTHER HALF.
+	 *
+	 * EXISTS BECAUSE THE CALL SITE COULD NOT BE TRUSTED TO PAIR THEM. {@code lastObservedAtNanos}
+	 * below already warns "THE SAMPLE IS A PAIR OR IT IS NOTHING", and
+	 * {@code SceneRenderer.captureFrom} nonetheless fetched {@code lastServerTick()} and
+	 * {@code lastObservedAtNanos()} together — the two halves of DIFFERENT samples, because a
+	 * heartbeat advances the observed pair while only a batch advances the tick.
+	 *
+	 * Measured cost of that: a batch left dirty and unrendered while a player looks away, then any
+	 * healthy heartbeat lands and replaces the arrival. On looking back, the keyframe capture is
+	 * dated by the batch's tick and the heartbeat's instant — a {@code renderInstant} error equal
+	 * to the whole look-away (-30 seconds in the probe), so every animator on that screen evaluates
+	 * one frame at a stale time and the clock re-bases twice where zero were warranted.
+	 *
+	 * Two meanings, two pairs. A caller that wants the KEYFRAME sample takes this and
+	 * {@code lastServerTick}; a caller that wants the CLOCK sample takes {@code lastObservedTick}
+	 * and {@code lastObservedAtNanos}. Neither pair can be assembled from halves of the other.
+	 */
+	private long lastBatchAtNanos;
 	/** Newest tick from any message; see lastObservedTick(). Never the keyframe x-axis. */
 	private long lastObservedTick;
 	/** Paired with lastObservedTick because tick 0 is a legal reading; the sessionTickOffset idiom. */
@@ -78,6 +98,17 @@ public final class SceneMirror {
 
 	public long lastServerTick() {
 		return lastServerTick;
+	}
+
+	/**
+	 * The instant the batch carrying {@link #lastServerTick()} arrived — read them together.
+	 *
+	 * This is the pair {@code NodeInterpolator.capture} wants, because a keyframe is dated by the
+	 * batch that delivered it. {@link #lastObservedAtNanos()} is the CLOCK pair and belongs with
+	 * {@link #lastObservedTick()}; mixing them was worth a whole look-away of error.
+	 */
+	public long lastBatchAtNanos() {
+		return lastBatchAtNanos;
 	}
 
 	/**
@@ -171,6 +202,8 @@ public final class SceneMirror {
 		observedTickKnown = false;
 		lastObservedTick = 0L;
 		lastObservedAtNanos = 0L;
+		// The keyframe pair goes with the incarnation too, for the same reason as the clock pair.
+		lastBatchAtNanos = 0L;
 	}
 
 	/**
@@ -223,6 +256,7 @@ public final class SceneMirror {
 		}
 		lastSeq = batch.seq;
 		lastServerTick = batch.serverTick;
+		lastBatchAtNanos = atNanos;
 		observeTickInternal(batch.serverTick, atNanos);
 		if (clean) {
 			dirty = true;
@@ -371,6 +405,7 @@ public final class SceneMirror {
 		state = fresh;
 		lastSeq = snapshot.seq;
 		lastServerTick = snapshot.serverTick;
+		lastBatchAtNanos = atNanos;
 		observeTickInternal(snapshot.serverTick, atNanos);
 		// THE ANIMATOR CLOCK'S DOMAIN OFFSET, captured HERE and nowhere else, because a snapshot
 		// is the only payload carrying both halves of the pair at one instant: its header's

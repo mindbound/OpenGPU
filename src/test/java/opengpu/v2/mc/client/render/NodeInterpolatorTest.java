@@ -97,7 +97,14 @@ public class NodeInterpolatorTest {
 	 * and EXACTLY 0.5. The 1% tolerances on the older position vectors are not evidence of clock
 	 * slop either — they predate this file's paced-arrival helpers.
 	 *
-	 * The helper stays, for a reason that survives the correction: measuring the fraction makes
+	 * <b>AND IT CANNOT SEE {@code INTERPOLATION_DELAY_TICKS}, which is the cost of that
+	 * independence.</b> {@code localShowing} ADDS the delay to the wall time, so every vector built
+	 * on it stays green whatever the constant is set to — which is how a value that stopped
+	 * interpolation happening at all survived a 961-test suite.
+	 * {@code aNodeUpdatingEveryTickActuallyInterpolates} derives its instants from real arrival
+	 * pacing instead and is the only vector here that fails if the constant regresses.
+	 *
+	 * The helper stays, for a reason that survives both corrections: measuring the fraction makes
 	 * the quaternion assertions independent of the clock ENTIRELY, so a future change to
 	 * {@code INTERPOLATION_DELAY_TICKS} or to the EMA cannot silently soften them. What it does
 	 * NOT do is grade the timing — a {@code sample} computing a wrong {@code a} passes every
@@ -560,6 +567,90 @@ public class NodeInterpolatorTest {
 	}
 
 	@Test
+	public void aNodeWhoseGapMatchesTheDelayMovesAtConstantSpeed() throws Exception {
+		// THE ONLY VECTOR IN THIS FILE THAT CAN SEE THE CADENCE AT ALL, and it pins the
+		// RELATIONSHIP rather than the constant's value.
+		//
+		// Every other vector derives its frame instants from localShowing, which ADDS the delay to
+		// the wall time — so it self-adjusts to any value and stays green whatever the constant
+		// is. Those are sound as tests of the interpolation ARITHMETIC and structurally blind to
+		// the cadence. This one derives its instants from the ARRIVALS, as a display frame does.
+		//
+		// WHAT IT PINS. In closed form, for a paced server, the clock spends min(D,G)/G of each
+		// interval inside the window and sweeps it at (G/D)x nominal speed, for a delay D and a
+		// keyframe gap G. Exact only where G == D. So: a node whose gap EQUALS the delay must move
+		// by an equal amount on every frame, and a node whose gap EXCEEDS it must not — it surges
+		// then freezes. Both halves hold whatever D is set to, which is what makes this vector
+		// outlive the next change to the constant. (An earlier version asserted "a node updating
+		// every tick interpolates", which is a claim about D == 1 specifically and would have had
+		// to be deleted when the constant went back to 2.)
+		java.lang.reflect.Field df =
+				ServerTimeline.class.getDeclaredField("INTERPOLATION_DELAY_TICKS");
+		df.setAccessible(true);
+		int delay = df.getInt(null);
+
+		double[] matched = perFrameSteps(delay);
+		double[] wider = perFrameSteps(delay + 1);
+
+		double lo = matched[0], hi = matched[0];
+		for (int i = 0; i < matched.length; i++) {
+			lo = Math.min(lo, matched[i]);
+			hi = Math.max(hi, matched[i]);
+		}
+		// TOLERANCE 1e-3, AND THE RESIDUE HAS AN EXACT CAUSE rather than being slack. Frame
+		// instants are spaced by integer nanoseconds: TICK/3 is 16_666_666 by integer division, so
+		// three frames span 49_999_998 ns — two short of a tick. Over 100 units per 50 ms that is
+		// 100 * 2/50_000_000 = 4e-6 units of position, which is the spread actually observed
+		// (16.666665999999964 to 16.66667000000001). A first draft asserted 1e-6 and failed on it.
+		//
+		// The discriminator is unharmed: the mismatched cadence below surges by 66.67 units in one
+		// frame, four orders of magnitude outside this band.
+		assertTrue("gap == delay must move by an equal amount every frame; saw steps from "
+				+ lo + " to " + hi, hi - lo < 1e-3);
+		assertTrue("and must actually be moving", lo > 1e-6);
+
+		double frozen = 0, biggest = 0;
+		for (int i = 0; i < wider.length; i++) {
+			if (wider[i] < 1e-6) {
+				frozen++;
+			}
+			biggest = Math.max(biggest, wider[i]);
+		}
+		assertTrue("gap > delay must surge then freeze — that is the (G/D)x sweep running out of"
+				+ " window. Frozen frames: " + frozen + "/" + wider.length, frozen > 0);
+		assertTrue("and its biggest step must exceed the matched cadence's uniform one",
+				biggest > hi + 1e-6);
+	}
+
+	/**
+	 * Per-frame displacement for a node updating every {@code gapTicks} ticks, sampled at three
+	 * display frames per tick from the ARRIVALS rather than from {@link #localShowing}.
+	 */
+	private static double[] perFrameSteps(int gapTicks) {
+		NodeInterpolator interp = new NodeInterpolator();
+		SceneNode n = node(1, 0, 0);
+		interp.capture(stateWith(n), T0, N0, NONE);
+		java.util.List<Double> xs = new java.util.ArrayList<Double>();
+		for (int k = 1; k <= 8; k++) {
+			n.x = k * 100.0;
+			long arrival = N0 + (long) k * gapTicks * TICK;
+			interp.capture(stateWith(n), T0 + (long) k * gapTicks, arrival, NONE);
+			for (int f = 0; f < 3 * gapTicks; f++) {
+				double[] out = new double[NodeFold.TRS_WIDTH];
+				interp.transformOf(n, arrival + f * (TICK / 3), out);
+				xs.add(Double.valueOf(out[NodeFold.TRS_X]));
+			}
+		}
+		// steps from the second half only, so the clock estimate has settled
+		int from = xs.size() / 2;
+		double[] steps = new double[xs.size() - from - 1];
+		for (int i = 0; i < steps.length; i++) {
+			steps[i] = Math.abs(xs.get(from + i + 1).doubleValue() - xs.get(from + i).doubleValue());
+		}
+		return steps;
+	}
+
+	@Test
 	public void aChangeConfinedToAGroupsLASTSlotIsSeen() {
 		// equalRange's UPPER BOUND was pinned by nothing, and the cause is an idiom this file uses
 		// everywhere: `x` as the fraction ruler. Slot 0 always differs, so the scan never has to
@@ -791,6 +882,23 @@ public class NodeInterpolatorTest {
 		assertTrue("still catching up right after the batch", interp.active(arrival(1)));
 		assertFalse("settled once the render clock passes the newest keyframe",
 				interp.active(localShowing(T0 + 5)));
+
+		// AT THE BOUNDARY, not merely somewhere past it. The assertion above samples FOUR ticks
+		// beyond the newest keyframe, so any slack added to active()'s comparison up to three ticks
+		// wide is invisible to it — `render < tickNanos(currTick + 1)` survived the whole suite
+		// while doubling the FBO re-render on every gap-2 node and pinning a settled scene at full
+		// rate for three extra frames.
+		//
+		// This is the same defect the file already closed once for MAX_GAP_TICKS
+		// (aGapOfOneMoreThanTheCapSnaps: "a cap needs its bound at the boundary, not merely
+		// somewhere past it"); active()'s bound never got the same treatment.
+		//
+		// The instants are in the KEYFRAME domain rather than derived from localShowing, so this
+		// pair stays valid whatever INTERPOLATION_DELAY_TICKS becomes.
+		assertTrue("in flight a hair BEFORE the newest keyframe",
+				interp.active(localShowing(T0 + 1) - 1));
+		assertFalse("and settled exactly AT it — the boundary is the assertion",
+				interp.active(localShowing(T0 + 1)));
 	}
 
 	@Test
