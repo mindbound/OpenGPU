@@ -68,13 +68,21 @@ package opengpu.v2.mc.client.render;
  *     {@code OcslCompose.ruleFor} returns -1 for them — there is no composed value to read. They
  *     stay raw, and {@link NodeFoldTest} pins that {@code compose} refuses them, so the carve-out is
  *     enforced rather than described.</li>
- * <li><b>{@code tz}, {@code sz} and {@code rot3d} have no consumer at all.</b> The whole transform
- *     path is 2D and five wide — {@code SceneNode} carries {@code x, y, rot, sx, sy},
- *     {@code NodeInterpolator} is {@code FIELDS = 5}, and the affine below is 2x3 with no z. ANIM-3
- *     pinned composition equations for three properties nothing can display. ANIM-10 therefore binds
- *     the <b>six 2D properties</b>, and the gap is a stated scope rather than an oversight; a test
- *     fails the moment a 3D transform field appears on {@code SceneNode}, because at that point this
- *     fold and the interpolator both have to widen together.</li>
+ * <li><b>{@code tz}, {@code sz} and {@code rot3d} are CARRIED here as of C1.3.3. Nothing reads
+ *     them yet.</b> The record below is eleven wide — {@code SceneNode}'s whole scalar model — and
+ *     {@link NodeInterpolator} smooths every slot of it, the quaternion by slerp. No production
+ *     reader touches the 3D slots: {@link #apply} below is 2x3 and takes the 2D five, and
+ *     {@code AnimatorOverlay} reads TRS records in two more places
+ *     ({@code bindParentProperties} and {@code baseOf}) — also the 2D five only. The 3D pass reads {@code SceneNode}'s fields raw
+ *     and never sees a record at all. So the smoothed 3D slots are computed and discarded until
+ *     group B routes {@code Mesh3dPass} through here. The widening gave the 3D properties a
+ *     CARRIER, and a carrier is not a consumer.
+ *     <br><b>The reader list is spelled out because an earlier draft said "the only production
+ *     reader is {@code apply}"</b> — which is the same failure to enumerate second readers that
+ *     produced this increment's headline defect, committed in the sentence correcting it.
+ *     <br>The affine here will stay 2x3 regardless, because a canvas has no z to place; the
+ *     mirror-image case is {@code rot}, a 2D angle the 3D path never reads. ANIM-10 therefore
+ *     still binds the <b>six 2D properties</b> for THIS fold.</li>
  * </ul>
  */
 public final class NodeFold {
@@ -125,15 +133,69 @@ public final class NodeFold {
 		}
 	}
 
-	// A node's displayed transform, in the order the affine consumes it.
+	// A node's displayed transform. The 2D five come first and KEEP THEIR INDICES: this record is
+	// written in one place and read in several, so renumbering it would be a silent change to every
+	// reader at once.
 	public static final int TRS_X = 0;
 	public static final int TRS_Y = 1;
 	public static final int TRS_ROT = 2;
 	public static final int TRS_SX = 3;
 	public static final int TRS_SY = 4;
 
-	/** Five, and the number is the 2D scope above rather than an array size. */
-	public static final int TRS_WIDTH = 5;
+	// v10's 3D six, carried since C1.3.3. The order is SceneNode's own field order, which is also
+	// the wire's ascending PROP_Q* order — so the places that write this record can be read against
+	// each other line by line instead of by cross-referencing three numberings.
+	public static final int TRS_TZ = 5;
+	public static final int TRS_SZ = 6;
+	public static final int TRS_QX = 7;
+	public static final int TRS_QY = 8;
+	public static final int TRS_QZ = 9;
+	public static final int TRS_QW = 10;
+
+	/**
+	 * Eleven — the 2D five plus v10's 3D six — and the number is still a SCOPE rather than an
+	 * array size. It is the width of the displayed-transform record, and every array carrying one
+	 * MUST be sized from here so that its writer and its readers cannot disagree about how wide it
+	 * is — a rule enforced by nothing but review, which is why three literal 5-wide arrays survived
+	 * in {@code AnimatorOverlayTest} through this increment's first draft. They passed only because
+	 * {@code overlayTransform} writes the 2D five; the first 3D property it learns to substitute
+	 * would have turned all three into an {@code ArrayIndexOutOfBoundsException}.
+	 *
+	 * <b>A zeroed array of this width is NOT the identity transform.</b> {@code sx}, {@code sy},
+	 * {@code sz} and the quaternion's {@code w} all default to 1 on a
+	 * {@link opengpu.v2.scene.SceneNode} and to 0 in a fresh {@code double[]}, so a
+	 * partially-filled record scales the node away, and would hand the 3D path a degenerate
+	 * quaternion once group B routes it through here.
+	 * {@link #identity(double[])} writes that down once instead of leaving it to be remembered.
+	 */
+	public static final int TRS_WIDTH = 11;
+
+	/**
+	 * Write the identity transform into a TRS record — the value {@code new double[TRS_WIDTH]}
+	 * looks like it already holds and does not.
+	 *
+	 * NO PRODUCTION CALLER TODAY, and that is worth stating rather than leaving to be discovered:
+	 * every production site fills all eleven slots from {@code NodeInterpolator}. The callers are
+	 * both test helpers — {@code NodeFoldTest.trs} and {@code AnimatorOverlayTest.trsOf}. (An
+	 * earlier draft said "the only caller", and the second one was added by the same fix round
+	 * that wrote the sentence. A cardinal has to be counted at the moment it is written, not
+	 * remembered from ten minutes earlier.) It exists for the sites that build a record by hand —
+	 * group B's tests among them — and because writing the hazard down once beats each of them
+	 * rediscovering that {@code sz} and {@code qw} default to the wrong number.
+	 */
+	public static void identity(double[] trs) {
+		trs[TRS_X] = 0;
+		trs[TRS_Y] = 0;
+		trs[TRS_ROT] = 0;
+		trs[TRS_SX] = 1;
+		trs[TRS_SY] = 1;
+		trs[TRS_TZ] = 0;
+		trs[TRS_SZ] = 1;
+		trs[TRS_QX] = 0;
+		trs[TRS_QY] = 0;
+		trs[TRS_QZ] = 0;
+		trs[TRS_QW] = 1;
+	}
 
 	/** An untinted node. Every channel is exactly 1.0, so folding it changes nothing. */
 	public static final int WHITE = 0xFFFFFFFF;

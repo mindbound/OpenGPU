@@ -56,6 +56,19 @@ final class ServerTimeline {
 	 * program that moves a sprite in response to a click, that is added to the click's own
 	 * round trip. Canvas CONTENT is unaffected — it never interpolates and is drawn as soon as
 	 * it applies. DESIGN records 1-2 ticks with the exact value to be tuned in Stage B.
+	 *
+	 * <b>MEASURED 2026-08-29, AND THE VALUE 2 DEFEATS THE FEATURE AT THE COMMONEST CADENCE.</b>
+	 * With one keyframe per tick, {@code renderNanos} runs in {@code [(T-2)*TICK, (T-1)*TICK)}
+	 * while a node changing every tick has {@code prevTick = T-1} — so {@code renderNanos <= t0}
+	 * on every frame and {@code NodeInterpolator.sampleGroup} takes the clamp-to-prev exit. The
+	 * node STEPS at 20 Hz, two ticks stale. Smoothing is live only for programs updating slower
+	 * than once per tick (a gap of 2 or 3; 4 and above snaps at {@code MAX_GAP_TICKS}).
+	 *
+	 * Not fixed here, deliberately: the constant cannot be retuned without also fixing
+	 * {@code NodeInterpolatorTest.localShowing}, which adds this delay to the wall time and so
+	 * manufactures frame instants two ticks after the arrivals they are paired with — the whole
+	 * test file currently exercises a cadence production cannot produce, and would not see either
+	 * state change. Scoped as its own increment in {@code PLAN-STAGE-C}.
 	 */
 	static final int INTERPOLATION_DELAY_TICKS = 2;
 

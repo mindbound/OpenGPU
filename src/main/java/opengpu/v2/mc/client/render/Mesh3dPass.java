@@ -38,11 +38,18 @@ import opengpu.v2.scene.Transform3d;
  * {@code modelMatrix} reads {@code sx}/{@code sy} raw as well. The visible consequence: meshes
  * STEP at the 20 tps server tick while canvases in the same scene glide.
  *
- * Not fixed here because the fix is not local. Routing the 3D path through the interpolator means
- * widening its field set to carry tz and a quaternion, which is slerp work the plan assigns to a
- * later C1.3 increment, and doing it badly (interpolating x/y but stepping z and rotation) would
- * look worse than stepping everything. Recorded so the next increment knows it is completing this
- * rather than discovering it.
+ * <b>HALF DONE as of C1.3.3 group A, and the remaining half is the routing.</b> The field-set
+ * widening this paragraph used to defer has landed: {@code NodeInterpolator} now carries all
+ * eleven scalars and slerps the quaternion, on a keyframe timeline of its own so that 3D churn
+ * cannot disturb 2D motion. What has NOT happened is this pass asking for it — the draw below
+ * still calls {@code Transform3d.modelMatrix(node, state)} against raw mirror state, so the
+ * smoothed 3D values are computed every frame and discarded here. Meshes still STEP at 20 tps
+ * while canvases glide.
+ *
+ * Completing it means giving {@code draw} the interpolator and the overlay the way
+ * {@code Canvas2dRenderer.renderScene} takes them, and giving {@code Transform3d} entry points
+ * that take a displayed TRS record instead of a {@code SceneNode}. Do NOT solve that by copying
+ * the record's index constants into {@code opengpu.v2.scene} — one numbering, one home.
  *
  * <b>Normals ARRIVE as of C1.3.2 group B</b>, completing the omission C1.3.1 recorded here
  * rather than fixing a bug. The paragraph this replaces said the wire carried them "at offset 12"

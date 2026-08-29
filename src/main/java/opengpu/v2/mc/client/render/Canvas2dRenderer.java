@@ -254,11 +254,9 @@ public final class Canvas2dRenderer {
 		if (interp != null) {
 			interp.transformOf(n, interpNanos, out);
 		} else {
-			out[NodeFold.TRS_X] = n.x;
-			out[NodeFold.TRS_Y] = n.y;
-			out[NodeFold.TRS_ROT] = n.rot;
-			out[NodeFold.TRS_SX] = n.sx;
-			out[NodeFold.TRS_SY] = n.sy;
+			// One spelling of the raw read, in NodeInterpolator — this branch used to write out the
+			// 2D five by hand, which stopped covering the record the moment it widened to eleven.
+			NodeInterpolator.rawTransform(n, out);
 		}
 		if (overlay != null) {
 			overlay.overlayTransform(n.id, out);

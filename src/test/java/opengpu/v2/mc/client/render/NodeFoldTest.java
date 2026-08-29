@@ -33,6 +33,11 @@ public strictfp class NodeFoldTest {
 
 	private static double[] trs(double x, double y, double rot, double sx, double sy) {
 		double[] t = new double[NodeFold.TRS_WIDTH];
+		// IDENTITY FIRST, then the 2D five. A fresh array is not the identity transform once the
+		// record carries the 3D six — sz and qw both want 1 and a new double[] gives 0 — and these
+		// vectors would silently start describing a node scaled to nothing on the axis they do not
+		// mention, the moment anything downstream reads it.
+		NodeFold.identity(t);
 		t[NodeFold.TRS_X] = x;
 		t[NodeFold.TRS_Y] = y;
 		t[NodeFold.TRS_ROT] = rot;
@@ -224,15 +229,19 @@ public strictfp class NodeFoldTest {
 	}
 
 	@Test
-	public void theFoldIsTwoDimensionalAndSaysSoWhenAThirdAppears() throws Exception {
-		// THE SCOPED GAP, re-pinned at C1.1. The MODEL is now eleven scalars wide — the v10 node
-		// record stores tz, sz and the rot3d quaternion — but the FOLD still consumes exactly the
-		// 2D five: NodeFold.TRS_WIDTH, NodeInterpolator's FIELDS and ANIM-10's scope are the trio
-		// that widens together, and that widening is C1.3's obligation (quaternion slerp lands
-		// there), not this increment's. This test pins BOTH halves so neither drifts silently: the
-		// exact field set (a twelfth scalar must come here and say what it means) and the fold's
-		// width as a LITERAL (it must not track the model's size — that is the very decoupling the
-		// stored-but-unconsumed state depends on).
+	public void theTransformRecordIsExactlyAsWideAsTheModelItCarries() throws Exception {
+		// THE SCOPED GAP, CLOSED AT C1.3.3 — and the tripwire outlives the closing rather than
+		// being deleted along with it. The gap was that the MODEL is eleven scalars wide while the
+		// DISPLAYED RECORD was five, so tz, sz and the rot3d quaternion had nowhere to travel.
+		// They travel now: NodeInterpolator smooths all eleven, the quaternion by slerp.
+		//
+		// So the assertion that used to read "the fold consumes the 2D five ONLY" has become "the
+		// record is exactly as wide as the model", which is a STRONGER coupling rather than a
+		// relaxed one. A twelfth scalar on SceneNode used to owe this test an explanation; it now
+		// also owes the record a slot and an index constant, and fails here until it has them. A
+		// missing line in rawTransform is NOT caught here — that one belongs to
+		// NodeInterpolatorTest.theRawReadCarriesEveryFieldOfTheModel, and an earlier draft of this
+		// comment claimed it for this test.
 		List<String> transformFields = new ArrayList<String>();
 		for (Field f : SceneNode.class.getDeclaredFields()) {
 			if (Modifier.isStatic(f.getModifiers())) {
@@ -249,13 +258,107 @@ public strictfp class NodeFoldTest {
 				+ " NodeInterpolator's FIELDS must all be re-examined together. Found: "
 				+ transformFields,
 				expected.size(), transformFields.size());
+		// THE INDEX SET, ASSERTED DIRECTLY, because the first version of this check was a PROXY for
+		// it: `TRS_QW == TRS_WIDTH - 1`, under a message claiming the constants "cover the model
+		// exactly". That predicate cannot see a collision — renumber TRS_QZ to equal TRS_QY and it
+		// still passes, while two record slots silently become one.
+		//
+		// It is the SAME defect this project fixed in ProtocolVersionTest.assertIdTable on
+		// 2026-08-28 (a proxy asserted while the message promised contiguity), written again
+		// roughly 24 hours later by the same hand, which is why it is now spelled the same way:
+		// build the set, compare the set, and check the size separately so a duplicate cannot hide
+		// inside it. (The dates in this comment were wrong on first writing and were corrected in
+		// CASEBOOK.md alone — this shipped mirror kept them for another round, which is the
+		// one-sided fix landing inside the fix for a false claim.)
+		int[] declared = { NodeFold.TRS_X, NodeFold.TRS_Y, NodeFold.TRS_ROT, NodeFold.TRS_SX,
+				NodeFold.TRS_SY, NodeFold.TRS_TZ, NodeFold.TRS_SZ, NodeFold.TRS_QX,
+				NodeFold.TRS_QY, NodeFold.TRS_QZ, NodeFold.TRS_QW };
+		java.util.TreeSet<Integer> indices = new java.util.TreeSet<Integer>();
+		for (int i = 0; i < declared.length; i++) {
+			indices.add(Integer.valueOf(declared[i]));
+		}
+		java.util.TreeSet<Integer> slots = new java.util.TreeSet<Integer>();
+		for (int i = 0; i < NodeFold.TRS_WIDTH; i++) {
+			slots.add(Integer.valueOf(i));
+		}
+		assertEquals("the index constants must be exactly the slots 0..TRS_WIDTH-1", slots, indices);
+		assertEquals("and no two may collide — a duplicate shrinks the set without changing it",
+				declared.length, indices.size());
+		assertEquals("one constant per scalar in the model", transformFields.size(), declared.length);
+
+		// THE PARTITION, ASSERTED IN FULL — and the first version of this was the SAME proxy defect
+		// the paragraph above is about, written in the assertion added to fix it. It read
+		// `TRS_SY < TRS_TZ && TRS_TZ < TRS_QW`: two of the eleven boundary relations, leaving
+		// TRS_X/Y/ROT/SX unpinned below the split and TRS_SZ/QX/QY/QZ unpinned above it. Swapping
+		// TRS_ROT and TRS_SZ keeps the index set exactly {0..10} with no collisions AND keeps
+		// SY < TZ < QW, while `rot` is interpolated on the 3D timeline and slot 2 is written by
+		// neither group.
+		//
+		// This is load-bearing rather than decorative: NodeInterpolator splits the record into two
+		// keyframe groups by RANGE ([0, TRS_TZ) and [TRS_TZ, TRS_WIDTH)) and its javadoc cites
+		// this test as the thing that makes the split safe.
+		int[] twoD = { NodeFold.TRS_X, NodeFold.TRS_Y, NodeFold.TRS_ROT, NodeFold.TRS_SX,
+				NodeFold.TRS_SY };
+		int[] threeD = { NodeFold.TRS_TZ, NodeFold.TRS_SZ, NodeFold.TRS_QX, NodeFold.TRS_QY,
+				NodeFold.TRS_QZ, NodeFold.TRS_QW };
+		for (int i = 0; i < twoD.length; i++) {
+			assertTrue("2D constant at slot " + twoD[i] + " must sit below the split at "
+					+ NodeFold.TRS_TZ, twoD[i] < NodeFold.TRS_TZ);
+		}
+		for (int i = 0; i < threeD.length; i++) {
+			assertTrue("3D constant at slot " + threeD[i] + " must sit at or above the split at "
+					+ NodeFold.TRS_TZ, threeD[i] >= NodeFold.TRS_TZ);
+		}
+		// THE UNION, COMPARED AS A SET — and this is the FOURTH spelling of this one assertion,
+		// each previous one a cheaper proxy than the last. (1) `TRS_QW == TRS_WIDTH - 1` under a
+		// message promising the constants "cover the model exactly". (2) `TRS_SY < TRS_TZ &&
+		// TRS_TZ < TRS_QW` under a comment claiming the two groups partition the record. (3)
+		// `twoD.length + threeD.length == TRS_WIDTH` under a message promising exhaustion — which
+		// a duplicate entry in either array satisfies while a constant vanishes from both, its
+		// position relative to the split then asserted nowhere.
+		//
+		// A count is not a set, an inequality is not a partition, and a single boundary is not a
+		// contiguity. Each of the three was the CHEAP HALF of the property in the message above
+		// it, which is what made each feel sufficient while it was being typed.
+		java.util.TreeSet<Integer> union = new java.util.TreeSet<Integer>();
+		for (int i = 0; i < twoD.length; i++) {
+			union.add(Integer.valueOf(twoD[i]));
+		}
+		for (int i = 0; i < threeD.length; i++) {
+			union.add(Integer.valueOf(threeD[i]));
+		}
+		assertEquals("the two groups must partition the record's declared constants exactly",
+				indices, union);
+		assertEquals("with no constant listed twice across the two groups",
+				twoD.length + threeD.length, union.size());
+		assertEquals("and the split must fall exactly where the 2D five end", twoD.length,
+				NodeFold.TRS_TZ);
 		assertTrue("and they are exactly " + expected + ", found " + transformFields,
 				transformFields.containsAll(expected));
-		assertEquals("the fold consumes the 2D five ONLY until C1.3 widens it — a LITERAL, not"
-				+ " the model's size", 5, NodeFold.TRS_WIDTH);
+		assertEquals("the displayed-transform record must be exactly as wide as the scalar model"
+				+ " it carries", transformFields.size(), NodeFold.TRS_WIDTH);
+		assertEquals("and eleven is still written down as a LITERAL here, so the two cannot agree"
+				+ " by both being wrong", 11, NodeFold.TRS_WIDTH);
 
-		// The three that have no consumer are nonetheless composable, which is the gap stated as an
-		// assertion rather than as a sentence: OcslCompose answers for them and nothing can draw it.
+		// THE THIRD MEMBER OF THE TRIO, now actually checked. The previous version of this test
+		// NAMED NodeInterpolator's FIELDS as part of the obligation and asserted nothing about it —
+		// prose standing where a check belonged. It is private, it is in this package, and
+		// reflection reaches it.
+		Field width = NodeInterpolator.class.getDeclaredField("FIELDS");
+		width.setAccessible(true);
+		assertEquals("the interpolator must write exactly as many slots as the record holds:"
+				+ " fewer leaves the previous node's value in a reused buffer, more throws on the"
+				+ " render thread", NodeFold.TRS_WIDTH, width.getInt(null));
+
+		// WHAT THAT CANNOT CATCH, said rather than implied. FIELDS derives from TRS_WIDTH as of
+		// C1.3.3, so the assertion above is a tautology TODAY. It is kept because an edit that
+		// re-literalises FIELDS — the exact form it had before this increment — turns it back into
+		// a real check, and there is no way to catch a re-literalisation that happens to be equal.
+		// The same limit is recorded in MeshGlLayoutTest for the same reason.
+
+		// Composable AND carried, which is the closed half; still refused at the animator surface,
+		// which is the half C1.3.3's later group opens. Two different statements about the same
+		// three properties, and running them together is how this test's own scope note went stale.
 		assertEquals(6.0, OcslCompose.compose(OcslWire.PROP_ANIM_SZ, 2.0, 3.0f), 0.0);
 		assertEquals(5.0, OcslCompose.compose(OcslWire.PROP_ANIM_TZ, 2.0, 3.0f), 0.0);
 	}

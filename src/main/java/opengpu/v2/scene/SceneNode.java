@@ -19,11 +19,15 @@ public final class SceneNode {
 	/** ARGB. */
 	public int tint = 0xFFFFFFFF;
 
-	// ---- 3D TRS (v10). STORED here from C1.1 but CONSUMED only from C1.3: NodeFold's
-	// TRS_WIDTH stays 5 and NodeInterpolator's FIELDS stays 2D until the renderer widens —
-	// NodeFoldTest pins that trio's obligation. Defaults are the identity transform; the
-	// snapshot gate arms for version < 10 must restore exactly these (sz = 1, qw = 1 — NOT
-	// the 0-default gate pattern, which would collapse every pre-v10 node's scale). ----
+	// ---- 3D TRS (v10). Stored here from C1.1; CONSUMED by the 3D pass from C1.3.1, which reads
+	// these fields RAW through Transform3d; CARRIED through the client's displayed-transform
+	// record from C1.3.3, when NodeFold's TRS_WIDTH and NodeInterpolator's FIELDS widened to this
+	// whole eleven-scalar model together (the quaternion interpolates by slerp). The two are
+	// different facts and an earlier draft of this line collapsed them, narrowing a correct "from
+	// C1.3" into a wrong "from C1.3.3". NodeFoldTest still pins that trio, now against eleven.
+	// Defaults are the identity transform; the snapshot gate arms for version < 10 must restore
+	// exactly these (sz = 1, qw = 1 — NOT the 0-default gate pattern, which would collapse every
+	// pre-v10 node's scale). ----
 	public double tz = 0;
 	/** Scale-Z, joining {@link #sx}/{@link #sy}; frozen register name "SZ" (id 24). */
 	public double sz = 1;

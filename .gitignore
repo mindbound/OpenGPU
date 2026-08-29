@@ -285,6 +285,9 @@ gradle-app.setting
 # Internal development documentation
 **/docs/
 
+# Local Claude instructions
+**/.claude/
+
 # Scratch harnesses meant to be copied onto an in-game computer, not shipped.
 # (Shipped Lua lives in src/main/resources/assets/opengpu/lua; desktop-runnable
 # Lua lives in tools/.)

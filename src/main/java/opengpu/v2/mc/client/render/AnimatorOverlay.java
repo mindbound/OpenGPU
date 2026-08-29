@@ -766,11 +766,8 @@ final class AnimatorOverlay {
 			interp.transformOf(node, frameNanos, out);
 			return;
 		}
-		out[NodeFold.TRS_X] = node.x;
-		out[NodeFold.TRS_Y] = node.y;
-		out[NodeFold.TRS_ROT] = node.rot;
-		out[NodeFold.TRS_SX] = node.sx;
-		out[NodeFold.TRS_SY] = node.sy;
+		// One of the copies this raw read used to have; see NodeInterpolator.rawTransform.
+		NodeInterpolator.rawTransform(node, out);
 	}
 
 	private void bindClock(OcslVm vm, float time, SceneNode node, long offset,

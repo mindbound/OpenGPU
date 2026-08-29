@@ -846,7 +846,7 @@ public class AnimatorOverlayTest {
 		AnimatorOverlay overlay = new AnimatorOverlay();
 		overlay.evaluate(s, instant(200), OFFSET, true);
 
-		double[] trs = { 1.0, 2.0, 3.0, 4.0, 5.0 };
+		double[] trs = trsOf(1.0, 2.0, 3.0, 4.0, 5.0);
 		overlay.overlayTransform(1, trs);
 		assertEquals("the written property is substituted", 12.0, trs[NodeFold.TRS_X], 1e-6);
 		assertEquals("unwritten properties keep the caller's base", 2.0, trs[NodeFold.TRS_Y], 1e-6);
@@ -854,7 +854,7 @@ public class AnimatorOverlayTest {
 		assertEquals(4.0, trs[NodeFold.TRS_SX], 1e-6);
 		assertEquals(5.0, trs[NodeFold.TRS_SY], 1e-6);
 
-		double[] untouched = { 1.0, 2.0, 3.0, 4.0, 5.0 };
+		double[] untouched = trsOf(1.0, 2.0, 3.0, 4.0, 5.0);
 		overlay.overlayTransform(99, untouched);
 		assertEquals("a node with no entry substitutes nothing", 1.0, untouched[NodeFold.TRS_X],
 				1e-6);
@@ -1180,7 +1180,7 @@ public class AnimatorOverlayTest {
 		assertEquals("sx: 2 * 3 (multiply, not add)", 6.0, c.sx, 1e-6);
 		assertEquals("sy: 4 * 5", 20.0, c.sy, 1e-6);
 
-		double[] trs = { -1.0, -1.0, -1.0, -1.0, -1.0 };
+		double[] trs = trsOf(-1.0, -1.0, -1.0, -1.0, -1.0);
 		overlay.overlayTransform(1, trs);
 		assertEquals(11.0, trs[NodeFold.TRS_X], 1e-6);
 		assertEquals(22.0, trs[NodeFold.TRS_Y], 1e-6);
@@ -2359,4 +2359,25 @@ public class AnimatorOverlayTest {
 		assertTrue("and the DECLARED COUNT, with the plural arm actually exercised: " + line,
 				line.contains("declares 2 uniforms and nothing"));
 	}
+	/**
+	 * A displayed-transform record carrying these five 2D values — SIZED FROM THE CONSTANT.
+	 *
+	 * These three call sites used to be literal {@code double[5]}. They passed only because
+	 * {@code overlayTransform} writes the 2D five and nothing else, so the array was never indexed
+	 * past slot 4 — and the first 3D property that surface learns to substitute (C1.3.3's later
+	 * group, which opens the TZ/SZ/ROT3D blacklist) would have turned all three into an
+	 * {@code ArrayIndexOutOfBoundsException} in a test file nobody was editing. Found by the
+	 * increment's panel, sweeping for arrays not sized from {@code NodeFold.TRS_WIDTH}.
+	 */
+	private static double[] trsOf(double x, double y, double rot, double sx, double sy) {
+		double[] t = new double[NodeFold.TRS_WIDTH];
+		NodeFold.identity(t);
+		t[NodeFold.TRS_X] = x;
+		t[NodeFold.TRS_Y] = y;
+		t[NodeFold.TRS_ROT] = rot;
+		t[NodeFold.TRS_SX] = sx;
+		t[NodeFold.TRS_SY] = sy;
+		return t;
+	}
+
 }
