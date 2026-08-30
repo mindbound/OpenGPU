@@ -718,6 +718,135 @@ public class NodeInterpolatorTest {
 		return steps;
 	}
 
+	/**
+	 * Drive one node at a fixed cadence and return the gap histogram it produced.
+	 *
+	 * @param gapTicks ticks between keyframes
+	 * @param rolls    how many times the node MOVES after first sight
+	 */
+	private static long[] gapsFor(int gapTicks, int rolls) {
+		opengpu.v2.stats.RenderStats.reset();
+		NodeInterpolator interp = new NodeInterpolator();
+		SceneNode n = node(1, 0, 0);
+		interp.capture(stateWith(n), T0, N0, NONE);        // first sight: no roll
+		for (int k = 1; k <= rolls; k++) {
+			n.x = k * 100.0;
+			interp.capture(stateWith(n), T0 + (long) k * gapTicks,
+					N0 + (long) k * gapTicks * TICK, NONE);
+		}
+		return opengpu.v2.stats.RenderStats.keyframeGaps.clone();
+	}
+
+	@Test
+	public void theCadenceHistogramDropsTheFirstRollOfEachGroup() {
+		// THE SAMPLE THAT WOULD LIE. A node's first roll measures the interval from it APPEARING
+		// to it first MOVING, which is not a cadence at all: a scene that creates fifty nodes and
+		// then starts animating them would put fifty samples of "however long setup took" into the
+		// top bucket and read as "programs emit enormous gaps" — the exact conclusion the field
+		// test using this instrument exists to reach or reject.
+		//
+		// Constructed so the two readings differ: the node appears at T0 and first moves 9 ticks
+		// later, then keeps a steady gap of 2. Counting the first roll would put one sample in the
+		// 6-10 bucket; dropping it must leave that bucket EMPTY.
+		opengpu.v2.stats.RenderStats.reset();
+		NodeInterpolator interp = new NodeInterpolator();
+		SceneNode n = node(1, 0, 0);
+		interp.capture(stateWith(n), T0, N0, NONE);
+		n.x = 100.0;
+		interp.capture(stateWith(n), T0 + 9, N0 + 9 * TICK, NONE);      // the late first move
+		for (int k = 1; k <= 4; k++) {                                   // then steady gap 2
+			n.x = 100.0 + k * 100.0;
+			interp.capture(stateWith(n), T0 + 9 + (long) k * 2, N0 + (9 + (long) k * 2) * TICK, NONE);
+		}
+		long[] g = opengpu.v2.stats.RenderStats.keyframeGaps;
+		assertEquals("the four steady rolls land in the gap-2 bucket", 4, g[1]);
+		assertEquals("and the appearance-to-first-motion interval must NOT be counted", 0, g[4]);
+		assertEquals("nothing else should be populated", 0, g[0] + g[2] + g[3] + g[5]);
+	}
+
+	@Test
+	public void theCadenceHistogramCutsItsBucketsAtTheDecisionBOUNDARIES() {
+		// The edges are not arbitrary: gap 2 is the only cadence the shipped delay serves exactly,
+		// and gap 4 is the first one past MAX_GAP_TICKS, where the node stops interpolating however
+		// the delay is set. A histogram whose edges drifted off those two would still look
+		// plausible and would answer a different question than the one asked.
+		assertEquals("gap 1 — steps, never interpolates at D=2", 0, opengpu.v2.stats.RenderStats.gapBucket(1));
+		assertEquals("gap 2 — exact", 1, opengpu.v2.stats.RenderStats.gapBucket(2));
+		assertEquals("gap 3 — still glides", 2, opengpu.v2.stats.RenderStats.gapBucket(3));
+		assertEquals("gap 4 — first past the snap rule", 3, opengpu.v2.stats.RenderStats.gapBucket(4));
+		assertEquals("gap 5", 3, opengpu.v2.stats.RenderStats.gapBucket(5));
+		assertEquals("gap 6", 4, opengpu.v2.stats.RenderStats.gapBucket(6));
+		assertEquals("gap 10", 4, opengpu.v2.stats.RenderStats.gapBucket(10));
+		assertEquals("gap 11 — idle wake", 5, opengpu.v2.stats.RenderStats.gapBucket(11));
+
+		// AND THE EDGE IS PINNED AGAINST THE CONSTANT IT DESCRIBES, not against the literal 3. If
+		// MAX_GAP_TICKS moves, the bucket that means "past the snap rule" must move with it or the
+		// overlay's "snaps (gap4+)" line silently starts naming the wrong population.
+		java.lang.reflect.Field mf;
+		try {
+			mf = NodeInterpolator.class.getDeclaredField("MAX_GAP_TICKS");
+			mf.setAccessible(true);
+			long maxGap = mf.getLong(null);
+			assertEquals("the last GLIDING gap and the last bucket below the snap cliff must agree;"
+					+ " MAX_GAP_TICKS is " + maxGap,
+					opengpu.v2.stats.RenderStats.gapBucket(maxGap) + 1,
+					opengpu.v2.stats.RenderStats.gapBucket(maxGap + 1));
+		} catch (Exception e) {
+			throw new AssertionError("MAX_GAP_TICKS is gone or renamed; the histogram's edges are"
+					+ " defined against it", e);
+		}
+	}
+
+	@Test
+	public void theHistogramTotalEqualsItsBucketsSoAPrintedRowChecksItself() {
+		// THE PROPERTY THE TRANSCRIPTION AUDIT RESTS ON, and it was broken when written.
+		//
+		// The overlay prints a total, six buckets and three derived percentages. That redundancy is
+		// what lets a field reading be re-derived later by someone who no longer has the screen —
+		// FIELD-TEST-CADENCE.md used it to recover two mistyped rows. It holds only while the total
+		// EQUALS the bucket sum.
+		//
+		// keyframeGapSamples() originally added keyframeGapsBackward into that total. A backward or
+		// duplicate tick stamp is not a cadence and has no bucket, so the moment the pathology fired
+		// the printed total exceeded the six numbers beside it and every percentage was computed
+		// over a mixed population. Worse, it broke the self-check EXACTLY in the case the field
+		// protocol registers as stop-and-re-derive — an instrument losing its redundancy in the
+		// situation it exists to report.
+		opengpu.v2.stats.RenderStats.reset();
+		opengpu.v2.stats.RenderStats.onKeyframeGap(1);
+		opengpu.v2.stats.RenderStats.onKeyframeGap(2);
+		opengpu.v2.stats.RenderStats.onKeyframeGap(7);
+		assertEquals("with no pathology the total is the bucket sum",
+				3, opengpu.v2.stats.RenderStats.keyframeGapSamples());
+
+		opengpu.v2.stats.RenderStats.onKeyframeGap(0);      // backward/duplicate stamp
+		opengpu.v2.stats.RenderStats.onKeyframeGap(-4);
+		long sum = 0;
+		for (int i = 0; i < opengpu.v2.stats.RenderStats.keyframeGaps.length; i++) {
+			sum += opengpu.v2.stats.RenderStats.keyframeGaps[i];
+		}
+		assertEquals("a backward stamp must NOT enter the printed total", 3, sum);
+		assertEquals("and the total must still equal the bucket sum, or the printed row stops"
+				+ " checking itself precisely when the pathology fires",
+				sum, opengpu.v2.stats.RenderStats.keyframeGapSamples());
+		assertEquals("the pathology is counted, just not as a cadence",
+				2, opengpu.v2.stats.RenderStats.keyframeGapsBackward);
+	}
+
+	@Test
+	public void theCadenceHistogramCountsSteadyCadencesWhereTheyBelong() {
+		assertEquals("gap 1 drives the steps bucket", 5, gapsFor(1, 6)[0]);
+		assertEquals("gap 2 drives the exact bucket", 5, gapsFor(2, 6)[1]);
+		assertEquals("gap 3 drives the last gliding bucket", 5, gapsFor(3, 6)[2]);
+		assertEquals("gap 5 drives the first snapping bucket", 5, gapsFor(5, 6)[3]);
+		// Six rolls, five counted: the first is dropped by design. Asserted here rather than only
+		// in the dedicated vector so that a change to the drop rule fails twice.
+		long[] g = gapsFor(2, 6);
+		long total = 0;
+		for (int i = 0; i < g.length; i++) total += g[i];
+		assertEquals("six rolls, five counted", 5, total);
+	}
+
 	@Test
 	public void aChangeConfinedToAGroupsLASTSlotIsSeen() {
 		// equalRange's UPPER BOUND was pinned by nothing, and the cause is an idiom this file uses

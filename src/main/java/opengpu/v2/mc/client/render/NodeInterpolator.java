@@ -6,6 +6,7 @@ import java.util.Map;
 
 import opengpu.v2.scene.SceneNode;
 import opengpu.v2.scene.SceneState;
+import opengpu.v2.stats.RenderStats;
 
 /**
  * Smooths retained-node transforms across the 20 tps server channel.
@@ -131,6 +132,14 @@ final class NodeInterpolator {
 		final long[] currTick = new long[GROUPS];
 		/** This transition is a jump: a teleport, a resync seam, or too wide a tick gap. */
 		final boolean[] snap = new boolean[GROUPS];
+		/**
+		 * Has this group rolled a keyframe since the node was first seen?
+		 *
+		 * Diagnostic only — nothing in the interpolation arithmetic reads it. It exists so the
+		 * cadence histogram can DROP the first roll, whose gap is the interval from the node
+		 * appearing to it first moving rather than a cadence. See {@code RenderStats.keyframeGaps}.
+		 */
+		final boolean[] rolled = new boolean[GROUPS];
 	}
 
 	private final Map<Integer, Track> tracks = new HashMap<Integer, Track>();
@@ -190,6 +199,14 @@ final class NodeInterpolator {
 				t.prevTick[g] = t.currTick[g];
 				System.arraycopy(scratch, lo, t.curr, lo, len);
 				t.currTick[g] = serverTick;
+				// The cadence, sampled where it is already in hand. Skipping the first roll is
+				// the whole reason `rolled` exists: that gap is appearance-to-first-motion, not a
+				// cadence, and counting it would put one bogus sample per node into the top
+				// bucket. Diagnostic only -- nothing below reads the histogram.
+				if (t.rolled[g]) {
+					RenderStats.onKeyframeGap(t.currTick[g] - t.prevTick[g]);
+				}
+				t.rolled[g] = true;
 				t.snap[g] = teleport
 						|| t.currTick[g] - t.prevTick[g] > MAX_GAP_TICKS
 						|| t.currTick[g] <= t.prevTick[g]

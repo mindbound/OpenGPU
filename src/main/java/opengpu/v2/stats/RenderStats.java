@@ -432,5 +432,89 @@ public final class RenderStats {
 		animatorBudgetAdmissions = 0;
 		threeDNanos = 0;
 		threeDDraws = 0;
+		java.util.Arrays.fill(keyframeGaps, 0L);
+		keyframeGapsBackward = 0;
+	}
+
+	// ---- keyframe cadence -------------------------------------------------------------------
+
+	/**
+	 * How far apart, in server ticks, consecutive keyframes of one node's group arrive.
+	 *
+	 * <b>This is the input to every result in {@code INTERPOLATION-DELAY-MATH.md} and it has never
+	 * been measured on a real program.</b> The analysis proves what a delay policy can and cannot
+	 * do given a cadence; it says nothing about which cadences OpenComputers programs actually
+	 * emit, and the same {@code executionDelay} figure is currently used in three places to argue
+	 * three incompatible things. The buckets are cut at the two boundaries that decide behaviour:
+	 *
+	 * <pre>
+	 *   [0] gap 1     the delay is 2, so this cadence interpolates on ZERO frames -- it steps
+	 *   [1] gap 2     D == G: exact, the only perfectly served cadence
+	 *   [2] gap 3     == MAX_GAP_TICKS: still glides, 2/3 of the interval
+	 *   [3] gap 4-5   OVER THE CLIFF: snap is set before any delay is read; 0% interpolation
+	 *   [4] gap 6-10  ditto, and os.sleep(0.25) is predicted to land here
+	 *   [5] gap 11+   an idle node waking, which the snap rule exists to serve correctly
+	 * </pre>
+	 *
+	 * <b>The first roll of each group is deliberately NOT counted</b>, because it measures the
+	 * interval from a node's first appearance to its first movement, not a cadence. A scene that
+	 * creates fifty nodes and then starts animating them would otherwise contribute fifty samples
+	 * of "however long setup took" into the top bucket, and read as "programs emit enormous gaps".
+	 *
+	 * <b>A FINAL FIELD HOLDING MUTABLE STATE, which the scalar half of {@code StatsTest}'s reset
+	 * sweep cannot see.</b> That sweep skips {@code final} fields — correctly, since
+	 * {@link #STALL_NANOS} is a threshold — so this array needed a second sweep written for it. If
+	 * another bucket array is added here, it is covered automatically; if the sweep is ever
+	 * simplified back to one loop, these six counters go unguarded again.
+	 */
+	public static final long[] keyframeGaps = new long[6];
+
+	/**
+	 * Rolls where the new tick was not after the old one.
+	 *
+	 * Its own counter rather than a bucket, because it is not a cadence at all — it is the
+	 * {@code currTick <= prevTick} pathology, a duplicate or backward stamp. Folding it into
+	 * "gap 0" would let a clock defect read as a very fast program.
+	 */
+	public static long keyframeGapsBackward;
+
+	/** Bucket index for a gap in ticks. Public so the test can pin the edges against the code. */
+	public static int gapBucket(long gap) {
+		if (gap <= 1) return 0;
+		if (gap == 2) return 1;
+		if (gap == 3) return 2;
+		if (gap <= 5) return 3;
+		if (gap <= 10) return 4;
+		return 5;
+	}
+
+	public static void onKeyframeGap(long gap) {
+		if (gap <= 0) {
+			keyframeGapsBackward++;
+			return;
+		}
+		keyframeGaps[gapBucket(gap)]++;
+	}
+
+	/**
+	 * Total CADENCE samples — the six buckets, and deliberately NOT {@link #keyframeGapsBackward}.
+	 *
+	 * <b>This is the denominator the overlay's percentages divide by and the total it prints, so it
+	 * must equal the sum of the buckets exactly.</b> The first version added the backward counter in,
+	 * which broke that identity the moment the pathology fired: the printed total exceeded the six
+	 * buckets, and `steps`/`exact`/`snaps` were computed over a population containing samples that
+	 * are not cadences at all.
+	 *
+	 * That is worse than a wrong percentage. The transcription audit in `FIELD-TEST-CADENCE.md`
+	 * depends on each printed row being self-checking — total equals the buckets, percentages
+	 * recompute from them — so a mistyped reading contradicts its own line. Mixing a non-bucket
+	 * count into the total destroys exactly that redundancy, and destroys it **precisely when the
+	 * backward-stamp pathology fires**, which is the case the protocol registers as stop-and-
+	 * re-derive. An instrument must not lose its self-check in the situation it exists to report.
+	 */
+	public static long keyframeGapSamples() {
+		long n = 0;
+		for (int i = 0; i < keyframeGaps.length; i++) n += keyframeGaps[i];
+		return n;
 	}
 }

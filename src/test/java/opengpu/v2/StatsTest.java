@@ -244,6 +244,12 @@ public class StatsTest {
 		// them reflectively either way. This test is what caught them being added without a
 		// reset() arm, exactly as its name promises.
 		RenderStats.onThreeDLayer(19L, 2);
+		// The cadence histogram's pathology counter. Driven by hand for the same reason as the two
+		// above: nothing reaches it without a backward or duplicate tick stamp, which no healthy
+		// path produces. Its sibling `keyframeGaps` is driven through the public entry point on the
+		// next line, because it is a FINAL ARRAY and the sweep below cannot see it at all.
+		RenderStats.onKeyframeGap(0);        // <= 0 routes to keyframeGapsBackward
+		RenderStats.onKeyframeGap(2);        // and one ordinary sample into the bucket array
 
 		java.util.List<java.lang.reflect.Field> counters =
 				new java.util.ArrayList<java.lang.reflect.Field>();
@@ -258,17 +264,50 @@ public class StatsTest {
 			}
 			counters.add(f);
 		}
-		// 31 as of 2026-08-27 (29 at 2026-08-24, +2 for group F's threeDNanos/threeDDraws), and
-		// the floor is the COUNT, not a comfortable fraction of it: at 15 it had gone slack by
-		// 2x, so fourteen counters could have been deleted before the guard that exists to catch
-		// a drop would fire. Raise this in the same edit that adds a counter -- that is the whole
-		// obligation, and it is cheap only while it is exact.
+		// 32 as of 2026-08-29 (29 at 2026-08-24, +2 for group F's threeDNanos/threeDDraws, +1 for
+		// the cadence histogram's keyframeGapsBackward), and the floor is the COUNT, not a
+		// comfortable fraction of it: at 15 it had gone slack by 2x, so fourteen counters could
+		// have been deleted before the guard that exists to catch a drop would fire. Raise this in
+		// the same edit that adds a counter -- that is the whole obligation, and it is cheap only
+		// while it is exact.
 		assertTrue("reflection found " + counters.size() + " counters; if this dropped, the sweep"
-				+ " is covering less than it claims", counters.size() >= 31);
+				+ " is covering less than it claims", counters.size() >= 32);
 		for (java.lang.reflect.Field f : counters) {
 			f.setAccessible(true);
 			assertTrue("precondition: " + f.getName() + " must be non-zero BEFORE reset, or its"
 					+ " assertion below proves nothing", f.getLong(null) != 0L);
+		}
+
+		// THE SECOND SWEEP, AND THE HOLE THAT MADE IT NECESSARY. The loop above skips `final`
+		// fields, correctly — STALL_NANOS is a threshold, not a counter. But a `static final
+		// long[]` is a FINAL REFERENCE TO MUTABLE STATE: the field never changes, the counters
+		// inside it do, and reset() must clear them. `keyframeGaps` is exactly that, and it was
+		// added (2026-08-29) as a bucket array that this sweep could not see at all — the sweep
+		// would have reported full coverage of a RenderStats containing six uncleared counters.
+		// Caught because the sibling scalar tripped the precondition; nothing would have caught the
+		// array. Same drive-then-assert contract, one level in.
+		java.util.List<java.lang.reflect.Field> arrays =
+				new java.util.ArrayList<java.lang.reflect.Field>();
+		for (java.lang.reflect.Field f : RenderStats.class.getDeclaredFields()) {
+			if (!java.lang.reflect.Modifier.isStatic(f.getModifiers())) {
+				continue;
+			}
+			if (f.getType() != long[].class && f.getType() != int[].class) {
+				continue;
+			}
+			arrays.add(f);
+		}
+		assertTrue("reflection found " + arrays.size() + " counter ARRAYS; raise this with the"
+				+ " scalar floor when one is added", arrays.size() >= 1);
+		for (java.lang.reflect.Field f : arrays) {
+			f.setAccessible(true);
+			long[] a = (long[]) f.get(null);
+			long sum = 0;
+			for (int i = 0; i < a.length; i++) {
+				sum += a[i];
+			}
+			assertTrue("precondition: " + f.getName() + " must hold a non-zero total BEFORE reset,"
+					+ " or its assertion below proves nothing", sum != 0L);
 		}
 
 		RenderStats.reset();
@@ -277,6 +316,15 @@ public class StatsTest {
 			assertEquals("RenderStats." + f.getName() + " survived reset() — a counter was added"
 					+ " without adding it to reset(), which is exactly what this sweep exists to"
 					+ " catch", 0L, f.getLong(null));
+		}
+		for (java.lang.reflect.Field f : arrays) {
+			long[] a = (long[]) f.get(null);
+			for (int i = 0; i < a.length; i++) {
+				assertEquals("RenderStats." + f.getName() + "[" + i + "] survived reset() — a"
+						+ " counter array was added without clearing it in reset(). A final array"
+						+ " field is invisible to the scalar sweep above; this loop is the only"
+						+ " thing that can see it.", 0L, a[i]);
+			}
 		}
 	}
 }

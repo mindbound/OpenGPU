@@ -350,6 +350,7 @@ public final class StatsOverlay {
 					RenderStats.passOpens, RenderStats.passNanos / 1.0e6));
 			lines.add(String.format("    textures deferred for budget %dx",
 					RenderStats.texturesDeferred));
+			appendKeyframeCadence(lines);
 			appendServerLines(lines);
 		}
 
@@ -357,6 +358,46 @@ public final class StatsOverlay {
 		for (String line : lines) {
 			mc.fontRenderer.drawStringWithShadow(line, 2, y, 0xFFFFFF);
 			y += 10;
+		}
+	}
+
+	/**
+	 * The keyframe cadence histogram — what gap distribution real programs actually emit.
+	 *
+	 * The one input to the whole interpolation-delay analysis that has never been measured. Cut at
+	 * the two boundaries that decide behaviour: {@code gap 2} is the only cadence the shipped delay
+	 * serves exactly, and {@code gap 4+} is past {@code MAX_GAP_TICKS}, where the node stops
+	 * interpolating altogether regardless of any delay policy.
+	 *
+	 * Conditional on having samples, per this class's idiom — a scene with no moving nodes should
+	 * cost no screen space. Zeroed by the same shift+toggle that zeroes everything else, so a
+	 * measurement window is "shift+toggle, run the program, read".
+	 */
+	private static void appendKeyframeCadence(List<String> lines) {
+		long n = RenderStats.keyframeGapSamples();
+		// Gate on EITHER, so a run that produced only backward stamps still reports them. `n` is
+		// the bucket sum alone, so the printed total always equals the six numbers beside it.
+		if (n <= 0 && RenderStats.keyframeGapsBackward <= 0) {
+			return;
+		}
+		if (n <= 0) {
+			lines.add(String.format("  keyframe gaps 0  §c backward/duplicate stamps %dx§r",
+					RenderStats.keyframeGapsBackward));
+			return;
+		}
+		long[] g = RenderStats.keyframeGaps;
+		lines.add(String.format("  keyframe gaps %d: 1=%d 2=%d 3=%d 4-5=%d 6-10=%d 11+=%d",
+				n, g[0], g[1], g[2], g[3], g[4], g[5]));
+		// The two figures the decision actually turns on, named rather than left to be divided by
+		// eye: what fraction never interpolates because the delay outruns the gap, and what
+		// fraction never interpolates because the gap outruns the snap rule.
+		long stepping = g[0];
+		long snapping = g[3] + g[4] + g[5];
+		lines.add(String.format("    steps (gap1) %.1f%%  snaps (gap4+) %.1f%%  exact (gap2) %.1f%%",
+				100.0 * stepping / n, 100.0 * snapping / n, 100.0 * g[1] / n));
+		if (RenderStats.keyframeGapsBackward > 0) {
+			lines.add(String.format("    §c backward/duplicate stamps %dx§r",
+					RenderStats.keyframeGapsBackward));
 		}
 	}
 
