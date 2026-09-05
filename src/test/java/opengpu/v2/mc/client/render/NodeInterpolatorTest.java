@@ -1047,10 +1047,18 @@ public class NodeInterpolatorTest {
 		// overlay is in the parent one. So RenderStats publishes the boundary and this assertion is
 		// the ONLY thing tying it to the ceiling. Without it the overlay's player-facing label goes
 		// on naming the old population after a budget change, silently and in a file no test reads.
-		assertEquals("RenderStats.FIRST_SNAPPING_BUCKET must be the bucket holding ceiling + 1,"
-				+ " or StatsOverlay's 'snaps' row counts gliding cadences as snaps",
+		assertEquals("RenderStats.FIRST_SNAPPING_GAP must be ceiling + 1, or StatsOverlay's 'snaps'"
+				+ " row counts gliding cadences as snaps AND its label names the wrong gap",
+				ceiling + 1, opengpu.v2.stats.RenderStats.FIRST_SNAPPING_GAP);
+		assertEquals("and the bucket must follow the gap",
 				opengpu.v2.stats.RenderStats.gapBucket(ceiling + 1),
 				opengpu.v2.stats.RenderStats.FIRST_SNAPPING_BUCKET);
+		// THE PRINTED LABEL IS A CLAIM AND MUST BE A BARE GAP NUMBER. Deriving it from
+		// GAP_BUCKET_NAMES[FIRST_SNAPPING_BUCKET] renders "gap6-10+" -- a range with a plus -- which
+		// is what shipped for one edit. A player reads that row and acts on it.
+		assertEquals("the snaps label must name a single gap, not a bucket range",
+				String.valueOf(ceiling + 1),
+				String.valueOf(opengpu.v2.stats.RenderStats.FIRST_SNAPPING_GAP));
 		// And the labels must span the buckets, or the row indexes past its own names.
 		assertEquals("GAP_BUCKET_NAMES must have one label per bucket",
 				opengpu.v2.stats.RenderStats.keyframeGaps.length,

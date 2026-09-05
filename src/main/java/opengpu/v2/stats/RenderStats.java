@@ -515,7 +515,19 @@ public final class RenderStats {
 	 * all — {@code AnimatorBudgetTest}'s header says so outright — so the claim was false and the
 	 * label was one budget change away from naming the wrong population to a player.
 	 */
-	public static final int FIRST_SNAPPING_BUCKET = 5;
+	public static final long FIRST_SNAPPING_GAP = 6;
+
+	/**
+	 * The bucket {@link #FIRST_SNAPPING_GAP} falls in — DERIVED, so the two cannot disagree.
+	 *
+	 * The gap is the number to maintain and the bucket follows, because the overlay needs BOTH and
+	 * they are one decision. A first version published only the bucket index and built the printed
+	 * label from {@link #GAP_BUCKET_NAMES}, which rendered <b>{@code snaps (gap6-10+)}</b> — a range
+	 * with a plus on it. The old code read {@code "gap6+"} from a bare literal; deriving the label
+	 * from a bucket NAME rather than a GAP silently changed what it said. A player-facing string
+	 * broken while fixing a different player-facing string.
+	 */
+	public static final int FIRST_SNAPPING_BUCKET = gapBucket(FIRST_SNAPPING_GAP);
 
 	/** Bucket index for a gap in ticks. Public so the test can pin the edges against the code. */
 	public static int gapBucket(long gap) {

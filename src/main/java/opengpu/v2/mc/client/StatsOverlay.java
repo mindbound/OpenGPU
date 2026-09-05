@@ -421,9 +421,13 @@ public final class StatsOverlay {
 			snapping += g[b];
 		}
 		long stepping = g[0];
-		lines.add(String.format("    steps (gap%s) %.1f%%  snaps (gap%s+) %.1f%%  exact (gap%s) %.1f%%",
+		// The snaps label takes the first snapping GAP, not the bucket's NAME. Naming the bucket
+		// renders "gap6-10+" -- a range with a plus -- which is what a first version of this line
+		// printed after the sum was derived. The two other labels are single-gap buckets, so their
+		// names are bare numbers and read correctly either way.
+		lines.add(String.format("    steps (gap%s) %.1f%%  snaps (gap%d+) %.1f%%  exact (gap%s) %.1f%%",
 				RenderStats.GAP_BUCKET_NAMES[0], 100.0 * stepping / n,
-				RenderStats.GAP_BUCKET_NAMES[firstSnapping], 100.0 * snapping / n,
+				RenderStats.FIRST_SNAPPING_GAP, 100.0 * snapping / n,
 				RenderStats.GAP_BUCKET_NAMES[1], 100.0 * g[1] / n));
 		if (RenderStats.keyframeGapsBackward > 0) {
 			lines.add(String.format("    §c backward/duplicate stamps %dx§r",
