@@ -450,11 +450,24 @@ public final class RenderStats {
 	 * <pre>
 	 *   [0] gap 1     the delay is 2, so this cadence interpolates on ZERO frames -- it steps
 	 *   [1] gap 2     D == G: exact, the only perfectly served cadence
-	 *   [2] gap 3     == MAX_GAP_TICKS: still glides, 2/3 of the interval
-	 *   [3] gap 4-5   OVER THE CLIFF: snap is set before any delay is read; 0% interpolation
-	 *   [4] gap 6-10  ditto, and os.sleep(0.25) is predicted to land here
-	 *   [5] gap 11+   an idle node waking, which the snap rule exists to serve correctly
+	 *   [2] gap 3     glides 2/3 of the interval
+	 *   [3] gap 4     glide and jump a dead heat -- the CANDIDATE ceiling at budget 1/2
+	 *   [4] gap 5     == GLIDE_MAX_GAP_TICKS: glides 2/5, the SHIPPED ceiling at budget 2/5
+	 *   [5] gap 6-10  over the cliff: snap is set before any delay is read; 0% interpolation
+	 *   [6] gap 11+   an idle node waking, which the snap rule exists to serve correctly
 	 * </pre>
+	 *
+	 * <b>GAPS 4 AND 5 SHARED BUCKET [3] UNTIL 2026-08-30, WHICH MADE THE CEILING QUESTION
+	 * UNANSWERABLE.</b> The one arm that motivates the whole item — {@code os.sleep(0.25)} — reported
+	 * "4-5 = 56" and nothing finer, so no reading could say whether the population it measured wanted
+	 * a ceiling of 4 or of 5. Both candidates now land on a bucket EDGE, so this cut does not have to
+	 * move again when the budget is settled. Changing these edges means changing
+	 * {@code ingame/cadence.lua}'s mirror in the same edit — it carries the cut in exactly TWO
+	 * places, {@code bucketOf} and {@code BUCKET_NAMES}, and everything else there sizes itself from
+	 * {@code #BUCKET_NAMES}. <b>Nothing automated checks that mirror</b>: the file is gitignored,
+	 * loaded by no test, and invisible in the {@code git diff} a reviewer reads — the only check is
+	 * the S1a step of the field test, comparing the two printed histograms by eye. A silent
+	 * disagreement costs the second instrument that caught client-side batch coalescing.
 	 *
 	 * <b>The first roll of each group is deliberately NOT counted</b>, because it measures the
 	 * interval from a node's first appearance to its first movement, not a cadence. A scene that
@@ -465,9 +478,9 @@ public final class RenderStats {
 	 * sweep cannot see.</b> That sweep skips {@code final} fields — correctly, since
 	 * {@link #STALL_NANOS} is a threshold — so this array needed a second sweep written for it. If
 	 * another bucket array is added here, it is covered automatically; if the sweep is ever
-	 * simplified back to one loop, these six counters go unguarded again.
+	 * simplified back to one loop, these seven counters go unguarded again.
 	 */
-	public static final long[] keyframeGaps = new long[6];
+	public static final long[] keyframeGaps = new long[7];
 
 	/**
 	 * Rolls where the new tick was not after the old one.
@@ -478,14 +491,41 @@ public final class RenderStats {
 	 */
 	public static long keyframeGapsBackward;
 
+	/**
+	 * Printable label per bucket, parallel to {@link #keyframeGaps}.
+	 *
+	 * Here rather than in the overlay because the overlay's row used a fixed-arity format string
+	 * with seven hand-placed indices, which is {@link #gapBucket}'s edge list written a second time
+	 * in a second file — and the 2026-08-30 re-cut had to edit both. The overlay now loops this
+	 * array, so the next re-cut touches {@code gapBucket} and this line and nothing downstream.
+	 */
+	public static final String[] GAP_BUCKET_NAMES = { "1", "2", "3", "4", "5", "6-10", "11+" };
+
+	/**
+	 * The first bucket whose gaps are past the glide ceiling — the start of the "snaps" population.
+	 *
+	 * <b>THIS CONSTANT OWES AN EQUALITY IT CANNOT STATE HERE.</b> It must equal
+	 * {@code gapBucket(NodeInterpolator.GLIDE_MAX_GAP_TICKS + 1)}, but {@code NodeInterpolator} is
+	 * package-private in another package and this class cannot name it. The equality is therefore
+	 * asserted in {@code NodeInterpolatorTest}, which sits in that package and can see both.
+	 *
+	 * It exists because {@code StatsOverlay} cannot see the ceiling either, and until 2026-08-30 it
+	 * hard-coded {@code g[5] + g[6]} and a literal {@code "snaps (gap6+)"} label under a comment
+	 * claiming a test kept them in step with the constant. No test reaches {@code StatsOverlay} at
+	 * all — {@code AnimatorBudgetTest}'s header says so outright — so the claim was false and the
+	 * label was one budget change away from naming the wrong population to a player.
+	 */
+	public static final int FIRST_SNAPPING_BUCKET = 5;
+
 	/** Bucket index for a gap in ticks. Public so the test can pin the edges against the code. */
 	public static int gapBucket(long gap) {
 		if (gap <= 1) return 0;
 		if (gap == 2) return 1;
 		if (gap == 3) return 2;
-		if (gap <= 5) return 3;
-		if (gap <= 10) return 4;
-		return 5;
+		if (gap == 4) return 3;   // SPLIT FROM 5 on 2026-08-30: the two candidate ceilings must be
+		if (gap == 5) return 4;   // separately countable, or the budget cannot be settled at all
+		if (gap <= 10) return 5;
+		return 6;
 	}
 
 	public static void onKeyframeGap(long gap) {
@@ -497,7 +537,7 @@ public final class RenderStats {
 	}
 
 	/**
-	 * Total CADENCE samples — the six buckets, and deliberately NOT {@link #keyframeGapsBackward}.
+	 * Total CADENCE samples — the buckets, and deliberately NOT {@link #keyframeGapsBackward}.
 	 *
 	 * <b>This is the denominator the overlay's percentages divide by and the total it prints, so it
 	 * must equal the sum of the buckets exactly.</b> The first version added the backward counter in,

@@ -66,7 +66,7 @@ here — `FIXED2` does not, on `[1]`, `[3]` and `[1,1,3]`.
 
 `model()` reimplements `sampleGroup`'s arithmetic so the four policies can be compared without
 four copies of `NodeInterpolator`. Before comparing anything it runs the `FIXED2` column against
-the **real** `NodeInterpolator` over six cadences and aborts unless they agree frame-for-frame to
+the **real** `NodeInterpolator` over `2 * GLIDE_MAX_GAP_TICKS` cadences (10 today) and aborts unless they agree frame-for-frame to
 1e-6. A model that has drifted from the class produces a table that looks fine and means nothing.
 
 **That gate is necessary and not sufficient, and the difference cost a wrong conclusion.** An

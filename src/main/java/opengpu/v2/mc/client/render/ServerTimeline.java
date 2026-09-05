@@ -152,7 +152,8 @@ final class ServerTimeline {
 	 * while a node changing every tick has {@code prevTick = T-1} — so {@code renderNanos <= t0}
 	 * on every frame and {@code NodeInterpolator.sampleGroup} takes the clamp-to-prev exit. The
 	 * node STEPS at 20 Hz, two ticks stale. Smoothing is live only for programs updating slower
-	 * than once per tick (a gap of 2 or 3; 4 and above snaps at {@code MAX_GAP_TICKS}).
+	 * than once per tick (a gap of 2 to 5; 6 and above snaps at
+	 * {@code NodeInterpolator.GLIDE_MAX_GAP_TICKS}, which was 3 until 2026-08-30).
 	 *
 	 * <b>{@code NodeInterpolatorTest.localShowing} CANNOT SEE THIS CONSTANT and that is why a
 	 * separate vector exists.</b> The helper derives its frame instants by ADDING this delay to the

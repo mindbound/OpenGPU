@@ -365,8 +365,10 @@ public final class StatsOverlay {
 	 * The keyframe cadence histogram — what gap distribution real programs actually emit.
 	 *
 	 * The one input to the whole interpolation-delay analysis that has never been measured. Cut at
-	 * the two boundaries that decide behaviour: {@code gap 2} is the only cadence the shipped delay
-	 * serves exactly, and {@code gap 4+} is past {@code MAX_GAP_TICKS}, where the node stops
+	 * the boundaries that decide behaviour: {@code gap 2} is the only cadence the shipped delay
+	 * serves exactly; {@code gap 4} and {@code gap 5} are the two CANDIDATE glide ceilings and are
+	 * counted separately so the choice between them can be settled from a reading; and
+	 * {@code gap 6+} is past {@code NodeInterpolator.GLIDE_MAX_GAP_TICKS}, where the node stops
 	 * interpolating altogether regardless of any delay policy.
 	 *
 	 * Conditional on having samples, per this class's idiom — a scene with no moving nodes should
@@ -376,7 +378,7 @@ public final class StatsOverlay {
 	private static void appendKeyframeCadence(List<String> lines) {
 		long n = RenderStats.keyframeGapSamples();
 		// Gate on EITHER, so a run that produced only backward stamps still reports them. `n` is
-		// the bucket sum alone, so the printed total always equals the six numbers beside it.
+		// the bucket sum alone, so the printed total always equals the numbers beside it.
 		if (n <= 0 && RenderStats.keyframeGapsBackward <= 0) {
 			return;
 		}
@@ -385,16 +387,44 @@ public final class StatsOverlay {
 					RenderStats.keyframeGapsBackward));
 			return;
 		}
+		// THE ROW IS BUILT FROM THE BUCKET NAMES, NOT FROM A FIXED-ARITY FORMAT STRING. A literal
+		// "1=%d 2=%d ... 11+=%d" with seven hand-placed indices is a mirror of gapBucket's edges,
+		// and the 6 -> 7 re-cut of 2026-08-30 had to touch it by hand. Looping means the next
+		// re-cut touches gapBucket and RenderStats.GAP_BUCKET_NAMES and nothing here.
 		long[] g = RenderStats.keyframeGaps;
-		lines.add(String.format("  keyframe gaps %d: 1=%d 2=%d 3=%d 4-5=%d 6-10=%d 11+=%d",
-				n, g[0], g[1], g[2], g[3], g[4], g[5]));
+		StringBuilder row = new StringBuilder();
+		for (int b = 0; b < g.length; b++) {
+			row.append(b == 0 ? "" : " ").append(RenderStats.GAP_BUCKET_NAMES[b])
+					.append('=').append(g[b]);
+		}
+		lines.add(String.format("  keyframe gaps %d: %s", n, row));
 		// The two figures the decision actually turns on, named rather than left to be divided by
 		// eye: what fraction never interpolates because the delay outruns the gap, and what
 		// fraction never interpolates because the gap outruns the snap rule.
+		//
+		// BOTH THE SUM AND THE LABEL COME FROM RenderStats.FIRST_SNAPPING_BUCKET. They were
+		// `g[5] + g[6]` and a literal "gap6+" until 2026-08-30, under a comment claiming
+		// noHistogramBucketMixesAGlidedGapWithASnappedOne kept them in step with the glide ceiling.
+		// IT DID NOT: that vector constrains gapBucket's edges and never reaches this file --
+		// nothing in the suite does, which AnimatorBudgetTest's own header states outright
+		// ("StatsOverlay has no coverage"). A hand-typed index against a DERIVED ceiling, guarded
+		// by a test that cannot see it, is how a player-facing label comes to name the wrong
+		// population the day the budget moves.
+		//
+		// This class cannot name GLIDE_MAX_GAP_TICKS -- NodeInterpolator is package-private in
+		// another package -- so the boundary is published by RenderStats and the equality against
+		// the ceiling is asserted in NodeInterpolatorTest, which can see both. That is a real
+		// failing check, which is what the old comment only claimed to have.
+		int firstSnapping = RenderStats.FIRST_SNAPPING_BUCKET;
+		long snapping = 0;
+		for (int b = firstSnapping; b < g.length; b++) {
+			snapping += g[b];
+		}
 		long stepping = g[0];
-		long snapping = g[3] + g[4] + g[5];
-		lines.add(String.format("    steps (gap1) %.1f%%  snaps (gap4+) %.1f%%  exact (gap2) %.1f%%",
-				100.0 * stepping / n, 100.0 * snapping / n, 100.0 * g[1] / n));
+		lines.add(String.format("    steps (gap%s) %.1f%%  snaps (gap%s+) %.1f%%  exact (gap%s) %.1f%%",
+				RenderStats.GAP_BUCKET_NAMES[0], 100.0 * stepping / n,
+				RenderStats.GAP_BUCKET_NAMES[firstSnapping], 100.0 * snapping / n,
+				RenderStats.GAP_BUCKET_NAMES[1], 100.0 * g[1] / n));
 		if (RenderStats.keyframeGapsBackward > 0) {
 			lines.add(String.format("    §c backward/duplicate stamps %dx§r",
 					RenderStats.keyframeGapsBackward));

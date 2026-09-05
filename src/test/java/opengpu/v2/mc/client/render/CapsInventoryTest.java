@@ -118,8 +118,37 @@ public class CapsInventoryTest {
 				.append((long) AnimatorOverlay.SINCE_ATTACH_CAP_SECONDS).append(" |\n");
 		s.append("| interpolation delay (ticks) | ")
 				.append(ServerTimeline.INTERPOLATION_DELAY_TICKS).append(" |\n");
+		s.append("| glide ceiling (ticks) `GLIDE_MAX_GAP_TICKS` — DERIVED | ")
+				.append(NodeInterpolator.GLIDE_MAX_GAP_TICKS).append(" |\n");
+		s.append("| glide-share budget `MIN_GLIDED_SPAN_NUM/DEN` — PROVISIONAL | ")
+				.append(NodeInterpolator.MIN_GLIDED_SPAN_NUM).append("/")
+				.append(NodeInterpolator.MIN_GLIDED_SPAN_DEN).append(" |\n");
 		s.append("| time wrap period (ticks) | ").append(OcslTime.PERIOD_TICKS).append(" |\n");
 		s.append("| stall threshold (ns) | ").append(RenderStats.STALL_NANOS).append(" |\n\n");
+
+		// The two rows above are the first entries in this inventory that are not simply "a number
+		// someone chose". One is derived from another cap and must never be set directly; the other
+		// is an open question wearing a value. Both facts belong in the GENERATED doc rather than
+		// only in a javadoc, because this file is what a reader consults to find out what the caps
+		// are -- and the glide budget is the one cap here that a measurement is expected to change.
+		s.append("**The glide ceiling is DERIVED, not chosen:** ")
+				.append("`GLIDE_MAX_GAP_TICKS = INTERPOLATION_DELAY_TICKS * DEN / NUM`")
+				.append(", in integer arithmetic. It moves whenever the interpolation delay moves,")
+				.append(" which is the point — the glided share of a span is `D/G`, so a ceiling")
+				.append(" written directly in ticks would silently change its own meaning the day")
+				.append(" the delay changed. Do not set it directly.\n\n");
+		s.append("**The glide-share budget is PROVISIONAL, shipped 2026-08-30.** It is the one cap")
+				.append(" in this inventory that no measurement supports. At ")
+				.append(NodeInterpolator.MIN_GLIDED_SPAN_NUM).append("/")
+				.append(NodeInterpolator.MIN_GLIDED_SPAN_DEN)
+				.append(" the glide carries ")
+				.append(Math.round(100.0 * NodeInterpolator.MIN_GLIDED_SPAN_NUM
+						/ NodeInterpolator.MIN_GLIDED_SPAN_DEN))
+				.append("% of the travel and the remainder arrives as a jump, so the interpolator")
+				.append(" is already the minority partner in its own picture; the crossover where")
+				.append(" glide and jump are a dead heat is a budget of 1/2 (ceiling 4). The A/B")
+				.append(" that would settle it is specified in `PLAN-INTERPOLATION.md` and has not")
+				.append(" been run. Until it does, this row is a bet rather than a result.\n\n");
 
 		s.append("## Forge-bound (hand-maintained — classes load in a JVM test but cannot be"
 				+ " instantiated, so instance-derived values are not derivable)\n\n");

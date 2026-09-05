@@ -56,7 +56,7 @@ final class NodeInterpolator {
 	 * it was mid-glide jumped to its destination a tick early and then froze. The values were never
 	 * wrong; {@code a} was.
 	 *
-	 * It defeated the gap rule too. {@link #MAX_GAP_TICKS} measures {@code currTick - prevTick}, so
+	 * It defeated the gap rule too. {@link #GLIDE_MAX_GAP_TICKS} measures {@code currTick - prevTick}, so
 	 * a node whose {@code tz} churned every tick reported a gap of 1 no matter how long its 2D
 	 * position had been still — and a 500-unit jump after a 20-tick idle GLIDED, against DESIGN's
 	 * "an idle node that moves after 400 ticks jumps, it does not glide for 20 seconds" quoted
@@ -113,16 +113,113 @@ final class NodeInterpolator {
 	private static final double SLERP_LINEAR_ABOVE = 0.9995;
 
 	/**
-	 * Interpolate only across states this close together in server ticks.
+	 * How much of a node's travel the glide must carry before a lerp is motion rather than
+	 * decoration on a teleport. A SHARE of a span, not a tick count.
+	 *
+	 * The glided share is {@code max(0, G - |D - G|)/G} — the closed form
+	 * {@link ServerTimeline#INTERPOLATION_DELAY_TICKS} carries, and the one to quote. <b>It reduces
+	 * to {@code D/G} only for {@code G >= D}</b>, which is the half this derivation uses; below the
+	 * delay it falls the other way and reaches ZERO at {@code G = 1, D = 2}. An earlier version of
+	 * this paragraph wrote {@code D/G} flat, which is the formula {@code ServerTimeline} explicitly
+	 * records as REFUTED for the {@code D > G} branch.
+	 *
+	 * A ceiling written directly in ticks silently changes its own meaning the day the delay moves;
+	 * a budget does not, which is why this is the number that gets CHOSEN and
+	 * {@link #GLIDE_MAX_GAP_TICKS} is the number that gets DERIVED.
+	 *
+	 * <b>AND THE BUDGET IS A ONE-SIDED BOUND. It caps {@code G} from ABOVE and promises nothing
+	 * below.</b> "The glide must carry at least two fifths of the travel" is true of every gap the
+	 * ceiling admits EXCEPT the ones beneath the delay: at {@code G = 1} the admitted cadence glides
+	 * <b>0%</b> of its travel, not 40%. That is not an oversight in the ceiling — it is the delay's
+	 * regime, and no value of this budget can reach it, because the ceiling only ever removes wide
+	 * gaps. Read this constant as "how wide a gap may be and still be worth gliding", never as a
+	 * floor on what any admitted gap actually glides.
+	 *
+	 * <b>THIS IS THE ONE JUDGEMENT HERE THAT NO MEASUREMENT SUPPORTS, AND IT IS PROVISIONAL.</b>
+	 * Two fifths admits the one cadence anybody has measured — {@code FIELD-TEST-CADENCE.md} arm C5,
+	 * {@code os.sleep(0.25)}, which reads {@code renders 70 (0 interp)}: not one interpolated frame
+	 * on the obvious way to animate at four frames a second. But at 2/5 the glide carries 40% of the
+	 * travel against a 60% jump, so <b>the interpolator is already the minority partner in its own
+	 * picture</b>. The crossover where glide and jump are a dead heat is a budget of 1/2 (ceiling 4).
+	 * Whether 40% reads better than a clean teleport is perceptual, and
+	 * {@code INTERPOLATION-DELAY-MATH.md:299} says outright that no column there answers it.
+	 *
+	 * <b>Shipping 2/5 is running the experiment, not concluding it.</b> The A/B that settles it
+	 * cannot be run against a class that snaps gap 5 — it needs the glided arm to exist — so the
+	 * raise IS the apparatus. {@code PLAN-STAGE-C} carries the protocol. If the observer prefers the
+	 * snapped node, this becomes 1/2 and the ceiling follows it down automatically.
+	 *
+	 * NOT a jump budget and NOT a double. {@code floor(D / (1 - jumpBudget))} floors one BELOW the
+	 * exact value on real inputs — at D=2 with a jump budget of 1/3 the raw quotient is
+	 * 2.99999999999999955591, flooring to 2, where the exact answer is 3. That is a silent LOWERING
+	 * below what ships today. Ints, and integer division.
+	 *
+	 * The former {@code MAX_GAP_TICKS = 3} was exactly a 2/3 budget at D = 2. Nobody ever wrote that
+	 * down, which is how one number came to answer two unrelated questions.
+	 */
+	static final int MIN_GLIDED_SPAN_NUM = 2;
+	static final int MIN_GLIDED_SPAN_DEN = 5;
+
+	/**
+	 * DECIDES WHAT THE PLAYER SEES: the widest keyframe gap {@link #sampleGroup} will lerp across.
+	 * Anything wider draws as a jump. Five ticks at the shipped delay.
 	 *
 	 * DESIGN: "Lerp only between states from consecutive server ticks (or within a small
-	 * threshold); otherwise snap — an idle node that moves after 400 ticks jumps, it does not
-	 * glide for 20 seconds." Without this rule a node that sat still for a minute and then
-	 * moved would be lerped across the entire idle span, since its two keyframes really are
-	 * that far apart. Three ticks tolerates a program updating slightly slower than every tick
-	 * without turning a genuine teleport into a crawl.
+	 * threshold); otherwise snap — an idle node that moves after 400 ticks jumps, it does not glide
+	 * for 20 seconds."
+	 *
+	 * <b>Derived, never typed</b>, so the class of bug where the delay moves and the ceiling
+	 * silently does not is closed by construction. It also permanently closes the vacuity hazard
+	 * {@code NodeInterpolatorTest} warns about at the {@code D == MAX_GAP} vector: that arm needs
+	 * {@code delay + 1 <= ceiling}, and {@code delay + 1 <= 2*delay} holds for every {@code delay >= 1}.
+	 *
+	 * <b>THIS CONSTANT DOES NOT CARRY THE IDLE RULE, and while {@code D < G} it never did.</b> What
+	 * bounds an idle node's glide is {@link ServerTimeline#INTERPOLATION_DELAY_TICKS}: the clock
+	 * enters the lerp band at most {@code D} ticks before it closes, so a glide lasts <b>at most
+	 * {@code D} ticks however wide {@code G} is — 100 ms today — and zero ticks when {@code G < D}</b>.
+	 * (An earlier draft said {@code min(D,G)}, which is right only for {@code G >= D}; at
+	 * {@code G = 1, D = 2} it predicts one tick of glide where the measured answer is none, as this
+	 * class's own {@code active()} javadoc and {@code aGapOneCadenceIsNeverCharged...} both record.)
+	 * Delete this ceiling outright
+	 * and a 400-tick idle jumps 99.5% of the travel and skids the last 0.5%; it does not crawl for
+	 * 20 seconds. That ownership is CONDITIONAL on {@code D < G}, and the day the delay is made to
+	 * track the observed gap this constant has to take the idle job back.
+	 *
+	 * <b>A SECOND GAP CONSTANT WOULD BE DEAD CODE.</b> Both jobs read one quantity, and
+	 * {@code capture} rolls it only when THIS group changed, so it is the interval between
+	 * successive changes — the idle duration for an idle node and the period for a steady one, the
+	 * same number. {@code gap > A || gap > B} is {@code gap > min(A,B)}; {@code &&} is {@code max}.
+	 * One of the two is then unreachable. Separating them needs a second INPUT on {@link Track} — a
+	 * gap history or a cadence estimate — which this increment does not add.
 	 */
-	private static final long MAX_GAP_TICKS = 3;
+	static final long GLIDE_MAX_GAP_TICKS =
+			(long) ServerTimeline.INTERPOLATION_DELAY_TICKS * MIN_GLIDED_SPAN_DEN
+					/ MIN_GLIDED_SPAN_NUM;
+
+	/**
+	 * Does anything DRAW the 3D slots yet? Until group B lands, no.
+	 *
+	 * {@link #active} exists to answer "is a re-render worth paying for", and a re-render is worth
+	 * nothing if the moving slots reach no pixel. {@code SceneRenderer} reads none of the 3D six
+	 * today, so a mesh spinning IN PLACE at a gliding cadence would charge a full scene FBO replay
+	 * plus the animator pass for slots that draw nothing — measured at ~4.6 renders/s snapped
+	 * against a full frame rate gliding.
+	 *
+	 * Raising {@link #GLIDE_MAX_GAP_TICKS} from 3 to 5 widened exactly that window, which is why the
+	 * gate lands in the same increment as the raise rather than being left as a known bug made
+	 * worse. <b>Flip this to true in the same edit that makes something read the 3D slots.</b>
+	 *
+	 * <b>WHAT ENFORCES THAT, PRECISELY — because an earlier version of this sentence overstated it.</b>
+	 * {@code aThreeDOnlyRollDoesNotChargeARenderWhileNothingDrawsThoseSlots} goes red when THIS FLAG
+	 * flips. That is a reminder at flip time, not a detector: it is coupled to the flag, not to
+	 * whether anything actually reads the 3D slots, so it cannot fire on the event the obligation is
+	 * really about — someone routing {@code Mesh3dPass} through this record and forgetting the flag.
+	 * In that world meshes would freeze between batches and nothing here would say why. Making it
+	 * detectable means asserting the flag at the CONSUMER, where the first read happens; that is
+	 * ledgered in {@code PLAN-INTERPOLATION.md} rather than built, because the consumer does not
+	 * exist yet.
+	 */
+	private static final boolean THREE_D_SLOTS_ARE_DRAWN = false;
 
 	private static final class Track {
 		final double[] prev = new double[FIELDS];
@@ -199,17 +296,41 @@ final class NodeInterpolator {
 				t.prevTick[g] = t.currTick[g];
 				System.arraycopy(scratch, lo, t.curr, lo, len);
 				t.currTick[g] = serverTick;
+				// Hoisted so the histogram and the snap decision provably read ONE expression.
+				long gapTicks = t.currTick[g] - t.prevTick[g];
 				// The cadence, sampled where it is already in hand. Skipping the first roll is
 				// the whole reason `rolled` exists: that gap is appearance-to-first-motion, not a
 				// cadence, and counting it would put one bogus sample per node into the top
 				// bucket. Diagnostic only -- nothing below reads the histogram.
 				if (t.rolled[g]) {
-					RenderStats.onKeyframeGap(t.currTick[g] - t.prevTick[g]);
+					RenderStats.onKeyframeGap(gapTicks);
 				}
 				t.rolled[g] = true;
+				// THE PICTURE ONLY. This flag used to answer two questions -- "does this transition
+				// draw as a jump" and "is this group worth re-rendering the whole scene for" --
+				// which are not the same question and do not have the same answer. The second one
+				// now lives in active(), as a clock comparison with no constant of its own.
+				//
+				// `gapTicks <= 0` is the old `currTick <= prevTick`, RETAINED as defence in depth
+				// and NOW OBSERVABLE THROUGH NEITHER CONSUMER: `gapTicks <= 0` is identically
+				// `t1 <= t0`, which sends sampleGroup down its own clamp and makes active()'s band
+				// unsatisfiable whatever this flag says. DO NOT READ ITS SURVIVAL IN THE SUITE AS
+				// COVERAGE -- deleting the term leaves every assertion in
+				// aBackwardTickSnapsRatherThanSweepingBackwards passing.
+				//
+				// An earlier version of this comment said that test "now asserts that redundancy
+				// explicitly". IT DOES NOT: the test was never touched, and its own body still
+				// claims active() is "the only witness", which active()'s 2026-08-30 lower bound
+				// made false. Corrected here rather than by editing the test, because the honest
+				// statement is that the term has NO witness, not that it has a different one.
+				//
+				// It is still REACHABLE and therefore not dead: a node first seen at tick 100, a
+				// backward batch at tick 50 that rebases while this group is unchanged, then a
+				// batch at 51 that rolls it -- gapTicks = -49 with `rebased` already false.
+				// Keeping it is cheap; claiming it is tested is not.
 				t.snap[g] = teleport
-						|| t.currTick[g] - t.prevTick[g] > MAX_GAP_TICKS
-						|| t.currTick[g] <= t.prevTick[g]
+						|| gapTicks > GLIDE_MAX_GAP_TICKS
+						|| gapTicks <= 0
 						|| rebased;
 			}
 		}
@@ -283,9 +404,28 @@ final class NodeInterpolator {
 	 * javadoc with no declaration between them, so javac discarded it and {@code active} documented
 	 * nothing. Prose can be orphaned as silently as a test can be vacuous, and neither reports it.
 	 *
-	 * Per group, since C1.3.3: a node counts as in flight if EITHER group is, which is why a
-	 * 3D-only change keeps the scene re-rendering. Correct — the 3D group really is interpolating —
-	 * and currently redundant, since nothing reads those slots until group B.
+	 * Per group, since C1.3.3: a node counts as in flight if EITHER group is. That was written as
+	 * "correct but currently redundant, since nothing reads those slots until group B" — and it
+	 * stopped being merely redundant when the glide ceiling rose to 5, because the window in which a
+	 * 3D-only roll charges a full scene replay for slots that draw nothing got wider. It is now
+	 * gated on {@link #THREE_D_SLOTS_ARE_DRAWN}.
+	 *
+	 * <b>THIS IS A COST DECISION, AND IT IS NOT {@code !snap}.</b> Returning true does not make a
+	 * node move; it makes {@code SceneRenderer} skip its early return and replay the whole scene FBO
+	 * plus the animator pass. The band below is the EXACT MIRROR of the branch {@link #sampleGroup}
+	 * takes — it lerps only on {@code t0 < render < t1} — so the two consumers agree by construction
+	 * rather than by an arithmetic coincidence that holds only while the delay is constant.
+	 * Deliberately a clock comparison and NOT a gap constant: a gap-form floor
+	 * ({@code gap >= INTERPOLATION_DELAY_TICKS}) is equivalent everywhere except under a sustained
+	 * TPS deficit, where the render clock drifts up through the window and the clock form is right
+	 * while the gap form suppresses renders the node would have used.
+	 *
+	 * What the missing lower bound cost, measured: at gap 1 with {@code D = 2} the render clock runs
+	 * in {@code [(T-2)*TICK, (T-1)*TICK)} while {@code t0 = (T-1)*TICK}, so {@code sampleGroup}
+	 * clamped to {@code prev} on EVERY frame and every render this authorised redrew a pose already
+	 * on the FBO. {@code FIELD-TEST-CADENCE.md} arm C2: {@code renders 1378 (1161 interp)} over
+	 * 12.04 s = 96.4 interpolation-driven renders per second, against 4.6/s for the SNAPPING cadence
+	 * next door. The worst-served cadence was also by far the most expensive one.
 	 */
 	boolean active(long nowNanos) {
 		if (!timeline.primed()) {
@@ -294,7 +434,13 @@ final class NodeInterpolator {
 		long render = timeline.renderNanos(nowNanos);
 		for (Track t : tracks.values()) {
 			for (int g = 0; g < GROUPS; g++) {
-				if (!t.snap[g] && render < ServerTimeline.tickNanos(t.currTick[g])) {
+				if (g == G3D && !THREE_D_SLOTS_ARE_DRAWN) {
+					// Moving, but reaching no pixel. Not worth a scene replay yet.
+					continue;
+				}
+				if (!t.snap[g]
+						&& render > ServerTimeline.tickNanos(t.prevTick[g])
+						&& render < ServerTimeline.tickNanos(t.currTick[g])) {
 					return true;
 				}
 			}

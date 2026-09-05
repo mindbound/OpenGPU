@@ -51,12 +51,14 @@ public final class CadenceProbe {
 
 	private static long maxGapTicks() {
 		try {
-			java.lang.reflect.Field f = NodeInterpolator.class.getDeclaredField("MAX_GAP_TICKS");
+			java.lang.reflect.Field f =
+					NodeInterpolator.class.getDeclaredField("GLIDE_MAX_GAP_TICKS");
 			f.setAccessible(true);
 			return f.getLong(null);
 		} catch (Exception e) {
-			throw new IllegalStateException("NodeInterpolator.MAX_GAP_TICKS is gone or renamed;"
-					+ " every frozen number this tool prints depends on it", e);
+			throw new IllegalStateException("NodeInterpolator.GLIDE_MAX_GAP_TICKS is gone or"
+					+ " renamed; every frozen number this tool prints depends on it."
+					+ " (It was MAX_GAP_TICKS until 2026-08-30.)", e);
 		}
 	}
 	private static final int FRAMES_PER_TICK = 3;
@@ -303,7 +305,7 @@ public final class CadenceProbe {
 
 		// ---------- VALIDATE THE MODEL, or everything below is fiction ----------
 		// The cadence list is DERIVED from MAX_GAP rather than written out, so that raising
-		// NodeInterpolator.MAX_GAP_TICKS puts the newly-interpolated cadences under the gate
+		// NodeInterpolator.GLIDE_MAX_GAP_TICKS puts the newly-interpolated cadences under the gate
 		// instead of leaving them unvalidated. With the list hardcoded at {1},{2},{3},... a raise
 		// to 5 left the model snapping cadence [4] while the real class interpolated it, and the
 		// gate stayed green because it never looked above 3.
@@ -329,7 +331,12 @@ public final class CadenceProbe {
 				return;
 			}
 		}
-		System.out.println("MODEL VALIDATED against the real NodeInterpolator on 6 cadences,");
+		// COUNT DERIVED, NOT TYPED. This read "on 6 cadences" until 2026-08-30, which was true when
+		// MAX_GAP was 3 and the loop above built 2*3 entries. Raising the ceiling to 5 made the loop
+		// build 10 while the banner still claimed 6 -- the tool asserting a coverage it had already
+		// exceeded. A printed count beside a derived loop is a D6 waiting to happen.
+		System.out.println("MODEL VALIDATED against the real NodeInterpolator on "
+				+ validation.length + " cadences,");
 		System.out.println("worst frame-by-frame divergence < 1e-6 for the shipped policy.");
 		System.out.println();
 		System.out.println("cont  = CONTINUOUS frozen fraction (closed form, no frame grid) <- quote this");

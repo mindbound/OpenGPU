@@ -644,7 +644,7 @@ public class NodeInterpolatorTest {
 		assertTrue("this vector's wider arm uses gap = delay + 1 = " + (delay + 1) + ", which must"
 				+ " still INTERPOLATE for the arm to mean anything — but every step it produced is"
 				+ " either zero or a whole keyframe span, which is what SNAPPING looks like."
-				+ " Check MAX_GAP_TICKS and the predicate that reads it. Steps: "
+				+ " Check GLIDE_MAX_GAP_TICKS and the predicate that reads it. Steps: "
 				+ java.util.Arrays.toString(wider), widerInterpolates);
 
 		double lo = matched[0], hi = matched[0];
@@ -760,55 +760,340 @@ public class NodeInterpolatorTest {
 		}
 		long[] g = opengpu.v2.stats.RenderStats.keyframeGaps;
 		assertEquals("the four steady rolls land in the gap-2 bucket", 4, g[1]);
-		assertEquals("and the appearance-to-first-motion interval must NOT be counted", 0, g[4]);
-		assertEquals("nothing else should be populated", 0, g[0] + g[2] + g[3] + g[5]);
+		// The 9-tick appearance-to-first-motion interval lands in the 6-10 bucket, which moved from
+		// index [4] to [5] in the 2026-08-30 re-cut. Read the index from gapBucket rather than
+		// hard-coding it, so the next re-cut cannot leave this vector asserting over the wrong
+		// bucket and silently passing.
+		int firstRollBucket = opengpu.v2.stats.RenderStats.gapBucket(9);
+		assertEquals("and the appearance-to-first-motion interval must NOT be counted",
+				0, g[firstRollBucket]);
+		long others = 0;
+		for (int i = 0; i < g.length; i++) {
+			if (i != 1) {
+				others += g[i];
+			}
+		}
+		assertEquals("nothing but the gap-2 bucket should be populated", 0, others);
 	}
 
 	@Test
 	public void theCadenceHistogramCutsItsBucketsAtTheDecisionBOUNDARIES() {
 		// The edges are not arbitrary: gap 2 is the only cadence the shipped delay serves exactly,
-		// and gap 4 is the first one past MAX_GAP_TICKS, where the node stops interpolating however
-		// the delay is set. A histogram whose edges drifted off those two would still look
-		// plausible and would answer a different question than the one asked.
+		// gaps 4 and 5 are the two CANDIDATE glide ceilings (budgets 1/2 and 2/5) and must be
+		// separately countable or the choice between them cannot be settled from a reading, and
+		// gap 6 is the first past the ceiling. A histogram whose edges drifted off those would
+		// still look plausible and would answer a different question than the one asked.
 		assertEquals("gap 1 — steps, never interpolates at D=2", 0, opengpu.v2.stats.RenderStats.gapBucket(1));
 		assertEquals("gap 2 — exact", 1, opengpu.v2.stats.RenderStats.gapBucket(2));
 		assertEquals("gap 3 — still glides", 2, opengpu.v2.stats.RenderStats.gapBucket(3));
-		assertEquals("gap 4 — first past the snap rule", 3, opengpu.v2.stats.RenderStats.gapBucket(4));
-		assertEquals("gap 5", 3, opengpu.v2.stats.RenderStats.gapBucket(5));
-		assertEquals("gap 6", 4, opengpu.v2.stats.RenderStats.gapBucket(6));
-		assertEquals("gap 10", 4, opengpu.v2.stats.RenderStats.gapBucket(10));
-		assertEquals("gap 11 — idle wake", 5, opengpu.v2.stats.RenderStats.gapBucket(11));
+		assertEquals("gap 4 — candidate ceiling at budget 1/2", 3, opengpu.v2.stats.RenderStats.gapBucket(4));
+		assertEquals("gap 5 — the SHIPPED ceiling, its own bucket", 4, opengpu.v2.stats.RenderStats.gapBucket(5));
+		assertEquals("gap 6 — first past the snap rule", 5, opengpu.v2.stats.RenderStats.gapBucket(6));
+		assertEquals("gap 10", 5, opengpu.v2.stats.RenderStats.gapBucket(10));
+		assertEquals("gap 11 — idle wake", 6, opengpu.v2.stats.RenderStats.gapBucket(11));
 
-		// AND THE EDGE IS PINNED AGAINST THE CONSTANT IT DESCRIBES, not against the literal 3. If
-		// MAX_GAP_TICKS moves, the bucket that means "past the snap rule" must move with it or the
-		// overlay's "snaps (gap4+)" line silently starts naming the wrong population.
-		java.lang.reflect.Field mf;
-		try {
-			mf = NodeInterpolator.class.getDeclaredField("MAX_GAP_TICKS");
-			mf.setAccessible(true);
-			long maxGap = mf.getLong(null);
-			assertEquals("the last GLIDING gap and the last bucket below the snap cliff must agree;"
-					+ " MAX_GAP_TICKS is " + maxGap,
-					opengpu.v2.stats.RenderStats.gapBucket(maxGap) + 1,
-					opengpu.v2.stats.RenderStats.gapBucket(maxGap + 1));
-		} catch (Exception e) {
-			throw new AssertionError("MAX_GAP_TICKS is gone or renamed; the histogram's edges are"
-					+ " defined against it", e);
+		// AND THE EDGE IS PINNED AGAINST THE CONSTANT IT DESCRIBES, not against the literal 5. If
+		// the ceiling moves, the bucket that means "past the snap rule" must move with it or the
+		// overlay's "snaps (gapN+)" line silently starts naming the wrong population.
+		//
+		// Read DIRECTLY, not by reflection: GLIDE_MAX_GAP_TICKS is package-private and this test is
+		// in the same package. The reflective form this replaced could only fail at RUN time with a
+		// NoSuchFieldException; a direct read fails at COMPILE time, which is strictly earlier and
+		// cannot be mistaken for a behavioural failure.
+		long maxGap = NodeInterpolator.GLIDE_MAX_GAP_TICKS;
+		assertEquals("the last GLIDING gap and the last bucket below the snap cliff must agree;"
+				+ " GLIDE_MAX_GAP_TICKS is " + maxGap,
+				opengpu.v2.stats.RenderStats.gapBucket(maxGap) + 1,
+				opengpu.v2.stats.RenderStats.gapBucket(maxGap + 1));
+	}
+
+	@Test
+	public void aGapOneCadenceIsNeverChargedARerenderBecauseItCannotMove() {
+		// THE 96-RENDERS-PER-SECOND BUG, pinned. At gap 1 with D = 2 the render clock runs a full
+		// tick BEHIND prevTick, so sampleGroup takes its `renderNanos <= t0` clamp on every frame
+		// and shows `prev` — yet active() used to answer true, because it only asked whether the
+		// clock was below currTick. Every render it authorised redrew a pose already on the FBO.
+		// Measured in the field: FIELD-TEST-CADENCE.md arm C2 reads `renders 1378 (1161 interp)`
+		// over 12.04 s = 96.4 wasted scene replays per second, against 4.6/s for the snapping
+		// cadence next door.
+		NodeInterpolator interp = new NodeInterpolator();
+		SceneNode n = node(1, 0, 0);
+		interp.capture(stateWith(n), T0, N0, NONE);
+		for (int k = 1; k <= 3; k++) {                     // gap 1: a keyframe every tick
+			n.x = k * 100.0;
+			interp.capture(stateWith(n), T0 + k, arrival(k), NONE);
 		}
+
+		double[] out = new double[NodeFold.TRS_WIDTH];
+		double first = Double.NaN;
+		for (double s = 1.0; s <= 2.0; s += 0.125) {
+			long now = localShowing(T0 + s);
+			assertFalse("gap 1 at D=2 cannot move, so no frame may be charged a scene replay;"
+					+ " clock showing T0+" + s, interp.active(now));
+			interp.transformOf(n, now, out);
+			if (Double.isNaN(first)) {
+				first = out[NodeFold.TRS_X];
+			}
+			assertEquals("and the pose is genuinely identical across those frames — if it moved,"
+					+ " suppressing the render would be a DROPPED frame, not a saved one",
+					first, out[NodeFold.TRS_X], 1e-12);
+		}
+
+		// NON-VACUITY, and it is what makes this a test of the NEW lower bound rather than of
+		// anything else: the OLD condition (render < currTick) is satisfied at these instants, so
+		// the pre-2026-08-30 active() answered TRUE here. Only the added `render > prevTick`
+		// conjunct changes the verdict. Without this line a mutant that made active() return false
+		// unconditionally would pass the loop above.
+		//
+		// COMPARED IN ONE CLOCK. The first version of this line read
+		// `localShowing(T0 + 1.5) < ServerTimeline.tickNanos(T0 + 3)` -- a LOCAL instant against a
+		// SERVER instant, two different origins. It evaluated 182_000_000 < 50_150_000_000: true by
+		// a factor of 275, true for every input, and so vacuous. THE GUARD AGAINST VACUITY WAS
+		// ITSELF VACUOUS, and the vector it was protecting passed with active() hard-wired to
+		// false. renderInstant() maps a local instant into the server clock, which is the only
+		// domain in which this comparison means anything.
+		assertTrue("the sample instants must satisfy the old predicate, or this vector cannot"
+				+ " distinguish the fix from a broken active()",
+				interp.renderInstant(localShowing(T0 + 1.5))
+						< ServerTimeline.tickNanos(T0 + 3));
+	}
+
+	@Test
+	public void everyFrameActiveChargesForIsGenuinelyMidFlight() {
+		// THE TWO CONSUMERS CHECK EACH OTHER, ON EVERY GAP, rather than a comment asking the next
+		// editor to remember that active()'s band and sampleGroup's lerp branch are a pair. This is
+		// the load-bearing artefact of the split: the enforcement line can be edited without a
+		// compile error, and this is what would go red.
+		//
+		// Stated as the pure invariant — CHARGED IMPLIES MOVING — and deliberately NOT as a band on
+		// the gap. A draft asserted `gap >= INTERPOLATION_DELAY_TICKS && gap <= ceiling`, which is
+		// only true while D <= G and would fire on CORRECT code the day the delay is made to track
+		// the observed gap. An over-specified test is a false alarm waiting for a legitimate change.
+		for (int gap = 1; gap <= 8; gap++) {
+			NodeInterpolator interp = new NodeInterpolator();
+			SceneNode n = node(1, 0, 0);
+			interp.capture(stateWith(n), T0, N0, NONE);
+			n.x = 100.0;
+			interp.capture(stateWith(n), T0 + gap, arrival(gap), NONE);
+
+			double[] out = new double[NodeFold.TRS_WIDTH];
+			int charged = 0;
+			for (double s = 0.0; s <= gap + 2.0; s += 0.0625) {
+				long now = localShowing(T0 + s);
+				if (!interp.active(now)) {
+					continue;
+				}
+				charged++;
+				interp.transformOf(n, now, out);
+				double pos = out[NodeFold.TRS_X];
+				assertTrue("gap " + gap + ": active() charged a full scene replay at clock T0+" + s
+						+ " but the pose is pinned at the START (" + pos + ") — that frame draws"
+						+ " what is already on the FBO", pos > 0.0);
+				assertTrue("gap " + gap + ": active() charged a replay at clock T0+" + s
+						+ " but the pose has already ARRIVED (" + pos + ") — the motion is over",
+						pos < 100.0);
+			}
+			// Non-vacuity per gap: without this the loop above would survive active() being
+			// hard-wired to false, since an empty set satisfies every assertion in it.
+			//
+			// NOTE WHAT THIS DOES *NOT* SAY. A first version asserted "gap 1 charges nothing",
+			// which FAILED here at 15 charged frames — and the test was wrong, not the code. This
+			// vector drives ONE isolated transition and then sweeps the clock, so the clock does
+			// eventually enter the band and the node genuinely glides. "Gap 1 never interpolates"
+			// is a property of a SUSTAINED cadence, where the next keyframe rolls prevTick forward
+			// before the delayed clock can arrive — which is what
+			// aGapOneCadenceIsNeverChargedARerenderBecauseItCannotMove drives, with three captures.
+			// The distinction matters beyond this file: the closed form in
+			// INTERPOLATION-DELAY-MATH.md is stated over steady cadences for exactly this reason.
+			if (gap > NodeInterpolator.GLIDE_MAX_GAP_TICKS) {
+				assertEquals("gap " + gap + " is past the ceiling, so it must charge nothing",
+						0, charged);
+			} else {
+				assertTrue("gap " + gap + " is within the ceiling, so it must charge SOME frame —"
+						+ " otherwise the assertions above ran on an empty set", charged > 0);
+			}
+		}
+	}
+
+	@Test
+	public void aThreeDOnlyRollDoesNotChargeARenderWhileNothingDrawsThoseSlots() {
+		// THE FREE RIDER, gated. active() loops both groups, so a mesh spinning IN PLACE — rolling
+		// only the 3D six — used to pin the scene at full frame rate replaying the FBO and the
+		// animator pass for slots SceneRenderer does not read. Raising the glide ceiling from 3 to
+		// 5 widened exactly that window, which is why the gate ships in the same increment.
+		//
+		// THIS TEST IS AN OBLIGATION, NOT JUST A GUARD: it goes RED the day something draws the 3D
+		// slots, which is the day THREE_D_SLOTS_ARE_DRAWN must be flipped. That is the intended
+		// failure, and it is why the flag is enforced by a test rather than by a comment.
+		NodeInterpolator interp = new NodeInterpolator();
+		SceneNode n = node(1, 0, 0);
+		aim(n, 0, 1, 0, 0);
+		interp.capture(stateWith(n), T0, N0, NONE);
+		aim(n, 0, 1, 0, 45);                                  // 3D ONLY: x and y untouched
+		interp.capture(stateWith(n), T0 + 2, arrival(2), NONE);
+
+		assertFalse("a 3D-only roll must not charge a scene replay while nothing reads those slots",
+				interp.active(localShowing(T0 + 1.5)));
+
+		// NON-VACUITY: the identical cadence in the 2D group DOES charge, so the assertion above is
+		// about the group gate and not about the instant, the gap, or a dead interpolator.
+		NodeInterpolator twin = new NodeInterpolator();
+		SceneNode m = node(2, 0, 0);
+		twin.capture(stateWith(m), T0, N0, NONE);
+		m.x = 100.0;                                          // 2D, same gap, same instants
+		twin.capture(stateWith(m), T0 + 2, arrival(2), NONE);
+		assertTrue("the same gap in the 2D group MUST charge, or this vector proves nothing",
+				twin.active(localShowing(T0 + 1.5)));
+	}
+
+	@Test
+	public void aQuarterSecondCadenceGlidesRatherThanTeleporting() {
+		// THE RAISE, stated as the behaviour it buys. `os.sleep(0.25)` is the obvious way to animate
+		// at four frames a second and it emits gap 5 (FIELD-TEST-CADENCE.md arm C5, measured 5.0
+		// ticks per move). Until 2026-08-30 it read `renders 70 (0 interp)` — not one interpolated
+		// frame — because the ceiling was 3.
+		//
+		// THE VALUE THIS PINS IS PROVISIONAL. At gap 5 the glide carries 2/5 of the travel and the
+		// jump carries 3/5, so this asserts a partial glide, not a smooth one. If the A/B in
+		// PLAN-STAGE-C prefers the snapped picture the budget becomes 1/2, the ceiling follows to 4,
+		// and THIS TEST IS DELETED with its reason recorded — not quietly retargeted to gap 4.
+		NodeInterpolator interp = new NodeInterpolator();
+		SceneNode n = node(1, 0, 0);
+		interp.capture(stateWith(n), T0, N0, NONE);
+		n.x = 500.0;
+		interp.capture(stateWith(n), T0 + 5, arrival(5), NONE);
+
+		double[] out = new double[NodeFold.TRS_WIDTH];
+		interp.transformOf(n, localShowing(T0 + 4.0), out);
+		double mid = out[NodeFold.TRS_X];
+		assertTrue("a quarter-second cadence must GLIDE, not teleport: got " + mid,
+				mid > 0.0 && mid < 500.0);
+
+		// AND THE BUDGET IS 2/5 OF THE INTERVAL, MEASURED ON A SUSTAINED CADENCE.
+		//
+		// A first version of this assertion sampled the isolated transition above at clock T0+2.9
+		// and expected the node to be pinned at 0.0 — "before the clock enters the band". It FAILED
+		// at 290.0, and the test was wrong: for one isolated roll t0 and t1 are the two keyframes
+		// and the clock sweeps the WHOLE band. The D/G share is a property of a STEADY cadence,
+		// where each new keyframe rolls the band forward and the clock (running D behind) only ever
+		// catches the last D ticks of it. Driving that is the only honest way to pin the budget.
+		NodeInterpolator steady = new NodeInterpolator();
+		SceneNode m = node(2, 0, 0);
+		steady.capture(stateWith(m), T0, N0, NONE);
+		for (int k = 1; k <= 3; k++) {                        // a sustained gap-5 cadence
+			m.x = k * 500.0;
+			steady.capture(stateWith(m), T0 + 5L * k, arrival(5L * k), NONE);
+		}
+		// One whole interval of WALL time, after the last capture and before the next would land.
+		int moving = 0, frames = 0;
+		double[] s = new double[NodeFold.TRS_WIDTH];
+		double last = Double.NaN;
+		for (int f = 0; f < 200; f++) {
+			long now = arrival(15) + f * (5L * TICK / 200);
+			steady.transformOf(m, now, s);
+			if (!Double.isNaN(last) && Math.abs(s[NodeFold.TRS_X] - last) > 1e-9) {
+				moving++;
+			}
+			last = s[NodeFold.TRS_X];
+			frames++;
+		}
+		double share = moving / (double) frames;
+		assertEquals("a sustained gap-5 cadence must move for MIN_GLIDED_SPAN_NUM/DEN of the"
+				+ " interval — that is what the budget means, and what the ceiling is derived from",
+				NodeInterpolator.MIN_GLIDED_SPAN_NUM / (double) NodeInterpolator.MIN_GLIDED_SPAN_DEN,
+				share, 0.02);
+		// The complement is the honest half: the other 3/5 arrives as a jump, and the node is
+		// FROZEN for it. Asserted so nobody reads "glides" above as "glides smoothly".
+		assertTrue("and it is frozen for the rest of the interval, which is the 3/5 jump this"
+				+ " budget accepts: moving " + moving + " of " + frames, share < 0.5);
+	}
+
+	@Test
+	public void noHistogramBucketMixesAGlidedGapWithASnappedOne() {
+		// The overlay divides the histogram into "steps", "exact" and "snaps" and a reader acts on
+		// those labels. If any single bucket spanned the ceiling, no percentage on that line could
+		// be computed from the counts, and `snaps (gapN+)` would name a population that includes
+		// gliding cadences. Pinned against the CONSTANT, so raising the ceiling again without
+		// re-cutting the buckets fails here rather than shipping a mislabelled row.
+		long ceiling = NodeInterpolator.GLIDE_MAX_GAP_TICKS;
+		for (long gap = 1; gap <= 12; gap++) {
+			boolean glides = gap <= ceiling;
+			int bucket = opengpu.v2.stats.RenderStats.gapBucket(gap);
+			for (long other = 1; other <= 12; other++) {
+				if (opengpu.v2.stats.RenderStats.gapBucket(other) != bucket) {
+					continue;
+				}
+				assertEquals("gaps " + gap + " and " + other + " share bucket " + bucket
+						+ " but land on opposite sides of the glide ceiling (" + ceiling + "),"
+						+ " so no printed percentage over that bucket can be honest",
+						glides, other <= ceiling);
+			}
+		}
+		// AND THE CEILING ITSELF MUST BE A BUCKET EDGE, which is the property that lets the budget
+		// be settled from a reading at all. Without this, re-merging gaps 4 and 5 would still
+		// satisfy the loop above (the merged bucket sits entirely below the cliff) while destroying
+		// the ability to tell a gap-4 population from a gap-5 one.
+		assertEquals("the ceiling must be the LAST gap in its bucket, or a reading cannot"
+				+ " distinguish the two candidate ceilings",
+				opengpu.v2.stats.RenderStats.gapBucket(ceiling) + 1,
+				opengpu.v2.stats.RenderStats.gapBucket(ceiling + 1));
+		assertEquals("and the candidate below it must have its OWN bucket, for the same reason",
+				opengpu.v2.stats.RenderStats.gapBucket(ceiling - 1) + 1,
+				opengpu.v2.stats.RenderStats.gapBucket(ceiling));
+
+		// THE OVERLAY'S BOUNDARY, PINNED HERE BECAUSE ONLY THIS PACKAGE CAN SEE BOTH SIDES.
+		// StatsOverlay prints "snaps (gapN+)" over buckets [FIRST_SNAPPING_BUCKET..], and it cannot
+		// name GLIDE_MAX_GAP_TICKS: NodeInterpolator is package-private in this package and the
+		// overlay is in the parent one. So RenderStats publishes the boundary and this assertion is
+		// the ONLY thing tying it to the ceiling. Without it the overlay's player-facing label goes
+		// on naming the old population after a budget change, silently and in a file no test reads.
+		assertEquals("RenderStats.FIRST_SNAPPING_BUCKET must be the bucket holding ceiling + 1,"
+				+ " or StatsOverlay's 'snaps' row counts gliding cadences as snaps",
+				opengpu.v2.stats.RenderStats.gapBucket(ceiling + 1),
+				opengpu.v2.stats.RenderStats.FIRST_SNAPPING_BUCKET);
+		// And the labels must span the buckets, or the row indexes past its own names.
+		assertEquals("GAP_BUCKET_NAMES must have one label per bucket",
+				opengpu.v2.stats.RenderStats.keyframeGaps.length,
+				opengpu.v2.stats.RenderStats.GAP_BUCKET_NAMES.length);
+	}
+
+	@Test
+	public void theGlideCeilingIsDerivedFromTheDelaySoItCannotDriftWhenTheDelayMoves() {
+		// THE WHOLE REASON THE CEILING IS NOT A TYPED NUMBER. The glided share of a span is D/G, so
+		// a ceiling written directly in ticks silently changes its own MEANING the day the delay
+		// moves — the same number would buy a different picture. Pinning the identity here means a
+		// future delay change cannot leave the ceiling behind: it either moves or this fails.
+		assertEquals("the ceiling must equal delay * DEN / NUM, in INTEGER arithmetic",
+				(long) ServerTimeline.INTERPOLATION_DELAY_TICKS * NodeInterpolator.MIN_GLIDED_SPAN_DEN
+						/ NodeInterpolator.MIN_GLIDED_SPAN_NUM,
+				NodeInterpolator.GLIDE_MAX_GAP_TICKS);
+
+		// AND THE BUDGET IS THE THING THAT WAS CHOSEN, so pin it too — otherwise "2/5" could drift
+		// to any budget in the interval (1/3, 2/5], all of which yield ceiling 5 at D=2, and nothing would notice.
+		assertEquals("the glide-share budget is 2/5; changing it is a DECISION, not a refactor",
+				2, NodeInterpolator.MIN_GLIDED_SPAN_NUM);
+		assertEquals("the glide-share budget is 2/5; changing it is a DECISION, not a refactor",
+				5, NodeInterpolator.MIN_GLIDED_SPAN_DEN);
+
+		// The lower bound, stated as the behaviour it protects rather than as a number: the budget
+		// must admit at least the delay itself, or a cadence exactly matching the delay — the ONE
+		// cadence the shipped delay serves perfectly — would snap.
+		assertTrue("a ceiling below the delay would snap the one perfectly-served cadence",
+				NodeInterpolator.GLIDE_MAX_GAP_TICKS >= ServerTimeline.INTERPOLATION_DELAY_TICKS);
 	}
 
 	@Test
 	public void theHistogramTotalEqualsItsBucketsSoAPrintedRowChecksItself() {
 		// THE PROPERTY THE TRANSCRIPTION AUDIT RESTS ON, and it was broken when written.
 		//
-		// The overlay prints a total, six buckets and three derived percentages. That redundancy is
+		// The overlay prints a total, one number per bucket, and three derived percentages. That redundancy is
 		// what lets a field reading be re-derived later by someone who no longer has the screen —
 		// FIELD-TEST-CADENCE.md used it to recover two mistyped rows. It holds only while the total
 		// EQUALS the bucket sum.
 		//
 		// keyframeGapSamples() originally added keyframeGapsBackward into that total. A backward or
 		// duplicate tick stamp is not a cadence and has no bucket, so the moment the pathology fired
-		// the printed total exceeded the six numbers beside it and every percentage was computed
+		// the printed total exceeded the numbers beside it and every percentage was computed
 		// over a mixed population. Worse, it broke the self-check EXACTLY in the case the field
 		// protocol registers as stop-and-re-derive — an instrument losing its redundancy in the
 		// situation it exists to report.
@@ -837,8 +1122,12 @@ public class NodeInterpolatorTest {
 	public void theCadenceHistogramCountsSteadyCadencesWhereTheyBelong() {
 		assertEquals("gap 1 drives the steps bucket", 5, gapsFor(1, 6)[0]);
 		assertEquals("gap 2 drives the exact bucket", 5, gapsFor(2, 6)[1]);
-		assertEquals("gap 3 drives the last gliding bucket", 5, gapsFor(3, 6)[2]);
-		assertEquals("gap 5 drives the first snapping bucket", 5, gapsFor(5, 6)[3]);
+		assertEquals("gap 3 drives its own bucket", 5, gapsFor(3, 6)[2]);
+		assertEquals("gap 4 — candidate ceiling — has its OWN bucket since the 2026-08-30 re-cut",
+				5, gapsFor(4, 6)[3]);
+		assertEquals("gap 5 — the shipped ceiling — has its own bucket too, which is what makes"
+				+ " the two candidates separately countable", 5, gapsFor(5, 6)[4]);
+		assertEquals("gap 7 drives the first SNAPPING bucket", 5, gapsFor(7, 6)[5]);
 		// Six rolls, five counted: the first is dropped by design. Asserted here rather than only
 		// in the dedicated vector so that a change to the drop rule fails twice.
 		long[] g = gapsFor(2, 6);
@@ -1056,13 +1345,19 @@ public class NodeInterpolatorTest {
 		interp.capture(stateWith(n), T0, N0, NONE);
 		n.x = 100;
 		interp.capture(stateWith(n), T0 + 1, arrival(1), NONE);
-		assertTrue(interp.active(arrival(1)));
+		// Sampled INSIDE the band between the keyframes. This was `arrival(1)`, where the render
+		// clock is a tick behind prevTick and the node is not in flight at all -- so after
+		// active() gained its lower bound the precondition stopped holding, and a precondition
+		// that cannot hold makes the assertion below prove nothing about reset().
+		long midFlight = localShowing(T0 + 0.5);
+		assertTrue("precondition: mid-flight BEFORE the reset, or this vector is vacuous",
+				interp.active(midFlight));
 
 		interp.reset();
 		double[] out = new double[NodeFold.TRS_WIDTH];
-		interp.transformOf(n, arrival(1), out);
+		interp.transformOf(n, midFlight, out);
 		assertEquals(100, out[0], 1e-9);
-		assertFalse("nothing is mid-flight after a reset", interp.active(arrival(1)));
+		assertFalse("nothing is mid-flight after a reset", interp.active(midFlight));
 	}
 
 	@Test
@@ -1076,7 +1371,21 @@ public class NodeInterpolatorTest {
 		n.x = 100;
 		interp.capture(stateWith(n), T0 + 1, arrival(1), NONE);
 
-		assertTrue("still catching up right after the batch", interp.active(arrival(1)));
+		// NOT YET IN FLIGHT right after the batch, and this assertion was INVERTED until 2026-08-30.
+		// It read `assertTrue("still catching up right after the batch", ...)`, which encoded the
+		// bug as the expectation: at arrival(1) the render clock sits at tickNanos(T0 - 1), a full
+		// tick BEFORE prevTick, so sampleGroup takes its `renderNanos <= t0` clamp and shows `prev`.
+		// The scene replay the old active() authorised here drew a pose already on the FBO. The
+		// pose check is the proof, and it is why this is a correction rather than a loosening.
+		double[] settling = new double[NodeFold.TRS_WIDTH];
+		interp.transformOf(n, arrival(1), settling);
+		assertEquals("precondition: at this instant the node still shows its OLD pose", 0.0,
+				settling[NodeFold.TRS_X], 1e-9);
+		assertFalse("so charging a scene replay here would redraw an unchanged pose",
+				interp.active(arrival(1)));
+
+		assertTrue("but it IS in flight once the clock enters the band between the keyframes",
+				interp.active(localShowing(T0 + 0.5)));
 		assertFalse("settled once the render clock passes the newest keyframe",
 				interp.active(localShowing(T0 + 5)));
 
@@ -1347,6 +1656,12 @@ public class NodeInterpolatorTest {
 		interp.transformOf(n, farOff, out);
 		assertEquals("an untouched group must still snap across the seam", 100.0,
 				out[NodeFold.TRS_X], 1e-9);
+		// THIS assertFalse NO LONGER DISCRIMINATES, and saying so is the point. Since 2026-08-30
+		// active() also requires `render > tickNanos(prevTick)`, and `farOff` is 5 s past the
+		// arrival, so the re-based clock sits at or before prevTick and the band is unsatisfiable
+		// whatever `snap` holds. It passes with `|| rebased` deleted. Kept because the assertion is
+		// still TRUE and cheap, but the vector's real witness is the position check below — which
+		// does discriminate, and which the non-vacuity note beneath describes.
 		assertFalse("and must not report itself mid-flight", interp.active(farOff));
 		// NON-VACUITY: the re-based clock lands at or before this group's prevTick, so without the
 		// snap the sampler clamps to PREV and the node jumps BACKWARD to where it started.
@@ -1387,20 +1702,43 @@ public class NodeInterpolatorTest {
 
 	@Test
 	public void aGapOfOneMoreThanTheCapSnaps() {
-		// THE UPPER BOUND AT THE BOUNDARY. aToleratedGapGlides... pins 3 from below and
-		// aWideGapInOneGroupMustNotSnapTheOther pins 5 from above, which leaves MAX_GAP_TICKS = 4
-		// surviving — a real behaviour change (a 4-tick gap would glide instead of jumping) that
-		// nothing saw. A cap needs its bound at the boundary, not merely somewhere past it.
+		// THE UPPER BOUND AT THE BOUNDARY. A cap needs its bound at the boundary, not merely
+		// somewhere past it: pinning "3 glides" and "5 snaps" leaves a ceiling of 4 surviving, a
+		// real behaviour change nothing would see.
+		//
+		// DERIVED FROM THE CONSTANT since 2026-08-30, not hard-coded at 4. The ceiling moved 3 -> 5
+		// that day and this vector's literal did not track it, which is precisely the failure the
+		// derivation exists to prevent -- so the test now expresses "one more than the ceiling"
+		// rather than a number that happens to equal it today.
+		long overCeiling = NodeInterpolator.GLIDE_MAX_GAP_TICKS + 1;
 		NodeInterpolator interp = new NodeInterpolator();
 		SceneNode n = node(1, 0, 0);
 		interp.capture(stateWith(n), T0, N0, NONE);
 		n.x = 400;
-		interp.capture(stateWith(n), T0 + 4, arrival(4), NONE);
+		interp.capture(stateWith(n), T0 + overCeiling, arrival(overCeiling), NONE);
 
 		double[] out = new double[NodeFold.TRS_WIDTH];
-		interp.transformOf(n, localShowing(T0 + 2), out);
-		assertEquals("a gap of MAX_GAP_TICKS + 1 must SNAP", 400.0, out[NodeFold.TRS_X], 1e-9);
-		assertFalse("and nothing is in flight", interp.active(localShowing(T0 + 2)));
+		long mid = localShowing(T0 + overCeiling / 2.0);
+		interp.transformOf(n, mid, out);
+		assertEquals("a gap of GLIDE_MAX_GAP_TICKS + 1 (" + overCeiling + ") must SNAP", 400.0,
+				out[NodeFold.TRS_X], 1e-9);
+		assertFalse("and nothing is in flight", interp.active(mid));
+
+		// THE OTHER SIDE OF THE BOUNDARY, in the same vector, so the pair cannot drift apart: a gap
+		// of EXACTLY the ceiling must still glide. Without this, lowering the ceiling to 1 would
+		// leave the assertions above passing.
+		NodeInterpolator atCeiling = new NodeInterpolator();
+		SceneNode m = node(2, 0, 0);
+		atCeiling.capture(stateWith(m), T0, N0, NONE);
+		m.x = 400;
+		atCeiling.capture(stateWith(m), T0 + NodeInterpolator.GLIDE_MAX_GAP_TICKS,
+				arrival(NodeInterpolator.GLIDE_MAX_GAP_TICKS), NONE);
+		double[] onEdge = new double[NodeFold.TRS_WIDTH];
+		atCeiling.transformOf(m, localShowing(T0 + NodeInterpolator.GLIDE_MAX_GAP_TICKS - 0.5),
+				onEdge);
+		assertTrue("a gap of exactly the ceiling (" + NodeInterpolator.GLIDE_MAX_GAP_TICKS
+				+ ") must GLIDE: " + onEdge[NodeFold.TRS_X],
+				onEdge[NodeFold.TRS_X] > 0.0 && onEdge[NodeFold.TRS_X] < 400.0);
 	}
 
 	@Test
@@ -1455,9 +1793,12 @@ public class NodeInterpolatorTest {
 		interp.capture(stateWith(n), T0, N0, NONE);
 		n.x = 100;
 		interp.capture(stateWith(n), T0 + 1, arrival(1), NONE);
-		// Five ticks later, 3D only — a gap wider than MAX_GAP_TICKS, so the 3D group snaps.
+		// 3D only, at a gap DERIVED to sit past the ceiling so the 3D group snaps. This was a
+		// literal 5, which stopped being "wider than the cap" the day the ceiling rose to 5 — the
+		// hazard silently un-set itself and the vector started asserting a glide was a snap.
+		long wide = NodeInterpolator.GLIDE_MAX_GAP_TICKS + 2;
 		aim(n, 0, 1, 0, 90);
-		interp.capture(stateWith(n), T0 + 5, arrival(5), NONE);
+		interp.capture(stateWith(n), T0 + wide, arrival(wide), NONE);
 
 		double[] out = new double[NodeFold.TRS_WIDTH];
 		interp.transformOf(n, localShowing(T0 + 0.5), out);
@@ -1632,14 +1973,21 @@ public class NodeInterpolatorTest {
 		assertTrue("and sz with it: " + out[NodeFold.TRS_SZ],
 				out[NodeFold.TRS_SZ] > 1.05 && out[NodeFold.TRS_SZ] < 2.95);
 
-		// `active()` is TRUE here and that is correct rather than merely current: the 3D group IS
-		// mid-flight. It is worth naming what that costs today -- SceneRenderer re-renders the
-		// scene FBO while any group interpolates, and until group B routes the 3D path through
-		// this record those frames redraw an identical picture. The alternative would be a special
-		// case that has to be deleted one increment later, so the cost is accepted and written
-		// down instead. It lands only on a program churning 3D fields, which today does nothing
-		// visible anyway.
-		assertTrue("the 3D group is genuinely still moving", interp.active(localShowing(T0 + 0.5)));
+		// `active()` IS FALSE HERE AS OF 2026-08-30, AND THAT REVERSES A DECISION THIS COMMENT USED
+		// TO RECORD. It said the cost was "accepted and written down instead", because the
+		// alternative was "a special case that has to be deleted one increment later". Two things
+		// changed. First, the cost stopped being theoretical: raising the glide ceiling 3 -> 5
+		// widened the window in which a 3D-only roll pins the scene at full frame rate, and a mesh
+		// spinning IN PLACE at os.sleep(0.25) now sits squarely inside it. Second, the special case
+		// is no longer undated -- THREE_D_SLOTS_ARE_DRAWN names the exact condition for deleting it,
+		// and this assertion goes red on the day that condition arrives, which is the day group B
+		// lands. That is the deletion reminder the original objection wanted and did not have.
+		//
+		// The 3D group really is still moving -- the tz/sz assertions above prove it. What changed
+		// is that moving is no longer sufficient reason to redraw the scene.
+		assertFalse("a 3D-only roll must not charge a scene replay while nothing reads those slots;"
+				+ " flip THREE_D_SLOTS_ARE_DRAWN when group B lands and invert this",
+				interp.active(localShowing(T0 + 0.5)));
 
 		// AND THE 2D GROUP WAS NOT TOUCHED. This assertion is why the test exists after the panel:
 		// its first version pinned only that a 3D change creates a keyframe, which was true of the
