@@ -56,8 +56,15 @@ for _, path in ipairs(targets) do
   local dump = pipe:read("a")
   pipe:close()
 
-  if dump == "" or dump:find("cannot open", 1, true) then
-    print("FAIL  " .. path .. " -- luac produced nothing (missing file?)")
+  -- A listing starts every function with `main <` / `function <` at the START of a line. Anchor
+  -- on that rather than on luac's error text: a scanned file that merely PRINTS "cannot open" puts
+  -- those words into its constant table and used to fail here (ingame/ab.lua, 2026-09-06), while
+  -- a file luac REJECTED (syntax error: "luac: x.lua:3: ...") produced no `_ENV` lines and was
+  -- reported clean. Both are the same mistake: reading the listing's content as its status.
+  local isListing = dump:sub(1, 6) == "main <" or dump:find("\nmain <", 1, true) ~= nil
+  if not isListing then
+    local first = dump:match("^%s*([^\n]*)") or ""
+    print("FAIL  " .. path .. " -- luac produced no listing: " .. first)
     bad = bad + 1
   else
     scanned = scanned + 1
