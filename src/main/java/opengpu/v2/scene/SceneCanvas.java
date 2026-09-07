@@ -34,6 +34,17 @@ import opengpu.v2.protocol.V2Wire;
  * that set it while the renderer starts each replay from defaults, so an untracked one is not
  * just lost — it silently reverts, and only for canvases that happened to compact.
  *
+ * THE CLIP IS THE OTHER KIND. OP_CLIP (protocol 12) persists past the command that follows it
+ * too, but it is scoped by PUSH/POP and cleared by ORIGIN — the transform's lifecycle, not the
+ * colour's — and unlike the font it changes what a covering FILL COVERS. So it is not tracked
+ * and re-emitted here; it is latched through {@code V2Wire.isTransformOp}, which declines
+ * compaction while a clip may be live, exactly as a TRANSLATE does. The invariant that makes
+ * that sufficient: {@code transformTouched == false} implies the renderer's clip is off,
+ * because the only ways to clear the latch are a fresh list, a truncation (whose output
+ * contains no clip) and an ORIGIN at stack depth 0 — and the renderer's ORIGIN clears the
+ * clip along with the transform. Widen this list before assuming it: an ORIGIN inside a PUSH
+ * does not re-arm, and must not, because the POP would restore the clip saved at the PUSH.
+ *
  * Both sides of the wire run this exact logic on the same command stream, so server state
  * and mirrors stay convergent. The command-list cap applies to the visible list; exceeding
  * it throws IllegalStateException (surfaced as a Lua error by the component layer, treated
@@ -132,7 +143,9 @@ public final class SceneCanvas {
 	 * OP_ORIGIN resets the transform to identity, so with an empty push stack it re-arms
 	 * compaction (replay-from-scratch is identity too — the legacy origin()-then-fill() clear
 	 * idiom keeps compacting). With entries on the stack a later POP restores an unknown
-	 * transform, so the latch must stay conservative.
+	 * transform, so the latch must stay conservative. OP_CLIP lands in the else-branch: it is a
+	 * transform op for this purpose (see the class javadoc), and ORIGIN clears it on the
+	 * renderer, which is what keeps the re-arm below correct.
 	 */
 	private void trackTransform(byte op) {
 		if (op == V2Wire.OP_PUSH) {

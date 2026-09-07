@@ -131,6 +131,19 @@ public final class FramebufferPass {
 	private boolean savedDepthTest;
 	private boolean savedDepthMask;
 	private boolean savedScissor;
+	/**
+	 * The scissor BOX, saved beside the enable since protocol 12: Canvas2dRenderer's OP_CLIP issues
+	 * glScissor inside the pass, so restoring the enable alone would hand a caller that had the
+	 * test on its enable back with OUR box. Read with the buffer form of glGetInteger, like the
+	 * viewport: GLSM (Angelica 2.2.8 read, 2.2.11 installed — same members by javap) tracks the
+	 * scissor ENABLE in a BooleanStateStack and forwards glScissor to the backend without caching
+	 * the box. The buffer-form read reaches the driver because GL_SCISSOR_BOX is in GLSM's
+	 * HAS_MULTIPLE_SET (GLStateManager.java:523 at 2.2.8) — that membership is the load-bearing
+	 * fact, not the absence of a switch case: a pname missing from that set is routed to the
+	 * SCALAR getter and writes ONE int at index 0, which would leave y/w/h as whatever the shared
+	 * buffer held. On the driver it is a core pname, legal on a 3.3 core context.
+	 */
+	private int savedScissorX, savedScissorY, savedScissorW, savedScissorH;
 	private boolean savedFog;
 	private boolean savedLighting;
 	private boolean savedCull;
@@ -219,6 +232,12 @@ public final class FramebufferPass {
 		savedDepthTest = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
 		savedDepthMask = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
 		savedScissor = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+		viewport.clear();
+		GL11.glGetInteger(GL11.GL_SCISSOR_BOX, viewport);
+		savedScissorX = viewport.get(0);
+		savedScissorY = viewport.get(1);
+		savedScissorW = viewport.get(2);
+		savedScissorH = viewport.get(3);
 		savedFog = GL11.glIsEnabled(GL11.GL_FOG);
 		savedLighting = GL11.glIsEnabled(GL11.GL_LIGHTING);
 		savedCull = GL11.glIsEnabled(GL11.GL_CULL_FACE);
@@ -369,6 +388,8 @@ public final class FramebufferPass {
 		GL11.glDepthRange(savedDepthRangeNear, savedDepthRangeFar);
 		GL11.glCullFace(savedCullFaceMode);
 		GL11.glFrontFace(savedFrontFace);
+		// Box first, then the enable: a caller that had the test ON must never see our box.
+		GL11.glScissor(savedScissorX, savedScissorY, savedScissorW, savedScissorH);
 		setEnabled(GL11.GL_SCISSOR_TEST, savedScissor);
 		setEnabled(GL11.GL_FOG, savedFog);
 		setEnabled(GL11.GL_LIGHTING, savedLighting);

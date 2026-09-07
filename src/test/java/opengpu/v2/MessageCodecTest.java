@@ -228,6 +228,43 @@ public class MessageCodecTest {
 	}
 
 	@Test
+	public void aClipSurvivesSnapshotRoundTripAndBlocksCompactionOnBothSides() throws Exception {
+		// The clip needs no field in SceneCanvas — it rides the visible list and re-latches
+		// transformTouched through publish() on the mirror — but that is exactly the kind of
+		// "needs nothing" that a later refactor breaks, so the convergence is pinned end to end:
+		// server -> snapshot -> mirror, THEN a covering fill on both sides. If the mirror's
+		// publish() rebuild lost the latch, the mirror would compact to 2 while the server keeps 4.
+		ServerScene server = new ServerScene("scene-c");
+		int canvas = server.createCanvas(64, 64, 4096);
+		ArrayList<CanvasCommand> setup = new ArrayList<CanvasCommand>();
+		setup.add(CanvasCommand.of(V2Wire.OP_CLIP, 1.5, 2.25, 30.125, 40.0625));
+		setup.add(CanvasCommand.text(0, 0, "inside"));
+		server.canvasAppend(canvas, setup);
+		server.sealBatch();
+
+		SceneMirror mirror = new SceneMirror("scene-c");
+		mirror.applySnapshot(SnapshotCodec.decode(SnapshotCodec.encode(server.snapshot())));
+		assertTrue("the mirror's replay state diverged at the resync",
+				server.state().contentEquals(mirror.state()));
+		CanvasCommand clip = mirror.state().resources.get(canvas).canvas.visibleCommands().get(0);
+		assertEquals(V2Wire.OP_CLIP, clip.op);
+		assertEquals("the four arguments crossed the snapshot in order", 40.0625, clip.args[3], 0.0);
+
+		ArrayList<CanvasCommand> next = new ArrayList<CanvasCommand>();
+		next.add(CanvasCommand.of(V2Wire.OP_SET_COLOR, 1, 2, 3, 255));
+		next.add(CanvasCommand.of(V2Wire.OP_FILL));
+		server.canvasAppend(canvas, next);
+		mirror.applyBatch(opengpu.v2.protocol.BatchCodec.decode(
+				opengpu.v2.protocol.BatchCodec.encode(server.sealBatch())));
+
+		assertTrue("the fill compacted differently on the two sides",
+				server.state().contentEquals(mirror.state()));
+		assertEquals("[CLIP, text, SET_COLOR, FILL] on the mirror — the clipped fill must not"
+				+ " compact away the clip (the excluded answer is 2)",
+				4, mirror.state().resources.get(canvas).canvas.visibleCommands().size());
+	}
+
+	@Test
 	public void pushDepthSurvivesSnapshotRoundTrip() throws Exception {
 		// SceneCanvas.copy() once dropped pushDepth: after a resync the mirror's ORIGIN
 		// re-armed compaction while the server's did not — silent visible-list divergence.

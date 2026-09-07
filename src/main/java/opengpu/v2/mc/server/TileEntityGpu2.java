@@ -133,8 +133,14 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 	 * it), so publishing it in a table of server admission bounds would assert a gate that does
 	 * not exist. It is stated in the verbs' own doc strings instead, which is where an author
 	 * meets it.
+	 *
+	 * Level 11 (2026-09-07, the UI library's engine increment) adds ONE verb — clip(x, y, w, h),
+	 * the immediate-mode spelling of the new OP_CLIP canvas op (protocol 12) — and no getLimits
+	 * key: the clip has no cap of its own. The op is also reachable through canvasSubmit under the
+	 * canvasOps name "clip", which is where the UI library actually uses it; the callback exists
+	 * so that the display canvas has the same spelling every other op has (the setFont lesson).
 	 */
-	public static final int API_LEVEL = 10;
+	public static final int API_LEVEL = 11;
 	/**
 	 * Server-side VRAM budget in bytes. Charged today: textures (w*h*4), canvases (command
 	 * slots + pixels), and meshes (vertex+index bytes, v10 — DESIGN's "VRAM-charged at
@@ -1795,10 +1801,20 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 		return null;
 	}
 
-	@Callback(direct = true, limit = 256, doc = "function() -- Reset the transform to identity.")
+	@Callback(direct = true, limit = 256, doc = "function() -- Reset the transform to identity, and clear the clip.")
 	public Object[] origin(Context context, Arguments args) throws Exception {
 		synchronized (sceneLock) {
 			record(CanvasCommand.of(V2Wire.OP_ORIGIN));
+		}
+		return null;
+	}
+
+	@Callback(direct = true, limit = 256, doc = "function(x:number, y:number, w:number, h:number) -- Restrict subsequent draws to a rectangle (intersected with any clip in force; saved by push, restored by pop, cleared by origin). w or h <= 0 clips everything.")
+	public Object[] clip(Context context, Arguments args) throws Exception {
+		double x = checkFinite(args.checkDouble(0), "x"), y = checkFinite(args.checkDouble(1), "y");
+		double w = checkFinite(args.checkDouble(2), "w"), h = checkFinite(args.checkDouble(3), "h");
+		synchronized (sceneLock) {
+			record(CanvasCommand.of(V2Wire.OP_CLIP, x, y, w, h));
 		}
 		return null;
 	}
@@ -2186,14 +2202,15 @@ public class TileEntityGpu2 extends TileEntity implements Environment {
 				"fill", "plot", "line", "rectangle", "filledRectangle", "triangle",
 				"filledTriangle", "oval", "filledOval", "clearRectangle", "drawText",
 				"drawTexture", "drawTextureSub", "setColor", "translate", "rotate",
-				"rotateAround", "scale", "push", "pop", "origin", "setFont" };
+				"rotateAround", "scale", "push", "pop", "origin", "setFont", "clip" };
 		byte[] ops = {
 				V2Wire.OP_FILL, V2Wire.OP_PLOT, V2Wire.OP_LINE, V2Wire.OP_RECT,
 				V2Wire.OP_FILL_RECT, V2Wire.OP_TRIANGLE, V2Wire.OP_FILL_TRIANGLE, V2Wire.OP_OVAL,
 				V2Wire.OP_FILL_OVAL, V2Wire.OP_CLEAR_RECT, V2Wire.OP_DRAW_TEXT,
 				V2Wire.OP_DRAW_TEXTURE, V2Wire.OP_DRAW_TEXTURE_SUB, V2Wire.OP_SET_COLOR,
 				V2Wire.OP_TRANSLATE, V2Wire.OP_ROTATE, V2Wire.OP_ROTATE_AROUND, V2Wire.OP_SCALE,
-				V2Wire.OP_PUSH, V2Wire.OP_POP, V2Wire.OP_ORIGIN, V2Wire.OP_SET_FONT };
+				V2Wire.OP_PUSH, V2Wire.OP_POP, V2Wire.OP_ORIGIN, V2Wire.OP_SET_FONT,
+				V2Wire.OP_CLIP };
 		if (names.length != ops.length) {
 			throw new Exception("canvasOps table is malformed");
 		}

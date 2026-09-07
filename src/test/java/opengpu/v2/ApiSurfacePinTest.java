@@ -173,6 +173,32 @@ public class ApiSurfacePinTest {
 				+ "programFrameFloats,programUnrollProduct,programUniforms,"
 				+ "meshVertexBytes,meshIndexBytes,meshBytes,nodeUniforms");
 
+		// Level 11 (2026-09-07, the UI library's engine increment) — ONE verb: clip, the
+		// immediate-mode spelling of OP_CLIP (protocol 12). 84 callbacks become 85. Sorted by
+		// machine: `clip` lands between clearRectangle and createCamera ("cli" < "cre"). No new
+		// limit key — the clip has no cap of its own — so the key row is level 10's set, written
+		// fresh rather than chained, per the rule that applies to unchanged rows too.
+		String callbacks11 = "autopresent,bind,canvasOps,canvasSubmit,clear,clearNodes,"
+				+ "clearRectangle,clip,createCamera,createCanvas,createCanvasNode,createGroup,"
+				+ "createLight,createMesh,createMeshNode,createProgram,createSprite,"
+				+ "createTexture,createTextureFrom,drawText,drawTexture,fill,filledOval,"
+				+ "filledRectangle,filledTriangle,freeCanvas,freeMesh,freeNode,freeProgram,"
+				+ "freeTexture,getColor,getEpoch,getFontMetrics,getFreeMemory,getLimits,"
+				+ "getMeshBudget,getProgramBudget,getResolution,getScreen,getSize,getStats,"
+				+ "getSubmitBudget,getTextWidth,getTotalMemory,getUsedMemory,getVersion,"
+				+ "getWriteBudget,line,lookAt,maxResolution,meshes,nodes,origin,oval,plot,pop,"
+				+ "present,programs,push,rectangle,resetStats,rotate,rotateAround,scale,"
+				+ "setAmbientLight,setAnimator,setColor,setDirectionalLight,setFont,"
+				+ "setNodeTint,setNodeTransform,setNodeTransform3d,setNodeVisible,setNodeZ,"
+				+ "setOrtho,setPerspective,setPointLight,setResolution,setUniform,"
+				+ "setUniformImmediate,swapVisibility,translate,triangle,unbind,writeRegion";
+		CALLBACKS_AT.put(Integer.valueOf(11), callbacks11);
+		LIMIT_KEYS_AT.put(Integer.valueOf(11), "submitBytes,submitBytesPerTick,commandCap,"
+				+ "textChars,writeBytes,writeBytesPerTick,textureDim,standingCommandBytes,"
+				+ "programBytes,programBlobBytes,animatorOps,animatorFetches,programRegisters,"
+				+ "programFrameFloats,programUnrollProduct,programUniforms,"
+				+ "meshVertexBytes,meshIndexBytes,meshBytes,nodeUniforms");
+
 		// THE STAGE ARGUMENT IS PART OF THE VALUE. Checking only that the expression names some
 		// constant let STAGE_ANIMATOR -> STAGE_PIXEL_MATERIAL through, which publishes 16 for
 		// animatorFetches where the comment three lines above insists on 0 — the exact lie the

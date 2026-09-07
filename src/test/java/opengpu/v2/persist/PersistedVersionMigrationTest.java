@@ -1531,7 +1531,77 @@ public class PersistedVersionMigrationTest {
 				+ viaOrFresh.warnings, viaOrFresh.warnings.isEmpty());
 	}
 
-	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 11;
+	/**
+	 * A v11 structure: v10's layout exactly (nothing moved in 10 → 11), carrying the one thing
+	 * v11 defined — a NODE_LIGHT record — and a canvas whose command list is framed by the
+	 * v11 op table. FROZEN, like every writer here: a v12 build must read it, and this is the
+	 * only executable record of what a v11 world has on disk.
+	 */
+	private static byte[] v11Structure() throws IOException {
+		final int canvasId = 1;
+		StructureWriter w = new StructureWriter((short) 11, "gpu-addr", EPOCH, 8, 950L, 2, 3);
+		w.resources(1).canvasWithContent(canvasId, 64, 32, 16);
+		w.nodes(2)
+				.nodeV10(1, V2Wire.NODE_CANVAS, canvasId, 0, 0, 0, 0xFFFFFFFF, 0, 0, 0L,
+						0, 1, 0, 0, 0, 1)
+				// The v11 value: a light. Ref-less, so ref = 0; its colour would live in the
+				// uniform section, which this fixture leaves empty on purpose.
+				.nodeV10(2, V2Wire.NODE_LIGHT, 0, 4, 5, 2, 0xFFFFFFFF, 0, 0, 0L,
+						6, 1, 0, 0, 0, 1);
+		w.programsV6(5, 0);
+		w.creationWorldTimeV7(4343L);
+		w.worldTimeAnchorV8(0x0000000700000008L);
+		w.uniformSectionV10(0);
+		return w.done();
+	}
+
+	/**
+	 * THE 11 → 12 BUMP'S OBLIGATION, discharged: a v11 save must still load after OP_CLIP
+	 * joined the op table — the 3 → 4 shape, seen from the other side for the first time since.
+	 *
+	 * What an appended op puts at risk is not the layout (nothing moved) but the READER's
+	 * whitelist, and — the half the 3 → 4 entry in SnapshotCodec is explicit about — the framing
+	 * of every command list a v11 build wrote: those lists are decoded by arity from the CURRENT
+	 * table, so the canvas below, written with three v11 ops, must come back as exactly those
+	 * three commands at their own widths. Driven through restore and restoreOrFresh as well as
+	 * the codec, because restoreOrFresh is the caller that turns a CodecException into deletion.
+	 */
+	@Test
+	public void aV11StructureStillDecodesAfterClipJoinedTheOpTable() throws Exception {
+		byte[] structure = v11Structure();
+
+		SceneSnapshot decoded = SnapshotCodec.decodePersisted(structure);
+		assertEquals("a v11 scene restores its nodes", 2, decoded.state.nodes.size());
+		assertEquals("and its one resource", 1, decoded.state.resources.size());
+		assertEquals("the light node keeps its type",
+				V2Wire.NODE_LIGHT, decoded.state.nodes.get(Integer.valueOf(2)).type);
+		assertEquals("and its tz, read at the v10 offset", 6,
+				decoded.state.nodes.get(Integer.valueOf(2)).tz, 0.0);
+
+		// The command list, framed by arity from the v12 table: SET_COLOR(4), FILL(0),
+		// DRAW_TEXT(2 + UTF). A table that had CHANGED an existing arity would misread these.
+		java.util.List<opengpu.v2.scene.CanvasCommand> cmds =
+				decoded.state.resources.get(Integer.valueOf(1)).canvas.visibleCommands();
+		assertEquals(3, cmds.size());
+		assertEquals(V2Wire.OP_SET_COLOR, cmds.get(0).op);
+		assertEquals(30, cmds.get(0).args[2], 0.0);
+		assertEquals(V2Wire.OP_FILL, cmds.get(1).op);
+		assertEquals(V2Wire.OP_DRAW_TEXT, cmds.get(2).op);
+		assertEquals("pre-font world", cmds.get(2).text);
+
+		ScenePersistence.RestoreResult result = ScenePersistence.restore(structure, store);
+		assertEquals("restore agrees with the codec rather than deleting the scene",
+				2, result.scene.state().nodes.size());
+
+		ScenePersistence.RestoreResult viaOrFresh =
+				ScenePersistence.restoreOrFresh("gpu-addr", structure, store);
+		assertEquals("a v11 world survives the path that is allowed to delete it",
+				2, viaOrFresh.scene.state().nodes.size());
+		assertTrue("and with NO warnings — a silently blank scene is what this leg catches, got: "
+				+ viaOrFresh.warnings, viaOrFresh.warnings.isEmpty());
+	}
+
+	private static final short VERSION_THIS_TEST_WAS_WRITTEN_FOR = 12;
 
 	/**
 	 * The guard that makes the NEXT bump decide, instead of silently repeating this bug.

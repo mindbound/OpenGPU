@@ -117,6 +117,43 @@ public class CanvasSubmitTest {
 		assertEquals(32, decoded.get(1).args[3], 1e-9);
 	}
 
+	/**
+	 * A packed clip decodes at the arity the table publishes and applies through the scene. What
+	 * this drives is the decoder and ServerScene path; the tile entity's post-decode loop
+	 * (TileEntityGpu2.canvasSubmit) is not instantiable here, and its acceptance of a zero-sized
+	 * clip — "clip everything" is a legal state, not a refusal, which is what lets a UI library
+	 * clip a collapsed panel without guarding every size it computes — is established by reading
+	 * that loop: it checks non-finite arguments and font ids only.
+	 */
+	@Test
+	public void aPackedClipDecodesAtItsPublishedArity() throws Exception {
+		byte[] packed = new Packer()
+				.op(V2Wire.OP_CLIP, 4, 8, 16, 32)
+				.op(V2Wire.OP_CLIP, 0, 0, 0, 0)
+				.op(V2Wire.OP_FILL_RECT, 0, 0, 100, 100)
+				.done();
+		List<CanvasCommand> decoded = BatchCodec.decodeCommandList(packed);
+
+		assertEquals(3, decoded.size());
+		assertEquals(V2Wire.OP_CLIP, decoded.get(0).op);
+		assertEquals(4, decoded.get(0).args.length);
+		assertEquals(32, decoded.get(0).args[3], 0.0);
+		assertEquals("the empty clip is a command like any other", V2Wire.OP_CLIP, decoded.get(1).op);
+		assertEquals("and the command after two clips is still framed right",
+				V2Wire.OP_FILL_RECT, decoded.get(2).op);
+		assertEquals(100, decoded.get(2).args[2], 0.0);
+
+		// Through the scene: a clip in a submitted list is applied, published, and shipped.
+		ServerScene server = freshScene();
+		SceneMirror mirror = new SceneMirror(SCENE);
+		int canvas = server.createCanvas(64, 64, CAP);
+		ship(server, mirror);
+		server.canvasPublish(canvas, decoded);
+		ship(server, mirror);
+		assertEquals(3, mirror.state().resources.get(canvas).canvas.visibleCommands().size());
+		assertTrue(server.state().contentEquals(mirror.state()));
+	}
+
 	@Test
 	public void drawTextCarriesItsStringThroughTheList() throws Exception {
 		// OP_DRAW_TEXT is the one op with a trailing UTF field, so it is the one that breaks if

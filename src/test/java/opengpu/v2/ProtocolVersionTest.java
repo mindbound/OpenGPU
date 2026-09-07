@@ -62,7 +62,7 @@ public class ProtocolVersionTest {
 	 * The highest op id this version defines, and the version that defines it. Bump BOTH when
 	 * adding an op — that is the entire point of this test.
 	 */
-	private static final int HIGHEST_OP_AT_THIS_VERSION = V2Wire.OP_SET_FONT;
+	private static final int HIGHEST_OP_AT_THIS_VERSION = V2Wire.OP_CLIP;
 	/**
 	 * 8, while the highest op is still the one v4 defined. That gap is intentional and is the
 	 * answer to this test's own instruction, now four times over: 4 -> 5 appended `parent` to the
@@ -85,7 +85,10 @@ public class ProtocolVersionTest {
 	// nothing else. No new canvas op again, so HIGHEST_OP_AT_THIS_VERSION is still OP_SET_FONT.
 	// This is the first bump whose REASON is a table this file was not guarding — see the class
 	// javadoc's 2026-08-28 note, and HIGHEST_NODE_TYPE_AT_THIS_VERSION below.
-	private static final short VERSION_THAT_DEFINES_IT = 11;
+	// 11 -> 12 (2026-09-07) is the first op-table move since 3 -> 4: OP_CLIP = 23, arity 4,
+	// APPENDED. Both constants move together for the first time since this test was written —
+	// which is the case it was written for.
+	private static final short VERSION_THAT_DEFINES_IT = 12;
 
 	/**
 	 * The highest node-type and resource-type ids this version defines. Same contract as
@@ -302,6 +305,40 @@ public class ProtocolVersionTest {
 		assertEquals("the text between them is untouched", "hi", pub.commands.get(1).text);
 		assertEquals("and the reset back to default", V2Wire.FONT_DEFAULT,
 				(int) pub.commands.get(2).args[0]);
+	}
+
+	/** OP_CLIP's four doubles ride a batch intact, in order, at their own width. */
+	@Test
+	public void clipRoundTripsInsideABatch() throws Exception {
+		ArrayList<CanvasCommand> cmds = new ArrayList<CanvasCommand>();
+		// Four DISTINCT values, so a reader that swaps any pair returns different numbers.
+		cmds.add(CanvasCommand.of(V2Wire.OP_CLIP, 1.5, 2.25, 30.125, 40.0625));
+		cmds.add(CanvasCommand.of(V2Wire.OP_FILL_RECT, 0, 0, 100, 100));
+
+		ArrayList<Delta> deltas = new ArrayList<Delta>();
+		deltas.add(new Delta.ResourceCreate(1, V2Wire.RES_CANVAS, 64, 64, 0, 0, 256));
+		deltas.add(new Delta.CanvasPublish(1, cmds));
+
+		SceneBatch back = BatchCodec.decode(
+				BatchCodec.encode(new SceneBatch("s", 1, 1, 1L, deltas)));
+
+		Delta.CanvasPublish pub = null;
+		for (Delta d : back.deltas) {
+			if (d instanceof Delta.CanvasPublish) {
+				pub = (Delta.CanvasPublish) d;
+			}
+		}
+		assertTrue("the publish survived", pub != null);
+		assertEquals(2, pub.commands.size());
+		assertEquals("op preserved", V2Wire.OP_CLIP, pub.commands.get(0).op);
+		assertEquals("arity", 4, pub.commands.get(0).args.length);
+		assertEquals(1.5, pub.commands.get(0).args[0], 0.0);
+		assertEquals(2.25, pub.commands.get(0).args[1], 0.0);
+		assertEquals(30.125, pub.commands.get(0).args[2], 0.0);
+		assertEquals(40.0625, pub.commands.get(0).args[3], 0.0);
+		assertEquals("the command after it is framed correctly — a wrong arity would misalign it",
+				V2Wire.OP_FILL_RECT, pub.commands.get(1).op);
+		assertEquals(100, pub.commands.get(1).args[3], 0.0);
 	}
 
 	@Test

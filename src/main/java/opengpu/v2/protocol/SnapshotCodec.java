@@ -260,6 +260,11 @@ public final class SnapshotCodec {
 	 *       Widening what an existing field may legally CONTAIN is a format change even when
 	 *       every offset is untouched, and only the version records it. The compatibility this
 	 *       entry buys is one-directional (v10 save → v11 jar); the reverse is not defended.
+	 *  11 — BYTE-IDENTICAL. The 11 → 12 bump APPENDED OP_CLIP (id 23, arity 4) to the op table
+	 *       and changed no field — the 3 → 4 shape, the first time the op table has moved since.
+	 *       BatchCodec#readCommands frames commands by arity from V2Wire's table, and no existing
+	 *       arity changed, so every command list a v11 build wrote reads at its own width; a v11
+	 *       canvas cannot contain a 23. Nothing is gated on version >= 12.
 	 *
 	 * IF A FUTURE BUMP MOVES, RESIZES OR REORDERS AN EXISTING FIELD, IT DOES NOT BELONG HERE, and
 	 * no gate rescues it. Write a decoder for the old layout instead, as
@@ -282,7 +287,7 @@ public final class SnapshotCodec {
 	 * TE saves before its scene is initialised. A world can therefore carry a v3 structure
 	 * through any number of v4 sessions.
 	 */
-	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4, 5, 6, 7, 8, 9, 10 };
+	private static final short[] LAYOUT_COMPATIBLE_PERSISTED_VERSIONS = { 3, 4, 5, 6, 7, 8, 9, 10, 11 };
 
 	/**
 	 * Legality of a decoded parent, answered identically on both paths — and answered DIFFERENTLY

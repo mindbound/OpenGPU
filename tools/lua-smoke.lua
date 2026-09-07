@@ -51,6 +51,7 @@ local function record(name)
         -- V2Wire. The library looks op ids up through canvasOps precisely so it never hardcodes
         -- them, which means a stale stub is indistinguishable from a broken library.
         setFont = { op = 22, args = 1 },
+        clip = { op = 23, args = 4 },
       }
     elseif name == "getEpoch" then
       return 12345
@@ -309,6 +310,35 @@ end
 check(sawSetFont, "a canvas carrying setFont still submits")
 fc:free()
 plain:free()
+
+-- Canvas:clip (protocol 12). One-liner wrapper, so what is worth checking is the plumbing it
+-- relies on: the name reaches Buffer:op, the arity comes from the (mock) canvasOps table, and
+-- a stale table -- the exact way the setFont stub drifted -- reads as "unknown canvas op".
+local cc = gpu:canvas(64, 64)
+check(cc:clip(1, 2, 30, 40) == cc, "Canvas:clip chains")
+check(cc:pending() == 4 + 33, "Canvas:clip buffers one 33-byte op (pending() reports bytes)",
+      tostring(cc:pending()))
+check(not pcall(function() cc:clip(1, 2, 30) end), "Canvas:clip refuses three arguments")
+check(not pcall(function() cc:clip(1, 2, 30, "x") end), "Canvas:clip refuses a non-number")
+check(not pcall(function() cc:clip(1, 2, 30, 0/0) end), "Canvas:clip refuses NaN")
+check(pcall(function() cc:clip(0, 0, 0, 0) end), "Canvas:clip accepts a zero-sized rect (clips everything)")
+cc:fillRect(0, 0, 100, 100)
+cc:publish()
+local clipSubmit
+for i = 1, #calls do
+  if calls[i].name == "canvasSubmit" then clipSubmit = calls[i] end
+end
+check(clipSubmit ~= nil, "a canvas carrying clip submits")
+-- The packed payload: int32 count, then op byte + 8 bytes per double. The two clips that
+-- were ACCEPTED and one fillRect = 3 commands of 33 bytes: 4 + 3 * 33 = 103 bytes. (The three
+-- refused calls must have left nothing behind -- Buffer:op packs into a local before it
+-- commits, and this count is what proves it.)
+local payload = clipSubmit and clipSubmit.args[3]  -- canvasSubmit(id, mode, payload, epoch)
+check(type(payload) == "string" and #payload == 4 + 3 * 33,
+      "clip packs to op byte + four doubles", payload and tostring(#payload))
+check(payload and payload:byte(5) == 23, "the first packed op is clip (23) from the ops table",
+      payload and tostring(payload:byte(5)))
+cc:free()
 
 -- A component predating setFont must say so rather than calling nil, and must say REBOOT --
 -- OpenOS caches the proxy and OC persists Lua state, so a client restart does not rebuild it.

@@ -30,6 +30,14 @@ import opengpu.v2.scene.SceneState;
  * transform but not the NODE one (whole-canvas raster fill, the compaction anchor);
  * CLEAR_RECT is a hard set (blend off); pending textures draw nothing (the defined
  * transparent placeholder).
+ *
+ * OP_CLIP (protocol 12) is the one op whose GL state OUTLIVES the command (CLEAR_RECT toggles
+ * GL_BLEND, but only around its own quad): a scissor box in framebuffer pixels, computed by
+ * {@link ClipFold} from the same effective affine the vertices use, scoped by PUSH/POP like the
+ * transform, cleared by ORIGIN and at every beginNode, and never left enabled past renderScene —
+ * the pass canonicalises the scissor OFF once at begin(), and the next scene's retarget() clear
+ * obeys it. FILL obeys the clip too: a clipped FILL never compacts (V2Wire.isTransformOp), so
+ * replay and compaction agree.
  */
 public final class Canvas2dRenderer {
 	private static final int OVAL_SEGMENTS = 48;
@@ -44,6 +52,22 @@ public final class Canvas2dRenderer {
 	private final NodeFold.Affine effective = new NodeFold.Affine();
 	private final List<double[]> stack = new ArrayList<double[]>();
 	private double colR, colG, colB, colA;
+	// Clip state — see V2Wire.OP_CLIP and ClipFold. `clip` is a SCENE-space box {x0, y0, x1, y1},
+	// meaningful only while clipOn; PUSH saves both beside the six affine coefficients (a stack
+	// entry is 6 + 1 + 4 doubles) and POP restores them, ORIGIN and beginNode clear them.
+	private boolean clipOn;
+	private final double[] clip = new double[4];
+	private final double[] clipTmp = new double[4];
+	private final int[] scissorTmp = new int[4];
+	/**
+	 * GL shadow of GL_SCISSOR_TEST, with exactly `texturing`'s discipline: re-synced with real GL
+	 * at every renderScene entry, never inherited from the previous scene's tail — and cleared
+	 * again at the exit, because FramebufferPass.retarget's glClear and the 3D layer that runs
+	 * before the NEXT scene's replay both obey the scissor.
+	 */
+	private boolean scissorEnabled;
+	/** The framebuffer's size, for the scissor's y-flip and clamp; captured at renderScene entry. */
+	private int fboWidth, fboHeight;
 	/** The current node's tint, as a 0..1 multiplier. Set by beginNode, applied by color(). */
 	private double tintR = 1, tintG = 1, tintB = 1, tintA = 1;
 	private boolean texturing;
@@ -77,6 +101,10 @@ public final class Canvas2dRenderer {
 		// with real GL at every entry — never inherited from the previous scene's tail.
 		GL11.glDisable(GL11.GL_TEXTURE_2D);
 		texturing = false;
+		GL11.glDisable(GL11.GL_SCISSOR_TEST);
+		scissorEnabled = false;
+		fboWidth = width;
+		fboHeight = height;
 		// The framebuffer is cleared by FramebufferPass.retarget(), which owns the ordering
 		// between the clear and the alpha mask that keeps the attachment opaque.
 		//
@@ -147,6 +175,12 @@ public final class Canvas2dRenderer {
 			// visibility flag for its children, all of which are applied where they are consumed
 			// (beginNode for the first two, the check above for the third).
 		}
+		// A clip must not outlive the scene that set it: the pass canonicalised the scissor OFF
+		// once at begin(), and the next scene's retarget() clear and Mesh3dPass both run before
+		// any beginNode would clear it again. Verified by reading: FramebufferPass.begin()'s
+		// canonical-state block disables GL_SCISSOR_TEST once per pass (after its saves), and
+		// retarget() never touches it.
+		clearScissor();
 	}
 
 	/** Interpolation source for the current renderScene call; null = draw raw transforms. */
@@ -179,6 +213,11 @@ public final class Canvas2dRenderer {
 		NodeFold.foldTransform(parent != null ? parentXform : null, xform, node);
 		local.identity();
 		stack.clear();
+		// The clip resets with the transform stack it is scoped by. Like the font, a clip left
+		// live would follow node draw order into the next canvas — or into a SPRITE, which has
+		// no command list and so no way to clear it.
+		clipOn = false;
+		clearScissor();
 		colR = 1; colG = 1; colB = 1; colA = 1;
 		// THE NODE TINT IS A MULTIPLIER, applied for every node type rather than only sprites.
 		//
@@ -418,20 +457,45 @@ public final class Canvas2dRenderer {
 					updateEffective();
 					break;
 				case V2Wire.OP_PUSH:
-					stack.add(new double[] { local.a, local.b, local.c, local.d, local.e, local.f });
+					stack.add(new double[] { local.a, local.b, local.c, local.d, local.e, local.f,
+							clipOn ? 1 : 0, clip[0], clip[1], clip[2], clip[3] });
 					break;
 				case V2Wire.OP_POP:
 					if (!stack.isEmpty()) {
 						double[] m = stack.remove(stack.size() - 1);
 						local.a = m[0]; local.b = m[1]; local.c = m[2];
 						local.d = m[3]; local.e = m[4]; local.f = m[5];
+						clipOn = m[6] != 0;
+						clip[0] = m[7]; clip[1] = m[8]; clip[2] = m[9]; clip[3] = m[10];
+						applyClip();
 						updateEffective();
 					}
 					break;
 				case V2Wire.OP_ORIGIN:
+					// Clears the clip as well as the transform, and MUST: SceneCanvas re-arms
+					// compaction on an ORIGIN at stack depth 0, after which a covering FILL
+					// truncates the list on both sides. If the clip survived here, the truncated
+					// list would replay an unclipped fill where the original was clipped — and
+					// identically on server and mirror, so nothing would report it.
 					local.identity();
+					clipOn = false;
+					clearScissor();
 					updateEffective();
 					break;
+				case V2Wire.OP_CLIP: {
+					// Mapped through the transform current NOW — the same `effective` the next
+					// vertex uses — then intersected with whatever clip is already in force.
+					ClipFold.bounds(effective, a[0], a[1], a[2], a[3], clipTmp);
+					if (clipOn) {
+						ClipFold.intersect(clip, clipTmp);
+					} else {
+						clip[0] = clipTmp[0]; clip[1] = clipTmp[1];
+						clip[2] = clipTmp[2]; clip[3] = clipTmp[3];
+					}
+					clipOn = true;
+					applyClip();
+					break;
+				}
 				default:
 					// Unknown ops cannot arrive: the codec rejects them at decode time.
 					break;
@@ -464,6 +528,31 @@ public final class Canvas2dRenderer {
 			} else {
 				GL11.glDisable(GL11.GL_TEXTURE_2D);
 			}
+		}
+	}
+
+	/**
+	 * Push the current clip state to GL: the box as glScissor arguments, and the enable to match
+	 * clipOn. Always issued OUTSIDE glBegin/glEnd — every primitive here opens and closes its own
+	 * batch (see the drawText note), so a scissor change between two commands needs no flush.
+	 */
+	private void applyClip() {
+		if (!clipOn) {
+			clearScissor();
+			return;
+		}
+		ClipFold.scissor(clip, fboWidth, fboHeight, scissorTmp);
+		GL11.glScissor(scissorTmp[0], scissorTmp[1], scissorTmp[2], scissorTmp[3]);
+		if (!scissorEnabled) {
+			GL11.glEnable(GL11.GL_SCISSOR_TEST);
+			scissorEnabled = true;
+		}
+	}
+
+	private void clearScissor() {
+		if (scissorEnabled) {
+			GL11.glDisable(GL11.GL_SCISSOR_TEST);
+			scissorEnabled = false;
 		}
 	}
 

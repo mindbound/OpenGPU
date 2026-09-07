@@ -669,6 +669,26 @@ function Canvas:push() checkAlive(self, "push") self.buffer:op("push", {}) retur
 function Canvas:pop() checkAlive(self, "pop") self.buffer:op("pop", {}) return self end
 function Canvas:origin() checkAlive(self, "origin") self.buffer:op("origin", {}) return self end
 
+--[[
+  Restrict subsequent draws to the rectangle (x, y, w, h), in the coordinates the draws
+  themselves use -- the rect goes through whatever transform is current when it is issued.
+  Scoped exactly like the transform: push() saves it, pop() restores it, origin() clears it,
+  and every publish() starts unclipped. Nested clips intersect. A w or h <= 0 clips
+  everything until the next pop()/origin(), which is not an error -- a collapsed layout is a
+  normal thing to draw. Under rotate() the clip is the bounding box of the rotated rect.
+  Edges round at pixel centres, so clip(x, y, w, h) keeps exactly the pixels
+  fillRect(x, y, w, h) would paint -- except on an edge that lands exactly on a pixel centre
+  (fraction .5), where the rasteriser's side is not specified and may differ by one pixel.
+
+  Requires protocol 12 (api 11): on an older jar the op is absent from canvasOps and this
+  raises "unknown canvas op 'clip'" from Buffer:op.
+]]
+function Canvas:clip(x, y, w, h)
+  checkAlive(self, "clip")
+  self.buffer:op("clip", { x, y, w, h })
+  return self
+end
+
 function Canvas:translate(dx, dy)
   checkAlive(self, "translate")
   self.buffer:op("translate", { dx, dy })

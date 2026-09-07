@@ -111,7 +111,31 @@ public final class V2Wire {
 	 * priced against a single-user, unpublished mod; the DOWNGRADE path is not defended. The
 	 * forward path — a v10 save loaded by v11 — is defended, by the list entry above.
 	 */
-	public static final short PROTOCOL_VERSION = 11;
+	/*
+	 * Bumped 11 -> 12 on 2026-09-07 for the UI library's one engine change: OP_CLIP = 23, the
+	 * first canvas op appended since OP_SET_FONT (3 -> 4). Nothing else moves.
+	 *
+	 * Answering both questions aProtocolBumpMustDecideWhatHappensToTheOutgoingFormat asks:
+	 *
+	 *  (1) THE RECORDS: UNCHANGED. No persisted field is added, widened, moved or reordered, and
+	 *      nothing is gated on version >= 12. A v11 structure is a v12 structure byte for byte,
+	 *      so v11 joins LAYOUT_COMPATIBLE_PERSISTED_VERSIONS unconditionally — the 3 -> 4 shape.
+	 *  (2) THE OP TABLE: MOVED, by APPEND ONLY. OP_CLIP takes id 23 with arity 4 (x, y, w, h);
+	 *      no existing op's arity changed and no id was reused. Command lists are framed by
+	 *      arity, so every canvas a v11 build wrote still reads at its own width; a v11 canvas
+	 *      cannot contain a 23, and a v12 canvas containing one is refused by a v11 jar at the
+	 *      version check before any op is read.
+	 *
+	 * Why the op is a TRANSFORM op for compaction (isTransformOp) rather than ambient state
+	 * like the font: a clip changes what a covering FILL covers. SceneCanvas compacts a list to
+	 * [SET_COLOR, FILL] only while no transform op has been recorded, and a clip in force at
+	 * that moment would make the truncated list replay a full fill where the original was
+	 * clipped — on both sides identically, so no divergence detector would fire. Latching it
+	 * with the transforms declines compaction while a clip may be live, and OP_ORIGIN clears
+	 * the clip on the renderer for the same reason it re-arms compaction on the server: after
+	 * it, "no transform touched" and "no clip active" are the same statement.
+	 */
+	public static final short PROTOCOL_VERSION = 12;
 
 	// Delta type ids
 	public static final byte DELTA_NODE_CREATE = 1;
@@ -603,6 +627,25 @@ public final class V2Wire {
 	 * follow node draw order and read as nondeterministic.
 	 */
 	public static final byte OP_SET_FONT = 22;
+	/**
+	 * Restrict subsequent draws to a rectangle: x, y, w, h in canvas-local coordinates, mapped
+	 * through the transform current AT THE MOMENT THE OP REPLAYS (the same map the following
+	 * vertices go through), and intersected with any clip already in force. Scoped by PUSH/POP
+	 * exactly as the transform is: POP restores the clip that was live at the matching PUSH.
+	 * OP_ORIGIN clears it along with the transform, and every canvas replay starts unclipped.
+	 *
+	 * The clip is a device-space rectangle, so under rotation or shear it becomes the
+	 * axis-aligned bounding box of the rotated rectangle — never clipping MORE than asked, and
+	 * exact whenever the effective transform is translate/scale only. Edges round to pixel
+	 * centres, so {@code clip(r)} admits exactly the pixels {@code filledRectangle(r)} would
+	 * paint, except on an edge that falls exactly on a pixel centre, where GL's tie side is
+	 * implementation-defined and may differ by one row or column (ClipFold). A non-positive
+	 * width or height clips everything until the next POP or ORIGIN; it is not an error,
+	 * because a collapsed layout is a normal thing for a UI to produce.
+	 *
+	 * Latched as a transform op for compaction — see the 11 -> 12 bump note on PROTOCOL_VERSION.
+	 */
+	public static final byte OP_CLIP = 23;
 
 	/**
 	 * GNU Unifont, read at runtime from OpenComputers. 8x16 cells, ~75,000 glyphs covering
@@ -651,6 +694,7 @@ public final class V2Wire {
 		0,  // POP
 		0,  // ORIGIN
 		1,  // SET_FONT fontId
+		4,  // CLIP x,y,w,h
 	};
 
 	public static int canvasOpArgCount(int op) {
@@ -659,9 +703,15 @@ public final class V2Wire {
 		return CANVAS_OP_ARGS[op];
 	}
 
+	/**
+	 * Ops that change what later commands MEAN rather than drawing anything, and therefore
+	 * latch SceneCanvas's compaction off. OP_CLIP belongs here although it moves no vertex: it
+	 * changes what a covering FILL covers, which is the one thing compaction reasons about.
+	 */
 	public static boolean isTransformOp(int op) {
 		return op == OP_TRANSLATE || op == OP_ROTATE || op == OP_ROTATE_AROUND
-				|| op == OP_SCALE || op == OP_PUSH || op == OP_POP || op == OP_ORIGIN;
+				|| op == OP_SCALE || op == OP_PUSH || op == OP_POP || op == OP_ORIGIN
+				|| op == OP_CLIP;
 	}
 
 	/**

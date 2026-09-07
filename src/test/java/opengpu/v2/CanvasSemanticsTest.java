@@ -198,6 +198,95 @@ public class CanvasSemanticsTest {
 		assertEquals(255, cmd.args[3], 0);
 	}
 
+	// ---------------------------------------------------------------- the clip and compaction
+	//
+	// OP_CLIP (protocol 12) is latched as a TRANSFORM op: a clip in force changes what a
+	// covering FILL covers, so truncating to [SET_COLOR, FILL] would replay a full fill where
+	// the original was clipped — on both sides identically, so nothing downstream would report
+	// it. Each test names the wrong answer it excludes: the two that expect the list to survive
+	// exclude the compacted count (2); the two that expect compaction after ORIGIN exclude the
+	// uncompacted count, because they pin that ORIGIN clears the clip. Mutation-checked
+	// 2026-09-07: dropping OP_CLIP from isTransformOp kills aClipBlocksCompaction and
+	// publishRebuildsTheClipLatchSoLaterAppendsDoNotCompact (and MessageCodecTest's clip test).
+
+	@Test
+	public void aClipBlocksCompaction() {
+		SceneCanvas canvas = new SceneCanvas(256, 144, 4096);
+		canvas.append(cmds(
+				CanvasCommand.of(V2Wire.OP_CLIP, 0, 0, 10, 10),
+				CanvasCommand.of(V2Wire.OP_SET_COLOR, 10, 20, 30, 255),
+				CanvasCommand.of(V2Wire.OP_FILL)));
+
+		List<CanvasCommand> v = canvas.visibleCommands();
+		assertEquals("[CLIP, SET_COLOR, FILL] must survive: the fill is clipped", 3, v.size());
+		assertEquals(V2Wire.OP_CLIP, v.get(0).op);
+		assertEquals(V2Wire.OP_FILL, v.get(2).op);
+	}
+
+	@Test
+	public void originAfterAClipReArmsCompaction() {
+		// The decision this pins: ORIGIN clears the clip on the renderer, so an ORIGIN at stack
+		// depth 0 may re-arm compaction after a clip exactly as it does after a translate. The
+		// excluded answer is 4 — a clip treated as ambient state that ORIGIN does not clear.
+		SceneCanvas canvas = new SceneCanvas(256, 144, 4096);
+		canvas.append(cmds(
+				CanvasCommand.of(V2Wire.OP_CLIP, 0, 0, 10, 10),
+				CanvasCommand.of(V2Wire.OP_ORIGIN),
+				CanvasCommand.of(V2Wire.OP_SET_COLOR, 10, 20, 30, 255),
+				CanvasCommand.of(V2Wire.OP_FILL)));
+
+		List<CanvasCommand> v = canvas.visibleCommands();
+		assertEquals("[SET_COLOR, FILL]", 2, v.size());
+		assertEquals(V2Wire.OP_SET_COLOR, v.get(0).op);
+		assertEquals(V2Wire.OP_FILL, v.get(1).op);
+	}
+
+	@Test
+	public void originInsideAPushDoesNotReArmAfterAClip() {
+		// The half of the invariant that would be easy to widen wrongly: an ORIGIN inside a PUSH
+		// clears the clip only until the POP restores the one saved at the PUSH, so the latch
+		// must stay down. Excluded: 2.
+		SceneCanvas canvas = new SceneCanvas(256, 144, 4096);
+		canvas.append(cmds(
+				CanvasCommand.of(V2Wire.OP_PUSH),
+				CanvasCommand.of(V2Wire.OP_CLIP, 0, 0, 10, 10),
+				CanvasCommand.of(V2Wire.OP_ORIGIN),
+				CanvasCommand.of(V2Wire.OP_SET_COLOR, 10, 20, 30, 255),
+				CanvasCommand.of(V2Wire.OP_FILL)));
+		assertEquals(5, canvas.visibleCommands().size());
+	}
+
+	@Test
+	public void publishRebuildsTheClipLatchSoLaterAppendsDoNotCompact() {
+		// The restore path: a published list that ends under a clip must decline the next
+		// covering fill exactly as the canvas it came from would. Excluded: 2.
+		SceneCanvas restored = new SceneCanvas(256, 144, 4096);
+		restored.publish(cmds(
+				CanvasCommand.of(V2Wire.OP_CLIP, 5, 5, 50, 50),
+				CanvasCommand.of(V2Wire.OP_FILL_RECT, 0, 0, 100, 100)));
+		restored.append(cmds(
+				CanvasCommand.of(V2Wire.OP_SET_COLOR, 9, 9, 9, 255),
+				CanvasCommand.of(V2Wire.OP_FILL)));
+		assertEquals(4, restored.visibleCommands().size());
+		assertEquals(V2Wire.OP_CLIP, restored.visibleCommands().get(0).op);
+	}
+
+	@Test
+	public void aClipIsNotReEmittedByTruncation() {
+		// A clip followed by ORIGIN then a covering fill compacts to the plain two-command
+		// shape: no clip is live after the ORIGIN, so none belongs in the truncated list. This
+		// is the assertion that would go red if someone added the clip to truncateTo's floor.
+		SceneCanvas canvas = new SceneCanvas(256, 144, 4096);
+		canvas.append(cmds(
+				CanvasCommand.of(V2Wire.OP_CLIP, 0, 0, 10, 10),
+				CanvasCommand.of(V2Wire.OP_ORIGIN),
+				CanvasCommand.of(V2Wire.OP_FILL)));
+		for (CanvasCommand c : canvas.visibleCommands()) {
+			assertTrue("no CLIP in the truncated list", c.op != V2Wire.OP_CLIP);
+		}
+		assertEquals(2, canvas.visibleCommands().size());
+	}
+
 	// ---------------------------------------------------------------- font as ambient state
 	//
 	// OP_SET_FONT has OP_SET_COLOR's lifecycle by definition (V2Wire), and compaction is where
