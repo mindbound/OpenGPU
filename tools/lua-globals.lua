@@ -26,7 +26,7 @@ local ALLOWED = {}
 for name in ([[
   -- Lua standard library, 5.3 and 5.4
   assert error getmetatable setmetatable ipairs pairs next print rawequal rawget rawlen rawset
-  require select tonumber tostring type pcall xpcall unpack load loadstring dofile collectgarbage
+  require select tonumber tostring type pcall xpcall unpack load loadfile loadstring dofile collectgarbage
   string table math os io coroutine utf8 debug bit32 package _G _VERSION
   -- OpenComputers / OpenOS globals available to a program
   computer component unicode checkArg
