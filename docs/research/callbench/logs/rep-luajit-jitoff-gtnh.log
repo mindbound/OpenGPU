@@ -1,0 +1,45 @@
+BENCH| tag=rep-luajit-jitoff-gtnh arch=luajit jit=off ramSticks=2 cpuTier=3 total=100000
+BENCH| java.version=1.8.0_504 vm=OpenJDK 64-Bit Server VM 25.504-b01 vendor=Temurin
+BENCH| os=Windows 11 10.0 amd64 cpus=24 cwd=C:\Users\astro\AppData\Local\Temp\claude\C--Users-astro-Downloads-OpenGPU\170a14cc-5cc1-40e0-a7ec-6130b748eabf\scratchpad\callbench\work
+2026-10-08T17:05:18.775Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+2026-10-08T17:05:18.825Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+2026-10-08T17:05:18.858Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+BENCH| LuaStateFactory.isAvailable=true includeLuaJ=false include52=true include53=true include54=true
+BENCH| forceNativeLibPathFirst='C:/Users/astro/AppData/Local/Temp/claude/C--Users-astro-Downloads-OpenGPU/170a14cc-5cc1-40e0-a7ec-6130b748eabf/scratchpad/callbench/stage'
+BENCH| callBudgets=[1.0,2.0,4.0] executionDelay=12ms timeout=5.0s threads=4 ramScale=1.8 allowBytecode=false ramSizes=[192,256,384,512,768,1024]
+BENCH| ---- workload=invoke_noop arch=luajit jit=off tag=rep-luajit-jitoff-gtnh
+[ocljit] OC-LuaJIT persistence: bundled roots ON (one blob: {kernel, closure|table})
+[ocljit] OC-LuaJIT for-in diagnostic: -Docluajit.forin absent -> ignore (the default: the persist does not look)
+[ocljit] OC-LuaJIT: native ready (version=jit52, from .)
+BENCH| jit request off -> jit.status()=false
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.2 | raw: Lua+Eris 5.2 native=luajit/LuaJIT 2.1.ROLLING kernel=watchdog jit=LuaJIT 2.1.ROLLING jitstatus=n/a luaStateClass=LuaStateLuaJIT arch=OCLuaJITArchitecture | freeKB=2010 totalKB=2048
+BENCH| budget remaining=3.999999997206 max=4
+BENCH| sanity ok
+BENCH| U label=invoke_noop n=100000 batch=10000 reps=10 java_us min=1.528 med=1.620 max=3.580 mean=1.848 | lua_us min=1.529 med=1.628 max=3.592 | calls_per_s_med=617260 freeKB=1890
+BENCH| DONE
+BENCH| END workload=invoke_noop ok=true maxCallBudget=4.0 calls_seen=10000 wall_s=0.6 ticks=12 tick_gap_mean_ms=50.75 tick_gap_max_ms=63.19 lastError=null
+BENCH| ---- workload=invoke_add arch=luajit jit=off tag=rep-luajit-jitoff-gtnh
+BENCH| jit request off -> jit.status()=false
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.2 | raw: Lua+Eris 5.2 native=luajit/LuaJIT 2.1.ROLLING kernel=watchdog jit=LuaJIT 2.1.ROLLING jitstatus=n/a luaStateClass=LuaStateLuaJIT arch=OCLuaJITArchitecture | freeKB=2010 totalKB=2048
+BENCH| budget remaining=3.999999997206 max=4
+BENCH| sanity ok
+BENCH| U label=invoke_add_scalar n=100000 batch=10000 reps=10 java_us min=1.930 med=2.378 max=3.070 mean=2.372 | lua_us min=1.933 med=2.379 max=3.072 | calls_per_s_med=420593 freeKB=1797
+BENCH| DONE
+BENCH| END workload=invoke_add ok=true maxCallBudget=4.0 calls_seen=10000 wall_s=0.6 ticks=12 tick_gap_mean_ms=50.17 tick_gap_max_ms=62.83 lastError=null
+BENCH| ---- workload=echo_100KB arch=luajit jit=off tag=rep-luajit-jitoff-gtnh
+BENCH| jit request off -> jit.status()=false
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.2 | raw: Lua+Eris 5.2 native=luajit/LuaJIT 2.1.ROLLING kernel=watchdog jit=LuaJIT 2.1.ROLLING jitstatus=n/a luaStateClass=LuaStateLuaJIT arch=OCLuaJITArchitecture | freeKB=2010 totalKB=2048
+BENCH| budget remaining=3.999999997206 max=4
+BENCH| sanity ok
+BENCH| U label=echo_100KB n=100000 batch=2000 reps=50 java_us min=20.695 med=27.211 max=39.707 mean=28.047 | lua_us min=20.710 med=27.233 max=39.714 | calls_per_s_med=36750 freeKB=1807
+BENCH| DONE
+BENCH| END workload=echo_100KB ok=true maxCallBudget=4.0 calls_seen=2000 wall_s=3.9 ticks=79 tick_gap_mean_ms=50.66 tick_gap_max_ms=63.54 lastError=null
+BENCH| ---- workload=echoTable_1000 arch=luajit jit=off tag=rep-luajit-jitoff-gtnh
+BENCH| jit request off -> jit.status()=false
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.2 | raw: Lua+Eris 5.2 native=luajit/LuaJIT 2.1.ROLLING kernel=watchdog jit=LuaJIT 2.1.ROLLING jitstatus=n/a luaStateClass=LuaStateLuaJIT arch=OCLuaJITArchitecture | freeKB=2010 totalKB=2048
+BENCH| budget remaining=3.999999997206 max=4
+BENCH| sanity ok
+BENCH| U label=echoTable_1000 n=100000 batch=2000 reps=50 java_us min=847.456 med=982.083 max=1203.043 mean=986.916 | lua_us min=847.449 med=982.437 max=1203.234 | calls_per_s_med=1018 freeKB=1829
+BENCH| DONE
+BENCH| END workload=echoTable_1000 ok=true maxCallBudget=4.0 calls_seen=2000 wall_s=99.8 ticks=1997 tick_gap_mean_ms=50.00 tick_gap_max_ms=64.34 lastError=null
+BENCH| ALLDONE arch=luajit jit=off tag=rep-luajit-jitoff-gtnh

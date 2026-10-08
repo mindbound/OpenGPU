@@ -1,0 +1,22 @@
+BENCH| tag=trial-53-default arch=53
+BENCH| java.version=17.0.20.1 vm=OpenJDK 64-Bit Server VM 17.0.20.1+1 vendor=Eclipse Adoptium
+BENCH| os=Windows 11 10.0 amd64 cpus=24
+2026-10-08T11:51:59.896561500Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+2026-10-08T11:51:59.920836800Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+2026-10-08T11:51:59.929346100Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+BENCH| LuaStateFactory.isAvailable=true includeLuaJ=false include52=true include53=true include54=true
+BENCH| forceNativeLibPathFirst='C:/Users/astro/AppData/Local/Temp/claude/C--Users-astro-Downloads-OpenGPU/170a14cc-5cc1-40e0-a7ec-6130b748eabf/scratchpad/callbench/stage'
+BENCH| callBudgets=[0.5,1.0,1.5] executionDelay=12ms timeout=5.0s threads=4 ramScale=1.8 allowBytecode=false
+BENCH| architecture pinned to totoro.ocelot.brain.entity.machine.luac.NativeLua53Architecture
+BENCH| lua _VERSION=Lua 5.3 sandbox_jit_table=false string.pack=true freeKB=1002
+BENCH| budget remaining=1.499999998603 max=1.5
+BENCH| U label=lua_local_call n=100000 batch=10000 reps=10 min_us=0.011 med_us=0.012 max_us=0.029 mean_us=0.014 calls_per_s=85470085
+BENCH| U label=invoke_noop n=100000 batch=10000 reps=10 min_us=3.981 med_us=4.333 max_us=5.642 mean_us=4.416 calls_per_s=230773
+BENCH| U label=proxy_noop n=100000 batch=10000 reps=10 min_us=4.083 med_us=4.220 max_us=4.898 mean_us=4.357 calls_per_s=236975
+BENCH| U label=invoke_add_scalar n=100000 batch=10000 reps=10 min_us=5.119 med_us=5.353 max_us=9.833 mean_us=6.113 calls_per_s=186818
+BENCH| U label=invoke_len_100KB n=100000 batch=2000 reps=50 min_us=21.916 med_us=29.293 max_us=38.754 mean_us=29.331 calls_per_s=34137
+BENCH| U label=invoke_echo_100KB n=100000 batch=2000 reps=50 min_us=29.420 med_us=40.042 max_us=94.191 mean_us=43.608 calls_per_s=24974
+BENCH| !! machine did not report DONE: running=false lastError=machine:1085: not enough memory after 19.2756061 s
+Exception in thread "main" java.lang.NullPointerException: Cannot invoke "li.cil.repack.com.naef.jnlua.LuaState.getClass()" because "lua" is null
+	at callbench.Main$.main(Bench.scala:214)
+	at callbench.Main.main(Bench.scala)

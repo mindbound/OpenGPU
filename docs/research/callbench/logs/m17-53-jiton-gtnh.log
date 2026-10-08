@@ -1,0 +1,111 @@
+BENCH| tag=m17-53-jiton-gtnh arch=53 jit=on ramSticks=2 cpuTier=3 total=100000
+BENCH| java.version=17.0.20.1 vm=OpenJDK 64-Bit Server VM 17.0.20.1+1 vendor=Eclipse Adoptium
+BENCH| os=Windows 11 10.0 amd64 cpus=24 cwd=C:\Users\astro\AppData\Local\Temp\claude\C--Users-astro-Downloads-OpenGPU\170a14cc-5cc1-40e0-a7ec-6130b748eabf\scratchpad\callbench\work
+2026-10-08T16:45:36.256165500Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+2026-10-08T16:45:36.301621700Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+2026-10-08T16:45:36.334809600Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+BENCH| LuaStateFactory.isAvailable=true includeLuaJ=false include52=true include53=true include54=true
+BENCH| forceNativeLibPathFirst='C:/Users/astro/AppData/Local/Temp/claude/C--Users-astro-Downloads-OpenGPU/170a14cc-5cc1-40e0-a7ec-6130b748eabf/scratchpad/callbench/stage'
+BENCH| callBudgets=[1.0,2.0,4.0] executionDelay=12ms timeout=5.0s threads=4 ramScale=1.8 allowBytecode=false ramSizes=[192,256,384,512,768,1024]
+BENCH| ---- workload=local_call arch=53 jit=on tag=m17-53-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.999999998603 max=4.0
+BENCH| sanity ok
+BENCH| !! label=local_call batch=10000 but entity saw n=0
+BENCH| !! label=local_call batch=10000 but entity saw n=0
+BENCH| !! label=local_call batch=10000 but entity saw n=0
+BENCH| !! label=local_call batch=10000 but entity saw n=0
+BENCH| !! label=local_call batch=10000 but entity saw n=0
+BENCH| !! label=local_call batch=10000 but entity saw n=0
+BENCH| !! label=local_call batch=10000 but entity saw n=0
+BENCH| !! label=local_call batch=10000 but entity saw n=0
+BENCH| !! label=local_call batch=10000 but entity saw n=0
+BENCH| !! label=local_call batch=10000 but entity saw n=0
+BENCH| U label=local_call n=100000 batch=10000 reps=10 java_us min=-0.000 med=-0.000 max=-0.000 mean=0.000 | lua_us min=0.011 med=0.014 max=0.028 | calls_per_s_med=-inf freeKB=1965
+BENCH| DONE
+BENCH| END workload=local_call ok=true maxCallBudget=4.0 calls_seen=0 wall_s=0.3 ticks=8 tick_gap_mean_ms=50.73 tick_gap_max_ms=61.00 lastError=null
+BENCH| ---- workload=invoke_noop arch=53 jit=on tag=m17-53-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4.0
+BENCH| sanity ok
+BENCH| U label=invoke_noop n=100000 batch=10000 reps=10 java_us min=3.926 med=4.175 max=5.593 mean=4.413 | lua_us min=3.927 med=4.175 max=5.605 | calls_per_s_med=239527 freeKB=1314
+BENCH| DONE
+BENCH| END workload=invoke_noop ok=true maxCallBudget=4.0 calls_seen=10000 wall_s=0.8 ticks=16 tick_gap_mean_ms=50.04 tick_gap_max_ms=62.44 lastError=null
+BENCH| ---- workload=proxy_noop arch=53 jit=on tag=m17-53-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4.0
+BENCH| sanity ok
+BENCH| U label=proxy_noop n=100000 batch=10000 reps=10 java_us min=4.027 med=4.250 max=4.550 mean=4.281 | lua_us min=4.029 med=4.251 max=4.551 | calls_per_s_med=235309 freeKB=1296
+BENCH| DONE
+BENCH| END workload=proxy_noop ok=true maxCallBudget=4.0 calls_seen=10000 wall_s=0.7 ticks=15 tick_gap_mean_ms=50.76 tick_gap_max_ms=62.48 lastError=null
+BENCH| ---- workload=invoke_add arch=53 jit=on tag=m17-53-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4.0
+BENCH| sanity ok
+BENCH| U label=invoke_add_scalar n=100000 batch=10000 reps=10 java_us min=5.456 med=7.834 max=12.672 mean=8.763 | lua_us min=5.461 med=7.835 max=12.673 | calls_per_s_med=127643 freeKB=1005
+BENCH| DONE
+BENCH| END workload=invoke_add ok=true maxCallBudget=4.0 calls_seen=10000 wall_s=1.2 ticks=25 tick_gap_mean_ms=50.58 tick_gap_max_ms=63.49 lastError=null
+BENCH| ---- workload=sink_100KB arch=53 jit=on tag=m17-53-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4.0
+BENCH| sanity ok
+BENCH| U label=sink_100KB n=100000 batch=2000 reps=50 java_us min=20.817 med=27.163 max=39.597 mean=27.837 | lua_us min=20.838 med=27.202 max=39.608 | calls_per_s_med=36815 freeKB=1015
+BENCH| DONE
+BENCH| END workload=sink_100KB ok=true maxCallBudget=4.0 calls_seen=2000 wall_s=4.0 ticks=80 tick_gap_mean_ms=50.11 tick_gap_max_ms=63.88 lastError=null
+BENCH| ---- workload=echo_100KB arch=53 jit=on tag=m17-53-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4.0
+BENCH| sanity ok
+BENCH| U label=echo_100KB n=100000 batch=2000 reps=50 java_us min=45.593 med=57.671 max=96.871 mean=59.956 | lua_us min=45.611 med=57.684 max=96.864 | calls_per_s_med=17340 freeKB=1420
+BENCH| DONE
+BENCH| END workload=echo_100KB ok=true maxCallBudget=4.0 calls_seen=2000 wall_s=7.1 ticks=144 tick_gap_mean_ms=50.00 tick_gap_max_ms=63.63 lastError=null
+BENCH| ---- workload=sinkTable_1000 arch=53 jit=on tag=m17-53-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4.0
+BENCH| sanity ok
+BENCH| U label=sinkTable_1000 n=100000 batch=2000 reps=50 java_us min=70.425 med=95.839 max=131.042 mean=96.153 | lua_us min=70.431 med=95.837 max=131.067 | calls_per_s_med=10434 freeKB=285
+BENCH| DONE
+BENCH| END workload=sinkTable_1000 ok=true maxCallBudget=4.0 calls_seen=2000 wall_s=10.7 ticks=215 tick_gap_mean_ms=50.04 tick_gap_max_ms=63.63 lastError=null
+BENCH| ---- workload=echoTable_1000 arch=53 jit=on tag=m17-53-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4.0
+BENCH| sanity ok
+BENCH| U label=echoTable_1000 n=100000 batch=2000 reps=50 java_us min=1303.407 med=1588.227 max=1777.016 mean=1568.905 | lua_us min=1303.355 med=1588.597 max=1777.144 | calls_per_s_med=630 freeKB=477
+BENCH| DONE
+BENCH| END workload=echoTable_1000 ok=true maxCallBudget=4.0 calls_seen=2000 wall_s=158.0 ticks=3161 tick_gap_mean_ms=50.00 tick_gap_max_ms=64.24 lastError=null
+BENCH| ---- workload=lim_noop256 arch=53 jit=on tag=m17-53-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4.0
+BENCH| sanity ok
+BENCH| L label=lim_noop256 n=8192 java_wall_ms=387.7 lua_cpu_ms=62.9 uptime_ticks=7 calls_per_tick_by_uptime=1170.3 calls_per_s=21128 | ticks_spanned=8 full_ticks=6 per_full_tick_min=1025 per_full_tick_med=1025 per_full_tick_max=1025 first_tick=1024 last_tick=1018 seq=1024,1025,1025,1025,1025,1025,1025,1018
+BENCH| DONE
+BENCH| END workload=lim_noop256 ok=true maxCallBudget=4.0 calls_seen=8192 wall_s=0.5 ticks=11 tick_gap_mean_ms=50.83 tick_gap_max_ms=61.96 lastError=null
+BENCH| ---- workload=lim_add256 arch=53 jit=on tag=m17-53-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4.0
+BENCH| sanity ok
+BENCH| L label=lim_add256 n=8192 java_wall_ms=374.8 lua_cpu_ms=86.3 uptime_ticks=7 calls_per_tick_by_uptime=1170.3 calls_per_s=21858 | ticks_spanned=8 full_ticks=6 per_full_tick_min=1025 per_full_tick_med=1025 per_full_tick_max=1025 first_tick=1024 last_tick=1018 seq=1024,1025,1025,1025,1025,1025,1025,1018
+BENCH| DONE
+BENCH| END workload=lim_add256 ok=true maxCallBudget=4.0 calls_seen=8192 wall_s=0.5 ticks=11 tick_gap_mean_ms=50.68 tick_gap_max_ms=63.15 lastError=null
+BENCH| ---- workload=lim_echo256 arch=53 jit=on tag=m17-53-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4.0
+BENCH| sanity ok
+BENCH| L label=lim_echo256_100KB n=4096 java_wall_ms=195.3 lua_cpu_ms=142.7 uptime_ticks=4 calls_per_tick_by_uptime=1024.0 calls_per_s=20978 | ticks_spanned=5 full_ticks=3 per_full_tick_min=933 per_full_tick_med=1024 per_full_tick_max=1025 first_tick=807 last_tick=307 seq=807,1025,933,1024,307
+BENCH| DONE
+BENCH| END workload=lim_echo256 ok=true maxCallBudget=4.0 calls_seen=4096 wall_s=0.3 ticks=7 tick_gap_mean_ms=50.19 tick_gap_max_ms=61.64 lastError=null
+BENCH| ---- workload=lim_echoTable256 arch=53 jit=on tag=m17-53-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4.0
+BENCH| sanity ok
+BENCH| L label=lim_echoTable256_1000 n=2048 java_wall_ms=2779.9 lua_cpu_ms=2781.3 uptime_ticks=55 calls_per_tick_by_uptime=37.2 calls_per_s=737 | ticks_spanned=56 full_ticks=54 per_full_tick_min=21 per_full_tick_med=37 per_full_tick_max=55 first_tick=27 last_tick=37 seq=27,26,29,28,33,34,42,35,42,42,34,52,40,43,33,55,33,33,40,36,51,26,27,40,44,24,33,29,34,43,38,40,40,41,55,37,37,23,40,46,30,22,41,55,44,41,38,31,27,30,37,29,42,21,38,37
+BENCH| DONE
+BENCH| END workload=lim_echoTable256 ok=true maxCallBudget=4.0 calls_seen=2048 wall_s=2.9 ticks=59 tick_gap_mean_ms=50.08 tick_gap_max_ms=63.63 lastError=null
+BENCH| ---- workload=sync_noop arch=53 jit=on tag=m17-53-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4.0
+BENCH| sanity ok
+BENCH| L label=sync_noop_NOTdirect n=20 java_wall_ms=948.6 lua_cpu_ms=2.5 uptime_ticks=20 calls_per_tick_by_uptime=1.0 calls_per_s=21 | ticks_spanned=20 full_ticks=18 per_full_tick_min=1 per_full_tick_med=1 per_full_tick_max=1 first_tick=1 last_tick=1 seq=1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+BENCH| DONE
+BENCH| END workload=sync_noop ok=true maxCallBudget=4.0 calls_seen=20 wall_s=1.1 ticks=23 tick_gap_mean_ms=50.00 tick_gap_max_ms=62.41 lastError=null
+BENCH| ALLDONE arch=53 jit=on tag=m17-53-jiton-gtnh

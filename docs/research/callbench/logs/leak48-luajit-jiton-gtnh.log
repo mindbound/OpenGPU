@@ -1,0 +1,27 @@
+BENCH| tag=leak48-luajit-jiton-gtnh arch=luajit jit=on ramSticks=2 cpuTier=3 total=100000
+BENCH| java.version=1.8.0_504 vm=OpenJDK 64-Bit Server VM 25.504-b01 vendor=Temurin
+BENCH| os=Windows 11 10.0 amd64 cpus=24 cwd=C:\Users\astro\AppData\Local\Temp\claude\C--Users-astro-Downloads-OpenGPU\170a14cc-5cc1-40e0-a7ec-6130b748eabf\scratchpad\callbench\work
+2026-10-08T17:08:07.746Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+2026-10-08T17:08:07.795Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+2026-10-08T17:08:07.826Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+BENCH| LuaStateFactory.isAvailable=true includeLuaJ=false include52=true include53=true include54=true
+BENCH| forceNativeLibPathFirst='C:/Users/astro/AppData/Local/Temp/claude/C--Users-astro-Downloads-OpenGPU/170a14cc-5cc1-40e0-a7ec-6130b748eabf/scratchpad/callbench/stage'
+BENCH| callBudgets=[1.0,2.0,4.0] executionDelay=12ms timeout=5.0s threads=4 ramScale=1.8 allowBytecode=false ramSizes=[192,256,384,512,768,1024]
+BENCH| ---- workload=sinkTable_1000 arch=luajit jit=on tag=leak48-luajit-jiton-gtnh
+[ocljit] OC-LuaJIT persistence: bundled roots ON (one blob: {kernel, closure|table})
+[ocljit] OC-LuaJIT for-in diagnostic: -Docluajit.forin absent -> ignore (the default: the persist does not look)
+[ocljit] OC-LuaJIT: native ready (version=jit52, from .)
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.2 | raw: Lua+Eris 5.2 native=luajit/LuaJIT 2.1.ROLLING kernel=watchdog jit=LuaJIT 2.1.ROLLING jitstatus=true luaStateClass=LuaStateLuaJIT arch=OCLuaJITArchitecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4
+BENCH| sanity ok
+BENCH| U label=sinkTable_1000 n=100000 batch=2000 reps=50 java_us min=10.213 med=11.479 max=21.256 mean=12.263 | lua_us min=10.220 med=11.484 max=21.261 | calls_per_s_med=87116 freeKB=1862
+BENCH| DONE
+BENCH| END workload=sinkTable_1000 ok=true maxCallBudget=4.0 calls_seen=2000 wall_s=2.6 ticks=52 tick_gap_mean_ms=50.14 tick_gap_max_ms=63.73 lastError=null
+BENCH| ---- workload=echo_100KB arch=luajit jit=on tag=leak48-luajit-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.2 | raw: Lua+Eris 5.2 native=luajit/LuaJIT 2.1.ROLLING kernel=watchdog jit=LuaJIT 2.1.ROLLING jitstatus=true luaStateClass=LuaStateLuaJIT arch=OCLuaJITArchitecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.999999998603 max=4
+BENCH| sanity ok
+BENCH| U label=echo_100KB n=100000 batch=2000 reps=50 java_us min=23.891 med=30.233 max=43.027 mean=30.797 | lua_us min=23.906 med=30.250 max=43.041 | calls_per_s_med=33077 freeKB=1927
+BENCH| DONE
+BENCH| END workload=echo_100KB ok=true maxCallBudget=4.0 calls_seen=2000 wall_s=4.2 ticks=85 tick_gap_mean_ms=50.18 tick_gap_max_ms=64.09 lastError=null
+BENCH| ALLDONE arch=luajit jit=on tag=leak48-luajit-jiton-gtnh

@@ -1,0 +1,38 @@
+BENCH| tag=t1-53-jiton-default arch=53 jit=on ramSticks=1 cpuTier=1 total=100000
+BENCH| java.version=1.8.0_504 vm=OpenJDK 64-Bit Server VM 25.504-b01 vendor=Temurin
+BENCH| os=Windows 11 10.0 amd64 cpus=24 cwd=C:\Users\astro\AppData\Local\Temp\claude\C--Users-astro-Downloads-OpenGPU\170a14cc-5cc1-40e0-a7ec-6130b748eabf\scratchpad\callbench\work
+2026-10-08T16:56:05.126Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+2026-10-08T16:56:05.177Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+2026-10-08T16:56:05.209Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+BENCH| LuaStateFactory.isAvailable=true includeLuaJ=false include52=true include53=true include54=true
+BENCH| forceNativeLibPathFirst='C:/Users/astro/AppData/Local/Temp/claude/C--Users-astro-Downloads-OpenGPU/170a14cc-5cc1-40e0-a7ec-6130b748eabf/scratchpad/callbench/stage'
+BENCH| callBudgets=[0.5,1.0,1.5] executionDelay=12ms timeout=5.0s threads=4 ramScale=1.8 allowBytecode=false ramSizes=[192,256,384,512,768,1024]
+BENCH| ---- workload=invoke_noop arch=53 jit=on tag=t1-53-jiton-default
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=160 totalKB=192
+BENCH| budget remaining=0.49999999813735 max=0.5
+BENCH| sanity ok
+BENCH| U label=invoke_noop n=100000 batch=10000 reps=10 java_us min=3.834 med=4.024 max=6.018 mean=4.206 | lua_us min=3.836 med=4.031 max=6.032 | calls_per_s_med=248533 freeKB=7
+BENCH| DONE
+BENCH| END workload=invoke_noop ok=true maxCallBudget=0.5 calls_seen=10000 wall_s=0.8 ticks=17 tick_gap_mean_ms=50.27 tick_gap_max_ms=61.96 lastError=null
+BENCH| ---- workload=lim_noop256 arch=53 jit=on tag=t1-53-jiton-default
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=160 totalKB=192
+BENCH| budget remaining=0.49999999813735 max=0.5
+BENCH| sanity ok
+BENCH| L label=lim_noop256 n=8192 java_wall_ms=3147.4 lua_cpu_ms=78.2 uptime_ticks=63 calls_per_tick_by_uptime=130.0 calls_per_s=2603 | ticks_spanned=64 full_ticks=62 per_full_tick_min=129 per_full_tick_med=129 per_full_tick_max=129 first_tick=128 last_tick=66 seq=128,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,66
+BENCH| DONE
+BENCH| END workload=lim_noop256 ok=true maxCallBudget=0.5 calls_seen=8192 wall_s=3.3 ticks=66 tick_gap_mean_ms=50.18 tick_gap_max_ms=62.80 lastError=null
+BENCH| ---- workload=lim_echo256 arch=53 jit=on tag=t1-53-jiton-default
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=160 totalKB=192
+BENCH| budget remaining=0.49999999813735 max=0.5
+BENCH| sanity ok
+BENCH| L label=lim_echo256_100KB n=4096 java_wall_ms=1562.1 lua_cpu_ms=345.1 uptime_ticks=31 calls_per_tick_by_uptime=132.1 calls_per_s=2622 | ticks_spanned=32 full_ticks=30 per_full_tick_min=129 per_full_tick_med=129 per_full_tick_max=129 first_tick=128 last_tick=98 seq=128,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,129,98
+BENCH| DONE
+BENCH| END workload=lim_echo256 ok=true maxCallBudget=0.5 calls_seen=4096 wall_s=1.7 ticks=35 tick_gap_mean_ms=50.09 tick_gap_max_ms=61.97 lastError=null
+BENCH| ---- workload=sync_noop arch=53 jit=on tag=t1-53-jiton-default
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.3 | raw: Lua+Eris 5.3 native=<stock> kernel=<stock> jit=none jitstatus=n/a luaStateClass=LuaStateFiveThree arch=NativeLua53Architecture | freeKB=160 totalKB=192
+BENCH| budget remaining=0.49999999813735 max=0.5
+BENCH| sanity ok
+BENCH| L label=sync_noop_NOTdirect n=20 java_wall_ms=944.6 lua_cpu_ms=3.2 uptime_ticks=20 calls_per_tick_by_uptime=1.0 calls_per_s=21 | ticks_spanned=20 full_ticks=18 per_full_tick_min=1 per_full_tick_med=1 per_full_tick_max=1 first_tick=1 last_tick=1 seq=1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+BENCH| DONE
+BENCH| END workload=sync_noop ok=true maxCallBudget=0.5 calls_seen=20 wall_s=1.2 ticks=23 tick_gap_mean_ms=50.41 tick_gap_max_ms=62.55 lastError=null
+BENCH| ALLDONE arch=53 jit=on tag=t1-53-jiton-default

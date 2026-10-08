@@ -1,0 +1,54 @@
+BENCH| tag=x-luajit-jiton-gtnh arch=luajit jit=on ramSticks=2 cpuTier=3 total=100000
+BENCH| java.version=1.8.0_504 vm=OpenJDK 64-Bit Server VM 25.504-b01 vendor=Temurin
+BENCH| os=Windows 11 10.0 amd64 cpus=24 cwd=C:\Users\astro\AppData\Local\Temp\claude\C--Users-astro-Downloads-OpenGPU\170a14cc-5cc1-40e0-a7ec-6130b748eabf\scratchpad\callbench\work
+2026-10-08T17:07:24.628Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+2026-10-08T17:07:24.679Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+2026-10-08T17:07:24.711Z main WARN forceNativeLibPathFirst is set, but  was not found there. Falling back to checking the built-in libraries.
+BENCH| LuaStateFactory.isAvailable=true includeLuaJ=false include52=true include53=true include54=true
+BENCH| forceNativeLibPathFirst='C:/Users/astro/AppData/Local/Temp/claude/C--Users-astro-Downloads-OpenGPU/170a14cc-5cc1-40e0-a7ec-6130b748eabf/scratchpad/callbench/stage'
+BENCH| callBudgets=[1.0,2.0,4.0] executionDelay=12ms timeout=5.0s threads=4 ramScale=1.8 allowBytecode=false ramSizes=[192,256,384,512,768,1024]
+BENCH| ---- workload=jni_uptime arch=luajit jit=on tag=x-luajit-jiton-gtnh
+[ocljit] OC-LuaJIT persistence: bundled roots ON (one blob: {kernel, closure|table})
+[ocljit] OC-LuaJIT for-in diagnostic: -Docluajit.forin absent -> ignore (the default: the persist does not look)
+[ocljit] OC-LuaJIT: native ready (version=jit52, from .)
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.2 | raw: Lua+Eris 5.2 native=luajit/LuaJIT 2.1.ROLLING kernel=watchdog jit=LuaJIT 2.1.ROLLING jitstatus=true luaStateClass=LuaStateLuaJIT arch=OCLuaJITArchitecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4
+BENCH| sanity ok
+BENCH| !! label=jni_uptime_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_uptime_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_uptime_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_uptime_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_uptime_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_uptime_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_uptime_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_uptime_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_uptime_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_uptime_bare_upcall batch=10000 but entity saw n=0
+BENCH| U label=jni_uptime_bare_upcall n=100000 batch=10000 reps=10 java_us min=-0.000 med=-0.000 max=-0.000 mean=0.000 | lua_us min=0.166 med=0.168 max=0.198 | calls_per_s_med=-inf freeKB=1945
+BENCH| DONE
+BENCH| END workload=jni_uptime ok=true maxCallBudget=4.0 calls_seen=0 wall_s=0.3 ticks=8 tick_gap_mean_ms=50.85 tick_gap_max_ms=61.80 lastError=null
+BENCH| ---- workload=jni_freemem arch=luajit jit=on tag=x-luajit-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.2 | raw: Lua+Eris 5.2 native=luajit/LuaJIT 2.1.ROLLING kernel=watchdog jit=LuaJIT 2.1.ROLLING jitstatus=true luaStateClass=LuaStateLuaJIT arch=OCLuaJITArchitecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4
+BENCH| sanity ok
+BENCH| !! label=jni_freeMemory_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_freeMemory_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_freeMemory_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_freeMemory_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_freeMemory_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_freeMemory_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_freeMemory_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_freeMemory_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_freeMemory_bare_upcall batch=10000 but entity saw n=0
+BENCH| !! label=jni_freeMemory_bare_upcall batch=10000 but entity saw n=0
+BENCH| U label=jni_freeMemory_bare_upcall n=100000 batch=10000 reps=10 java_us min=-0.000 med=-0.000 max=-0.000 mean=0.000 | lua_us min=0.178 med=0.181 max=0.276 | calls_per_s_med=-inf freeKB=1945
+BENCH| DONE
+BENCH| END workload=jni_freemem ok=true maxCallBudget=4.0 calls_seen=0 wall_s=0.3 ticks=6 tick_gap_mean_ms=60.88 tick_gap_max_ms=62.80 lastError=null
+BENCH| ---- workload=yield0 arch=luajit jit=on tag=x-luajit-jiton-gtnh
+BENCH| FINGERPRINT sandbox _VERSION=Lua 5.2 | raw: Lua+Eris 5.2 native=luajit/LuaJIT 2.1.ROLLING kernel=watchdog jit=LuaJIT 2.1.ROLLING jitstatus=true luaStateClass=LuaStateLuaJIT arch=OCLuaJITArchitecture | freeKB=2016 totalKB=2048
+BENCH| budget remaining=3.9999999981374 max=4
+BENCH| sanity ok
+BENCH| L label=yield0_pullSignal0_per_iteration n=60 java_wall_ms=0.0 lua_cpu_ms=7.2 uptime_ticks=19 calls_per_tick_by_uptime=3.2 calls_per_s=nan | 
+BENCH| DONE
+BENCH| END workload=yield0 ok=true maxCallBudget=4.0 calls_seen=0 wall_s=1.1 ticks=22 tick_gap_mean_ms=50.15 tick_gap_max_ms=62.99 lastError=null
+BENCH| ALLDONE arch=luajit jit=on tag=x-luajit-jiton-gtnh
