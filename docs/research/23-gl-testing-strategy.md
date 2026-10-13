@@ -186,6 +186,8 @@ The same scripts run with `NullRenderHost` for §4.1's no-renderer assertions. T
 
 One JVM then hosts ocelot, the JNLua natives and LWJGL 2.9.4, matching both the user's runtime and Angelica's practice. OC-LuaJIT's Linux native is available for the LuaJIT leg (`OC-LuaJIT/bin/main/assets/opencomputers/lib/libjnluajit52-linux-x86_64.so`).
 
+*Update 2026-10-13 (owner; 24 §6, OC-LuaJIT inputs): that native is a local build output (`bin/` is ignored, `OC-LuaJIT/.gitignore:10`), not something the shared CI can fetch. Until OC-LuaJIT publishes a pinned artifact (jar, linux-x64 native, ocelot adapter), the OC-LuaJIT leg (Lua bytes == FBO bytes, the encode measurements) runs locally on the owner's machine and is non-gating, and the shared CI gates on 5.3 and 5.2. When the artifact exists, the leg joins CI as gating.*
+
 **4.4 Other corrections.**
 - **05 §4, golden-image bullet.** "Tolerance 0 for integer rasterisation paths and ≤ 1 LSB for shaded paths … bit-identical across JDK 8 vs 17/21 and x86-64 vs aarch64" assumed a software renderer. Under Option 2:
   - pixels do not depend on the JDK at all;
@@ -355,3 +357,7 @@ The owner changed decision 5 (24 §1) to an ES 3.00-based graphics language, spe
 - **§4.1, raylib corpus (new).** Converted rather than dropped: `glsl100` files through 27 §1.3's converter, `glsl330` files with the version line changed, implicit-conversion files as expected rejections, licence check per file.
 - **§3.5, integer conformance corpus (new).** Gating on llvmpipe against the Java reference, run on the owner's three GPUs per milestone and driver update, deviations in the expectations file (27 §5).
 - **Design implication 12.** `glslangValidator` checks `#version 300 es` inputs and `330 core` outputs.
+
+## Amendments after the owner's answers (2026-10-13)
+
+- **§4.3.** How CI gets OC-LuaJIT (24 §6): the OC-LuaJIT leg runs locally and non-gating until OC-LuaJIT publishes a pinned artifact, then joins the shared CI as gating; 5.3 and 5.2 gate meanwhile. This report lists no 2.1.14 linkage jar, so the dropped Angelica band (25 §8 Q4) changes nothing here.

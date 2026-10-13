@@ -264,12 +264,12 @@ HBM exposes reactors through `SimpleComponent`: 66 files implement it in upstrea
 ## Open questions for the owner
 
 1. Should the `#version 120` dialect ship (best effort, checked only with glslang), or should OpenGPU require GL 3.3? *Default: ship it; it is about 150 lines.* *Answered: 24 §7 answer 1 set a GL 3.3 floor, so there is no `#version 120` dialect; the GL 2.1 column of §1.4 is kept for reference only.*
-2. Fragment uniform cap: 64 rows, or 16 for WebGL-1 parity? *Default: 64.*
-3. Should the CPU position-slice GPU-work guard be a deliverable of the first 3D milestone, or are static caps plus timer-query throttling enough while LAN is trusted? *Default: build the guard.*
-4. Should compute v1 include `double` and `int64_t` (*default: yes*), and should OC-LuaJIT's planned `string.unpack` cover `<d`/`<i8`?
-5. Should cards in one server be able to copy buffers peer-to-peer on the server, without going through Lua?
-6. Should OpenGPU ship an HBM RBMK design-evaluator example, and should it target upstream HBM or the NTM: Space fork you run?
-7. Should dispatches cost OC energy per op? The energy model is an unresearched gap in 09.
+2. Fragment uniform cap: 64 rows, or 16 for WebGL-1 parity? *Default: 64.* *Answered: 64 FS rows (24 §3.4 caps).*
+3. Should the CPU position-slice GPU-work guard be a deliverable of the first 3D milestone, or are static caps plus timer-query throttling enough while LAN is trusted? *Default: build the guard.* *Answered: the guard is GPU safety layer 3, an M3 deliverable (24 §6).*
+4. Should compute v1 include `double` and `int64_t` (*default: yes*), and should OC-LuaJIT's planned `string.unpack` cover `<d`/`<i8`? *Answered: both in compute v1 (24 §3.4); the owner's OC-LuaJIT `string.pack`/`unpack` covers `<f`, `<d`, `<i4`, `<I4` and `<i8` plus `packsize`, with `<i8` returning doubles (24 §3.3, owner 2026-10-13).*
+5. Should cards in one server be able to copy buffers peer-to-peer on the server, without going through Lua? *Answered: yes, in M3 (24 §7 answer 5).*
+6. Should OpenGPU ship an HBM RBMK design-evaluator example, and should it target upstream HBM or the NTM: Space fork you run? *Answered: yes, in M3, on the console API common to upstream and NTM: Space (24 §6 M3).*
+7. Should dispatches cost OC energy per op? The energy model is an unresearched gap in 09. *Answered: energy is charged OC-style (24 §7 answer 4): provisional per-present and 2D costs from M1, recalibrated in M3 with per-dispatch compute costs (owner, 2026-10-13).*
 
 ## Sources
 

@@ -260,7 +260,7 @@ A save never waits for the GPU (§2.5).
 3. **Canvas mode on renderer-less hosts.** Accept that canvas content can be reset (`opengpu_reset(card,"canvas")`) on a future display-only dedicated mode, so v1 programs are written to tolerate it?
 4. **Static images on dedicated servers.** Should option (a) stream the persisted last image to viewers (cheap, recommended), or show a fixed "no renderer" card?
 5. **GPU memory cap.** Should the host evict idle devices' GL targets and rebuild them from confirmed state, and under what default cap (e.g., 256 MB)?
-6. **LAN per-guest cap.** Is 4 MB/s a sensible default, or should it be unlimited on LAN and capped only for non-LAN remote players?
+6. **LAN per-guest cap.** Is 4 MB/s a sensible default, or should it be unlimited on LAN and capped only for non-LAN remote players? *Answered 2026-10-13: 4 MB/s per guest stays the default, configurable (§4.3). 24 §6's M4 criterion "3 guests × 2 T3 3D displays on wired LAN within 21 §4.3" is restated: typical content stays within the cap; the worst measured case, two T3 3D displays with a moving camera at about 5 MB/s per guest (2 × 2.46 MB/s, §4.3), falls back to `CATCHUP` without desync, and the guest framebuffer hash equals the host's after recovery.*
 
 ## Sources
 
@@ -325,3 +325,7 @@ Adversarial verification, 2026-10-08. Each key claim was re-checked against the 
 9. **§4.4, deflate time (K8).** Sizes reproduced byte for byte on the re-run. L1 times were 1.30–4.39 ms against 1.11–3.75 ms in the original run, so the range and CPU shares were widened.
 
 Confirmed without change: K3 (`IntegratedServer.java:104-118, 248, 292-295`; `Minecraft.java:1117`; `Machine.scala:335-337, 977-992`), K4 (`FMLCommonHandler.java:142-160`, `FMLClientHandler.java:458-461`, `SideTransformer.java:33-116`, `ProxyInjector.java:58-59`, `MinecraftServer.java:88, 164, 938-941`, `Minecraft.java:2777-2780`), K7 (`FMLProxyPacket.java:38-42, 132-135`, `S3FPacketCustomPayload.java:25-29`, `NetworkDispatcher.java:291-293, 430-436`; the local pipeline has no codec, `NetworkSystem.java:110-125`, `NetworkManager.java:321-333`), K10 (`SaveHandler.scala:71, 148-156, 163-171`, `OpenComputers.scala:93-95`, `ThreadPoolFactory.scala:89-96`) and K11 (`C17PacketCustomPayload.java:37-39`, which throws at ≥ 32 767).
+
+## Amendments after the owner's answers (2026-10-13)
+
+- **Open question 6.** Answered: the 4 MB/s per-guest default stays, configurable, and 24 §6's M4 LAN criterion is restated around it (typical content within the cap; the ≈ 5 MB/s two-display worst case falls back to `CATCHUP` without desync, guest hash equal to the host's after recovery). §4.3's measurements are unchanged.
