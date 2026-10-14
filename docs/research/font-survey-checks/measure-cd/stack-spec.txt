@@ -1,0 +1,9 @@
+C:/Users/astro/Downloads/opengpu-refs/font-survey/jersey/converted/jersey15-conv.bdf	Reactor Status
+C:/Users/astro/Downloads/opengpu-refs/font-survey/spleen/spleen-8x16.bdf	Core temp   1532 K  ██████░░░░
+C:/Users/astro/Downloads/opengpu-refs/font-survey/spleen/spleen-8x16.bdf	┌────────┐ Coolant 98%
+C:/Users/astro/Downloads/opengpu-refs/font-survey/retro-pixel-font/x/thick/retro-pixel-thick.bdf	Power Output 42 MJ/t
+C:/Users/astro/Downloads/opengpu-refs/font-survey/anakron/ANAKRON.bdf	Core temp 1532 K ███░░ ┌──┐
+C:/Users/astro/Downloads/opengpu-refs/font-survey/mplus-bitmap/x/xfonts-mplus-2.2.4/fonts_e/mplus_h12b.bdf	Coolant flow 98% (label, M+ h12b)
+C:/Users/astro/Downloads/opengpu-refs/font-survey/mplus-bitmap/x/xfonts-mplus-2.2.4/fonts_e/mplus_h10r.bdf	Small proportional label, M+ h10r
+C:/Users/astro/Downloads/opengpu-refs/font-survey/jersey/converted/jersey25-conv.bdf	1532 K
+C:/Users/astro/Downloads/opengpu-refs/font-survey/retro-pixel-font/x/arcade/retro-pixel-arcade.bdf	HI-SCORE 0012500

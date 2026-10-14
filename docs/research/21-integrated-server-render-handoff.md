@@ -45,11 +45,11 @@ The only direct cross-side touches are pause handling:
 
 All three rely on HotSpot resolving class references lazily, so `IntegratedServer`/`Minecraft` are never loaded on a dedicated server **[I]**. The precedent is therefore: OC never hands render data across sides in memory, and it does read client-global flags from server code. OpenGPU must break with the first half deliberately, because under Option 2 the pixels exist only on the host GPU. It should not copy the second half's style: no client class should be named in common bytecode.
 
-**1.3 Design: the `RenderHost` SPI.**
+**1.3 Design: the `RenderHost` SPI.** *2026-10-14 (M0 step S5): the SPI method is `offer`, not `submit`, and `open(DeviceKey, SurfaceDesc, ReadbackSink)` gives a host each device's surface before its first op; 28 §2.4 has the accepted interface.*
 
 ```
 common (no client imports; loaded on both sides)
-  render.RenderHost            interface: boolean available(); void submit(DeviceKey, Op); void release(DeviceKey);
+  render.RenderHost            interface: boolean available(); void open(DeviceKey, SurfaceDesc, ReadbackSink); void offer(DeviceKey, Op); void release(DeviceKey);
                                void bindDisplay(String displayId, DeviceKey); void releaseSession(long session)
   render.RenderHosts           static volatile RenderHost installed = NoRenderHost.INSTANCE;
                                static RenderHost forServer(MinecraftServer s) { return s.isDedicatedServer() ? NoRenderHost.INSTANCE : installed; }
@@ -104,7 +104,7 @@ Cost per readback: 16 KB (T1), 64 KB (T2) or 512 KB (T3) in wire format. At 20 f
 | Event | Thread, evidence | Server-side action | Render-host action |
 |---|---|---|---|
 | Card removed or moved; computer chunk unloads | server thread; `onDisconnect(node)` (12 §6), `traits/Computer.dispose` → `machine.stop()` | epoch++, `ctx = null`, tail persisted with the card's side file, `renderHost.release(key)` | delete the device's GL objects next frame; drop late readbacks (epoch mismatch) |
-| `computer.stopped/started` | `GraphicsCard.onMessage` pattern (12 §6) | epoch++, handles reset (09 §3.6); confirmed pixels kept, so the display keeps its last picture | free resources and keep the target |
+| `computer.stopped/started` | `GraphicsCard.onMessage` pattern (12 §6) | epoch++, handles reset (09 §3.6); confirmed pixels kept, so the display keeps its last picture | free resources and keep the target, *overwriting it with the confirmed pixels that `RESET` carries (2026-10-14, 28 §2.2)* |
 | Display TE chunk unload | server thread | unbind display; the device lives on with the card | drop the `displayId` mapping |
 | Autosave every 900 ticks | `MinecraftServer.java:636-641` | snapshot confirmed state + tail under the device monitor; write asynchronously (§6) | none |
 | Single-player pause | server stops ticking and saves on entry (`IntegratedServer.java:104-118`); OC machines push `Paused` (`Machine.scala:977-992`) | none (no ticks) | keeps executing and reading back in-flight frames; folds and signals queue into the paused `Machine` |
@@ -134,7 +134,7 @@ The `LimitReached` retry is safe because budget charges precede side effects (09
 
 **3.2 The one unavoidable copy [V].** LWJGL 2.9.4's `GL11.glTexSubImage2D(..., ByteBuffer)` calls `BufferChecks.checkBuffer`, which calls `checkDirect` (`javap -c` of `lwjgl-2.9.4-nightly-20150209.jar`: `GL11` → `BufferChecks.checkBuffer(ByteBuffer,int)` → `checkDirect`). Heap arrays must be copied into a direct staging buffer or into a mapped `GL_PIXEL_UNPACK_BUFFER` (`glTexSubImage2D(..., long)` exists in GLSM 2.2.21, javap). `checkDirect` runs only while `LWJGLUtil.CHECKS` is on, but the native call always receives `MemoryUtil.getAddress(pixels)`, which is no valid pointer for a heap buffer, so the requirement holds either way. This design makes the copy on the render thread; filling a pooled direct buffer on the OpenGPU pool would move it off that thread, at the cost of direct memory held per queued op **[I]**. Budget it with the ops (≈ 0.1 ms per 1 MB **[est.]**), with at most ≈ 4 MB of uploads per render frame **[est.]**.
 
-**3.3 Dirty rects.** `updateTexture(h,x,y,w,h,bytes)` becomes `UploadOp(rect, payload)`. On GL that is `GL_UNPACK_ROW_LENGTH`/`ALIGNMENT` plus `glTexSubImage2D` of the rect. On the master copy it is a row-wise `arraycopy` at fold time. Sharing, not copying, the payload means a 1 MB texture updated 4 KB at a time costs 4 KB per update on every path.
+**3.3 Dirty rects.** `updateTexture(h,x,y,w,h,bytes)` becomes `UploadOp(rect, payload)`. On GL that is `GL_UNPACK_ROW_LENGTH`/`ALIGNMENT` plus `glTexSubImage2D` of the rect. On the master copy it is a row-wise `arraycopy` at fold time. Sharing, not copying, the payload means a 1 MB texture updated 4 KB at a time costs 4 KB per update on every path. *2026-10-14 (M0 step S5): payloads are tightly packed regions, so G8's `ROW_LENGTH` 0 (24 §3.7) is always correct (28 §1.3 C9).*
 
 **3.4 Independence from client world state [V].** The render hook needs no `WorldClient` (§2.1), and GL targets are keyed by `(session, deviceId)`, not by client TEs. A host in another dimension, or a display chunk the client never loaded, still renders, reads back and streams to guests; only the host's TESR needs the client TE. On loading a world, the server restores confirmed state and submits `Init(resources, pixels)` plus the replayed tail (§6), so the host sees the right picture as soon as the client TE appears.
 
@@ -329,3 +329,12 @@ Confirmed without change: K3 (`IntegratedServer.java:104-118, 248, 292-295`; `Mi
 ## Amendments after the owner's answers (2026-10-13)
 
 - **Open question 6.** Answered: the 4 MB/s per-guest default stays, configurable, and 24 §6's M4 LAN criterion is restated around it (typical content within the cap; the ≈ 5 MB/s two-display worst case falls back to `CATCHUP` without desync, guest hash equal to the host's after recovery). §4.3's measurements are unchanged.
+
+## Amendments after M0 step S5 (2026-10-14)
+
+28 (`28-command-stream-v1.md`, M0 step S5) specified command stream v1, its records and the `RenderHost` SPI, and the owner accepted its defaults for Q2–Q13 on 2026-10-14. Applied in place, each marked 2026-10-14:
+
+- **§1.3.** The SPI method `submit` became `offer`, as 24's diagram already writes it, and `open(DeviceKey, SurfaceDesc, ReadbackSink)` joined the interface (28 §1.3 C12, §2.4; Q13 (d)).
+- **§2.5, the `computer.stopped/started` row.** The host overwrites the kept target with the confirmed pixels that `RESET` carries, so host, oracle and server agree after the epoch change (28 §1.3 C25, §2.2; Q12, Q13 (e)).
+- **§3.3.** Dirty-rect payloads are tightly packed, so G8's `ROW_LENGTH` 0 applies (28 §1.3 C9).
+- Not changed: §2.1's worker step (`renderHost.submit`) and §5's "`submit`, then `onReadback`", where the SPI call reads as `offer` after §1.3's rename; the op names `UploadOp`, `FrameOp` and `Init`, for which 28 §2.3 defines record kinds; and §2.1's append at each call, which 28 §2.2 keeps for resource records only, a frame entering the tail at `present` (28 §1.3 C13).

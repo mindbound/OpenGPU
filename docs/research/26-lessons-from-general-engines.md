@@ -77,9 +77,9 @@ The verifier rated the marginal value low. It is a short bullet in 24 §3.3, lin
 
 23 §2's hygiene assertion already compares pack/unpack alignment, and 21 §3.3 sets unpack row length and alignment for dirty rects. What is missing is *forcing* the whole state. Readback is not alignment-sensitive (rows of 160–1 280 B are multiples of 8, 20 §3), but a foreign `PACK_ROW_LENGTH` or `PACK_SKIP_*` would corrupt it [I: no source shows anyone setting them], and an upload whose rows are not multiples of 4 behaves differently before and after the player's first screenshot.
 
-- **Change:** around every upload, every `glGetTexImage` and the LAN-guest upload, set `PACK_`/`UNPACK_ALIGNMENT = 1`, `ROW_LENGTH = 0` and `SKIP_PIXELS`/`SKIP_ROWS = 0` (plus `SWAP_BYTES`/`LSB_FIRST = false` on compatibility contexts), then restore.
+- **Change:** around every upload, every `glGetTexImage` and the LAN-guest upload, set `PACK_`/`UNPACK_ALIGNMENT = 1`, `ROW_LENGTH = 0` and `SKIP_PIXELS`/`SKIP_ROWS = 0` (plus `SWAP_BYTES`/`LSB_FIRST = false` on compatibility contexts), then restore. *2026-10-14 (M0 step S5): `SWAP_BYTES`/`LSB_FIRST` are forced on both contexts, since GL 3.3 core defines both and GLSM tracks the unpack pair (28 §1.3 C10).*
 - Add pixel-store rows to 20 §1's table, and non-default pixel-store state to the hygiene test's start state (24 §3.9).
-- GLSM caches unpack state only (`ANG/GLStateManager.java:1104-1107`), so saving pack state costs driver round trips on both legs: do it only when a readback is queued. ≈ 0.5 d [est.].
+- GLSM caches unpack state only (`ANG/GLStateManager.java:1104-1107`), so saving pack state costs driver round trips on both legs: do it only when a readback is queued. ≈ 0.5 d [est.]. *2026-10-14: this holds through 2.2.28; 2.2.32's `glPixelStorei` caches pack state too, and the rule stands (28 §1.3 C11).*
 
 **Constant vertex attributes (V1, ADOPT, M0; found by the verifier).** Angelica 2.2.21 caches constant generic attributes (colour at location 1, normal, UV, lightmap) and re-sends them only when its own dirty flags are set (`ANG/GLStateManager.java:323-346`; colour at location 1, `:690`). `glVertexAttrib4f` passes straight through without updating that cache (`:3135-3137`) [V, re-read by the writer]. An OpenGPU `glVertexAttrib4f` would therefore leak into later Minecraft or Iris draws that lack those streams [I: the effect on Iris draws was not reproduced].
 
@@ -90,7 +90,7 @@ The verifier rated the marginal value low. It is a short bullet in 24 §3.3, lin
 
 - **Change:** bind a 1×1 transparent-black RGBA8 default (or a cube default) to every unit a program declares and a draw leaves unbound. A validator that rejects such draws would also be deterministic, but is less friendly.
 - `R8UI`/`R16UI` surfaces stay OpenGPU-private and are never bindable to user samplers.
-- User-visible `index8` textures are normalized `GL_R8`; internal shaders recover the index with `floor(r * 255.0 + 0.5)`. This is decided in M1, when `BLIT` sources gain formats, and is the same rule as R5. ≈ 0.5–1 d [est.].
+- User-visible `index8` textures are normalized `GL_R8`; internal shaders recover the index with `floor(r * 255.0 + 0.5)`. This is decided in M1, when `BLIT` sources gain formats, and is the same rule as R5. ≈ 0.5–1 d [est.]. *2026-10-14 (M0 step S5; 28 Q11, default accepted): the rule applies from M0, which stores index8 textures as `GL_R8` (28 §1.3 C8, §6.6), so M1 and M2 migrate nothing.*
 
 **Driver threading and GPU power states (G7, CONSIDER; measure in M0, decide in M1).** Godot writes an NvAPI profile that disables NVIDIA "Threaded optimization" to avoid stutter (`GD/platform/windows/gl_manager_windows_native.cpp:105-110, 243-251`). It also documents that GPU timestamps grow when a frame cap lets the GPU downclock (`GD/doc/classes/RenderingServer.xml:4176-4178`) [S]. OpenGPU's START pass polls queries, calls `glGetBufferSubData` and, on the vanilla leg, makes ≈ 12 `glGet*` calls that a threaded driver must serialize [I]; layer 4's EWMA throttle (24 §3.8) reads timestamps. The verifier notes that only the 3 ms throttle is exposed; the 100/500 ms thresholds are far above any DVFS inflation. Two added M0 measurements decide it:
 
@@ -597,3 +597,11 @@ Adversarial check of 2026-10-08. The verifier checked 38 lessons individually an
 - The researcher's citation for Godot's silent drop of excess canvas items (`rasterizer_canvas_gles3.cpp:1315, 1494`) shows instanced drawing, not the drop; the drop is documented at `GD/doc/classes/ProjectSettings.xml:3088-3090`, which §1.1 now cites.
 - `misc/extension_api_validation/` is not in the sparse clone; its folder list comes from the GitHub listing.
 - Writer's choices: G13, S10, S12 and R10 are split into separately judged parts; G15 and G16 come from the researcher's "checked, no lesson entry" notes and were not separately verified; the effort sums in §4 and §5 are the writer's arithmetic on [est.] figures.
+
+## Amendments after M0 step S5 (2026-10-14)
+
+28 (`28-command-stream-v1.md`, M0 step S5) specified command stream v1 and the minimal texture path; the owner accepted its defaults for Q2–Q13 on 2026-10-14, Q11 among them. Applied in place, each marked 2026-10-14:
+
+- **§1.4, G8.** `SWAP_BYTES`/`LSB_FIRST` are forced on both contexts, not only on compatibility contexts (28 §1.3 C10; Q13 (c)). GLSM caches only unpack state through 2.2.28 and pack state too from 2.2.32; the rule to save pack state only when a readback is queued stands (C11).
+- **§1.4, G5's `index8` bullet.** The `GL_R8` rule applies from M0 instead of M1 (28 §1.3 C8, §6.6; Q11).
+- Not changed: the other places that put the format rule in M1 (G5's heading, R5's heading in §3.2, G5's row in §4 and the M1 scope in §5's proposed edits to 24), which under Q11 read as M0 for `GL_R8` storage; and the bullet's "when `BLIT` sources gain formats", since the owner's 2026-10-14 decision keeps the other `BLIT` source formats in M2 (28 §1.3 C26).

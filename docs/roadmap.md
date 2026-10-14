@@ -32,7 +32,7 @@ OpenGPU is a Minecraft 1.7.10 Forge addon for GTNH OpenComputers (1.12.64-GTNH o
 - [x] Preparation [proposal], done 2026-10-14 (step S1): the reference clones, jars and research evidence copied from the session Temp scratchpad to `C:\Users\astro\Downloads\opengpu-refs\` (checksums matched), names kept, so a report's `scratchpad\X` is `opengpu-refs\X`; pins in [research/README.md's "References and pins"][README refs]; the 06 and 12 benchmark sources archived next to `callbench/` as `research/rasterbench/` and `research/inflatebench/` (09 §5 Q10)
 - [ ] Build and CI: the subprojects of [24 §3.1], `:gl-testkit`, `:ocelot-harness` and the `-selftest` jar included, wired into the shared workflow; the bytecode reference test; a check on the first `-dev` jar that project classes stay unrelocated (05 OQ2) [proposal]. S4 (2026-10-14) delivered `:core`, `:gl-testkit`, the bytecode reference test and the `-dev`-jar check (the root `jarTest`), all in `check`; the item stays open for `:ocelot-harness` (S10), the `-selftest` jar and the later subprojects
 - [ ] Card and cube display: six facings plus floor/ceiling rotation, thickness (16 px) and tilt (0) saved in NBT, the shared screen-surface helper, one framebuffer per display, one constant render box (R-9); TESR (R-4) and the inventory path (R-8); minimal GUI with touch ([24 §6] M0 scope)
-- [ ] 2D render path: `bind/submit/present/readPixels/getCaps`; `CLEAR/FILL_RECT/BLIT/TEXT` into R8UI (T2) and R16UI (T3); a minimal 2D texture in the surface's own format (create, update a region, free) as `BLIT`'s source and the self-test's sprite, also exercising G1, G8 around uploads and G13b's upload cost (owner, 2026-10-14; ≈ 1–2 d [est.], within M0's range; designed in step S5's command-stream v1 note), with other formats, index8 palette rows and the rest of the texture work left in M2; the 565 quantize (26 R8) and expand; PBO ring with timestamps; confirmed-state fold and `opengpu_frame`; heartbeat and stall ([24 §3.7])
+- [ ] 2D render path: `bind/submit/present/readPixels/getCaps`; `CLEAR/FILL_RECT/BLIT/TEXT` into R8UI (T2) and R16UI (T3); a minimal 2D texture in the surface's own format (create, update a region, free) as `BLIT`'s source and the self-test's sprite, also exercising G1, G8 around uploads and G13b's upload cost (owner, 2026-10-14; ≈ 1–2 d [est.], within M0's range; designed in step S5's command-stream v1 note, [28 §6]), with other formats, index8 palette rows and the rest of the texture work left in M2; the 565 quantize (26 R8) and expand; PBO ring with timestamps; confirmed-state fold and `opengpu_frame`; heartbeat and stall ([24 §3.7]); S6–S8 build it from [28] as [28 §1.2] lists
 - [ ] All four `RenderHost`s: `GlRenderHost`, `NoRenderHost`, `FakeRenderHost`, `GlTestHost` ([24 §3.1])
 - [ ] Angelica: the GLSM linkage test over 25 §4's call set (2.2.8, 2.2.21, 2.2.28 and the latest release, 2.2.32 as of 2026-10-13: 25's linkage check stops at 2.2.30, so this test is the first check of a later release) and an `unmappedGL=FAIL` run on the same jars; the version gate (`[2.2.8,)`) and code rules R-1–R-13 ([25 §5.1]); the 2.2.8 dev jar booting in `runClient` (05 §2's recipe, [25 §6]), done early because the exit criteria depend on it [proposal]; booted on 2026-10-14 (S3)
 - [ ] Engine lessons: typed handles (G1; the handle layout, `Handles`, is in `:core` since S4), state rules G8 and V1, `GlLedger` (G10), the API invariants as text (G2) ([26 §4])
@@ -40,25 +40,25 @@ OpenGPU is a Minecraft 1.7.10 Forge addon for GTNH OpenComputers (1.12.64-GTNH o
 - [ ] Minimal `/opengpu selftest`: pattern and sprite readback, no goldens
 - [ ] Test shader pack, at the end of M0 (owner, 2026-10-14): a small MIT pack written for OpenGPU and kept in the repo as a test fixture, `shaders.properties` with `blend.gbuffers_block` plus minimal `gbuffers` programs. It is both the Iris pack and the pack that overrides block-entity blending (25 §6, the exit criteria), since no common 1.7.10 pack does (Complementary Reimagined r5.9.3, BSL v10.1.8 and Sildur's Vibrant v2.02 set no `blend.gbuffers_block`) and packs are usually not redistributable [I]; each run records the pack's version
 - [ ] Compute spike (1 w): IR → `V1_8` bytecode via relocated ASM 9 in a child loader
-- [ ] Measurements: render-thread cost per job (1/4/16 displays); PBO readback throughput and query latency on Intel, NVIDIA and AMD; vanilla `glGet` cost; OpenGPU fps against host fps 60/30/20; 1 k-triangle encode on 5.3/5.2/OC-LuaJIT (OC-LuaJIT on the owner's machine); OpenOS free memory at 192 KB; the G7, G13b and G16 inputs. Every run records `getCaps().hostRenderer`
+- [ ] Measurements: render-thread cost per job (1/4/16 displays); PBO readback throughput and query latency on Intel, NVIDIA and AMD; vanilla `glGet` cost; OpenGPU fps against host fps 60/30/20; [28 §9.5]'s two encode loads, 3 000 vertices of 3 float32 and 1 000 `FILL_RECT` records, in place of the 1 k-triangle encode while v1 has no `DRAW` (28 Q9), on 5.3/5.2/OC-LuaJIT (OC-LuaJIT on the owner's machine); the validator's time for a 65 536-byte submit ([28 §8.1]); OpenOS free memory at 192 KB; the G7, G13b and G16 inputs. Every run records `getCaps().hostRenderer`
 
 **Order of work** (the readiness check's proposal, accepted by the owner on 2026-10-14, [24 readiness]; S1–S10 are M0's steps, not 26's lesson ids):
 - **S1** References: done 2026-10-14 (Preparation above).
 - **S2** Skeleton: done 2026-10-14: the template's `com.myname.mymodid` renamed to `io.github.mindbound.opengpu`; the OC 1.12.64 dependencies; the OC floor as an FML range in `@Mod`; `gtnhShared/` removed.
 - **S3** Angelica: done 2026-10-14: the 2.2.8 `:api`, plus its dev jar behind `-PwithAngelica` (`=<version>` picks another release); the owner booted `runClient` with and without it, into a world each time, with no `forceEnableMixins` needed ([05 S3]).
 - **S4** The subprojects on one Java 8 convention: done 2026-10-14: `:core`, with G1's handle layout as its first class, and `:gl-testkit`, both on buildSrc's `opengpu.java8` convention (jabel, `options.release = 8`, JUnit 5.14.4, every Test task on a Java 8 launcher); Shadow on, with an identity relocation that keeps project classes unrelocated and minimize off (05 OQ2); `OcFloorRangeTest` in the root `test`; the bytecode reference test and the `-dev`-jar check as the root `jarTest`, over the `-dev` and release jars; `glCompatTest` and `glCoreTest`, the headless-GL smoke test, with the renderer pinned to llvmpipe on CI; guards that fail a test task that ran no tests; the caller job's permissions plus `disable-spotless-pr` ([Track T](#track-t--testing-and-ci)). Verified locally (Intel iGPU, Java 8u504) and on CI's llvmpipe (run 38540313923 of 23e2304: every step green, a "Tests" status of 41 passed). `:lang`, `:jit`, `:gl` and `:stream` join with their steps ([05 S4]).
-- **GLSM spike** (half a day, right after S4's smoke test): bring GLSM up outside FML, which 23 §2.3 found feasible but never ran: after `GLStateManager` initialization, load a trivial GL-calling class through `GLSMRedirector.transformClassNode` on CI's llvmpipe, starting from S4's `glCoreTest` context (3.3 core, forward-compatible). The GL-calling class is the spike's own, not `GlSmokeTest`, which clears integer surfaces with `glClearBufferu`, unmapped in GLSM ([24 §3.7]). It comes early because it is M0's least-proven piece and the GLSM render-core criterion depends on it. Record the result before S8; if it fails, raise it at once, since the GLSM leg would need a different design. *Built 2026-10-14 and passing locally; CI pending:* `:gl-testkit`'s `glsmTest` source set, OpenGPU's own probes and fixtures, run by `glsmFloorTest` (Angelica 2.2.8) and `glsmPackTest` (2.2.28), one JVM each, in `check`. They assert that the transform moves the probes' calls to `GLStateManager`, that readback through GLSM is byte-exact and equal to the raw probes', that GLSM's cache follows the redirected calls, and that `glClearBufferu` stays a direct call under `unmappedGL=WARN` and fails the transform under `FAIL` ([23 spike]). A static check of the 2.2.8, 2.2.28 and 2.2.32 jars found nothing that stops it. GLSM takes only a core context, so `glCoreTest`'s is the right start, and a plain test JVM needs more than 23 §2.3 (b) listed: Guava, commons-lang3, log4j, ASM and stand-ins for three Minecraft classes. Both legs passed 6/6 on 2026-10-14 on the Intel iGPU (GL 3.3 on GLSM's bind path, since GLSM turns DSA off on Intel under Windows) and on the NVIDIA RTX 5060 through `dgpu-run` (GL 3.3, `DSAARB`). Next: CI's llvmpipe, whose GL 4.5 should put GLSM on `DSACore`, the one DSA path not yet run; a failure there that `-Popengpu.glsm.enableDSA=false` clears is a DSA-path problem, not a design failure.
-- **S5** The command-stream v1 note, for owner review, including the minimal texture path.
-- **S6** The `:core` codec, validator and tier-E Java oracle.
-- **S7** `Device`, the SPI, `NoRenderHost` and `FakeRenderHost`.
-- **S8** The first `:gl` pass on `:gl-testkit`.
+- **GLSM spike** (half a day, right after S4's smoke test): bring GLSM up outside FML, which 23 §2.3 found feasible but never ran: after `GLStateManager` initialization, load a trivial GL-calling class through `GLSMRedirector.transformClassNode` on CI's llvmpipe, starting from S4's `glCoreTest` context (3.3 core, forward-compatible). The GL-calling class is the spike's own, not `GlSmokeTest`, which clears integer surfaces with `glClearBufferu`, unmapped in GLSM ([24 §3.7]). It comes early because it is M0's least-proven piece and the GLSM render-core criterion depends on it. Record the result before S8; if it fails, raise it at once, since the GLSM leg would need a different design. *Done 2026-10-14, locally and on CI:* `:gl-testkit`'s `glsmTest` source set, OpenGPU's own probes and fixtures, run by `glsmFloorTest` (Angelica 2.2.8) and `glsmPackTest` (2.2.28), one JVM each, in `check`. They assert that the transform moves the probes' calls to `GLStateManager`, that readback through GLSM is byte-exact and equal to the raw probes', that GLSM's cache follows the redirected calls, and that `glClearBufferu` stays a direct call under `unmappedGL=WARN` and fails the transform under `FAIL` ([23 spike]). A static check of the 2.2.8, 2.2.28 and 2.2.32 jars found nothing that stops it. GLSM takes only a core context, so `glCoreTest`'s is the right start, and a plain test JVM needs more than 23 §2.3 (b) listed: Guava, commons-lang3, log4j, ASM and stand-ins for three Minecraft classes. Both legs passed 6/6 on 2026-10-14 on the Intel iGPU (GL 3.3 on GLSM's bind path, since GLSM turns DSA off on Intel under Windows) and on the NVIDIA RTX 5060 through `dgpu-run` (GL 3.3, `DSAARB`). CI's llvmpipe confirmed it (run 38558132016 of c7bad19: every step green, a "Tests" status of 53 passed): both legs 6/6 on GL 4.5 with `DSACore`, so all three of GLSM's DSA paths have run. A later failure that `-Popengpu.glsm.enableDSA=false` clears is a DSA-path problem, not a design failure.
+- **S5** The command-stream v1 note, for owner review, including the minimal texture path: done 2026-10-14: drafted as [28] and revised the same day against three critiques (fidelity, implementability, Lua and forward compatibility); the owner accepted the defaults of Q2–Q13 ([28 §12]) the same day, and its edits to other documents are applied. Q1, `TEXT`'s glyph source, was answered the same day, after the owner's proposal, [mcer12/PixelFonts][PixelFonts] (MIT), was evaluated and a font survey ([29]) was run: font 0 is X11 misc-fixed 6x13 (public domain), shipped in M0, with 8x13 as the alternative ([28 §7.1]); S6 builds on 28 §7.1's synthetic glyph table.
+- **S6** The `:core` codec, validator and tier-E Java oracle ([28 §1.2]).
+- **S7** `Device`, the SPI, `NoRenderHost` and `FakeRenderHost` ([28 §1.2]).
+- **S8** The first `:gl` pass on `:gl-testkit` ([28 §1.2]).
 - **S9** The per-jar linkage and `unmappedGL=FAIL` runs.
 - **S10** `:ocelot-harness` ([Track T](#track-t--testing-and-ci)).
 
 S1–S8 take about two focused weeks [est.]. After them come `BLIT`/`TEXT`/T3, `GlRenderHost`, the blocks, the self-test, the compute spike and the measurements, with the test shader pack at the end.
 
 **Decision points.**
-- `TEXT` glyphs: run the unscii/Unifont licence check ([24 §8] risk 16) in M0, or use a dev-only glyph source until M1 [proposal].
+- `TEXT` glyphs: decided 2026-10-14 (28 Q1). Font 0 is misc-fixed 6x13, checked by [29] for licence and provenance ([24 §8] risk 16) and shipped in M0, the whole face by [28 §7.1]'s rule, with a credit line in `NOTICE`. 8x13 stays the alternative if 6x13 does not look right in game; a switch changes the cell, so it comes before v1 freezes at M1's release. [29]'s F4 and F5 were answered on 2026-10-15, before S6: `TEXT` carries a `font` byte, with only font 0 defined in M0 ([28 §5.2], [28 §5.6]), and the advance of wide (`wcwidth` 2) codepoints waits for M1 with CJK, so M0 advances one cell per codepoint; its F3, F6 and F7 are M1's, F8 (M1's integer scale) was decided the same day, and F9 is housekeeping.
 - End of M0: the measurements freeze tiers and budgets (risk 8; the 192 KB figure tests decision 7's one-stick 2D target) and feed M1's decisions on G7, G13b and G16.
 
 **Done when** ([24 §6], condensed):
@@ -214,7 +214,7 @@ Rationale: [23], [24 §3.9].
 
 The owner's four OpenGPU-motivated items (in progress; decision 10, [24 §6]'s OC-LuaJIT inputs, risk 19), each with the milestone that first needs it:
 
-- [ ] `string.pack`/`string.unpack`/`string.packsize` with `<f`, `<d`, `<i4`, `<I4` and `<i8` and repetition counts: **M2** (uniform rows), then M3 (`readBuffer`). Widened 2026-10-13 by the two former suggestions: `packsize` because the kernel copies all three (OC's `machine.lua:901-903`; OC-LuaJIT's `build/native/kernel/machine.lua:946-948`); `<f`/`<d` byte-identical to 5.3, so "Lua bytes == FBO bytes" holds across runtimes; `<i8` on the doubles-only VM errors in `pack` for non-integral values or values outside [−2^63, 2^63), as 5.3 does, and `unpack` returns a double, exact below 2^53 and rounded to nearest above, like the 5.2 arithmetic fallback ([24 §3.3]). Until it lands, `opengpu.lua`'s arithmetic (`math.frexp`/`string.char`) encoder serves OC-LuaJIT; the `string.char` encoder stays the baseline everywhere ([24 §2.1])
+- [ ] `string.pack`/`string.unpack`/`string.packsize` with `<f`, `<d`, `<i4`, `<I4` and `<i8` and repetition counts: **M2** (uniform rows), then M3 (`readBuffer`). Widened 2026-10-13 by the two former suggestions: `packsize` because the kernel copies all three (OC's `machine.lua:901-903`; OC-LuaJIT's `build/native/kernel/machine.lua:946-948`); `<f`/`<d` byte-identical to 5.3, so "Lua bytes == FBO bytes" holds across runtimes; `<i8` on the doubles-only VM errors in `pack` for non-integral values or values outside [−2^63, 2^63), as 5.3 does, and `unpack` returns a double, exact below 2^53 and rounded to nearest above, like the 5.2 arithmetic fallback ([24 §3.3]). Until it lands, `opengpu.lua`'s arithmetic (`math.frexp`/`string.char`) encoder serves OC-LuaJIT; the `string.char` encoder stays the baseline everywhere ([24 §2.1]). The planned formats lack u8 and i16, so on OC-LuaJIT the 2D records stay on the traced `char` path even after `pack` lands; adding `B`/`h`/`H` is the owner's call (2026-10-14, [28 §9.3])
 - [ ] Eager release of JNLua table proxies: **M2** (`PipelineDesc`), then M3 (compute lists); mitigates risk 11 and helps M1's `freeMemory` criterion
 - [ ] Detection via `computer.getArchitecture() == "LuaJIT"`: **M1** (`opengpu.lua`'s encoder choice). The name already reads `"LuaJIT"` in game (`OC-LuaJIT docs/roadmap.md:113`)
 - [ ] `string.buffer` reachable from OC user code (owner, 2026-10-13): an optional fast path for `opengpu.lua`'s encoder on OC-LuaJIT; no milestone criterion depends on it. Caveats (a)–(d) below
@@ -255,7 +255,7 @@ Rationale: decision 15, [24 §3.4] ("Examples, not libraries").
 ## Track D — Documentation and API
 
 - [ ] API invariants as text from M0 (G2), linted by the API dump at the M4 freeze
-- [ ] `api-dump.json` from M1 (callbacks, signals, opcodes, record layouts, command-format version, `getCaps` keys, status strings), diffed in CI against the last release; the published `-api` jar ([24 §3.1])
+- [ ] `api-dump.json` from M1 (callbacks, signals, opcodes, record layouts, command-format version, `getCaps` keys, status strings), diffed in CI against the last release; the published `-api` jar ([24 §3.1]). The opcode and record-layout entries are generated from `:core`'s opcode table ([28 §4.2])
 - [ ] Versioned op decoders: side files carry the command-format version, and from M1 every earlier version decodes on load (G12)
 - [ ] Lua docs: `getCaps` and status strings, frame policy and the latency model (21 §2.3), "check `getCaps().renderer`" and dedicated-server behaviour ([24 §4]), no hashing of shaded 3D readback, `int64_t` exact only below 2^53 on 5.2 and OC-LuaJIT, TDR behaviour ([24 §3.8] layer 6)
 - [ ] Shader language reference ([27]) with the conventions of S10 and the ES 1.00 conversion hint (risk 18); compute reference: defined arithmetic and D1–D5 ([22 §2])
@@ -316,6 +316,15 @@ The 2026-10-10 draft's questions 2–6 (Angelica's best-effort band, how CI obta
 [24 amendments]: research/24-architecture-gl-first.md#amendments-before-the-roadmap-2026-10-10
 [24 answers]: research/24-architecture-gl-first.md#amendments-after-the-owners-answers-2026-10-13
 [24 readiness]: research/24-architecture-gl-first.md#amendments-after-the-readiness-check-2026-10-14
+[28]: research/28-command-stream-v1.md
+[28 §1.2]: research/28-command-stream-v1.md#12-what-s6-s7-s8-and-s10-build-from-it
+[28 §4.2]: research/28-command-stream-v1.md#42-dispatch
+[28 §6]: research/28-command-stream-v1.md#6-the-minimal-texture-path
+[28 §7.1]: research/28-command-stream-v1.md#71-glyph-source-and-the-m0-decision-point-rm61
+[28 §8.1]: research/28-command-stream-v1.md#81-caps
+[28 §9.3]: research/28-command-stream-v1.md#93-the-stringpack-fast-path-and-detection
+[28 §9.5]: research/28-command-stream-v1.md#95-m0s-encode-measurement-rm43
+[28 §12]: research/28-command-stream-v1.md#12-open-questions-for-the-owner
 [05 eval]: research/05-dev-stack-and-testing.md#amendments-after-the-ocelot-harness-evaluation-2026-10-14
 [05 S3]: research/05-dev-stack-and-testing.md#amendments-after-m0-step-s3-2026-10-14
 [05 S4]: research/05-dev-stack-and-testing.md#amendments-after-m0-step-s4-2026-10-14
@@ -341,3 +350,38 @@ The 2026-10-10 draft's questions 2–6 (Angelica's best-effort band, how CI obta
 [README]: research/README.md
 [README refs]: research/README.md#references-and-pins
 [OC-LuaJIT roadmap]: https://github.com/mindbound/OC-LuaJIT/blob/master/docs/roadmap.md
+[PixelFonts]: https://github.com/mcer12/PixelFonts
+
+## Amendments after M0 step S5 (2026-10-14)
+
+The owner accepted the defaults of [28]'s Q2–Q13 on 2026-10-14; Q1, `TEXT`'s glyph source, stays open while mcer12/PixelFonts is evaluated. 28's edits to this plan, applied in place:
+
+- **M0, 2D render path.** S6–S8 build it from 28, as [28 §1.2] lists.
+- **M0, measurements.** [28 §9.5]'s two encode loads replace the 1 k-triangle encode while v1 has no `DRAW` (Q9), and the validator's time for a 65 536-byte submit is added ([28 §8.1]).
+- **M0, order of work.** S5 is done; S6–S8 point to [28 §1.2].
+- **M0, decision points.** The `TEXT`-glyphs point gets only Q1's status; its outcome is recorded once Q1 is answered.
+- **Track L, `string.pack`.** OC-LuaJIT's planned formats lack u8 and i16, so its 2D records stay on the traced `char` path; adding `B`/`h`/`H` is the owner's call ([28 §9.3]).
+- **Track D, `api-dump.json`.** `:core`'s opcode table is the source of its opcode and record-layout entries ([28 §4.2]).
+- Link definitions for these sections of 28 and for PixelFonts.
+
+## Amendments after 28 Q1 (2026-10-14)
+
+The owner answered [28]'s Q1 on 2026-10-14, after [29]'s font survey: font 0 is X11 misc-fixed 6x13, with 8x13 kept as the alternative; the OpenOS-style terminal showcase need not match OC's sizes, and a font for the deferred stock-GPU text console (decision 8, above) is chosen with that work, unscii-16 being acceptable then. Changed in place:
+
+- **M0, order of work.** S5's entry records Q1's answer.
+- **M0, decision points.** The `TEXT`-glyphs point records the outcome, which the 2026-10-14 amendment above left for Q1's answer.
+- M1's "glyphs from a licence-checked font" is unchanged: [29]'s F3 and F6–F9 propose M1's fonts, and its F4 and F5, which change `TEXT`, are best answered before S6 (M0, decision points); all stay open.
+- A link definition for 29.
+
+[29]: research/29-font-survey.md
+
+## Amendments after 29 F4 and F5 (2026-10-15)
+
+The owner answered [29]'s F4 and F5 on 2026-10-15, before S6. F4: "yes, let's add the ID byte now"; F5: "undecided but I *think* we can skip CJK support for M0". [28]'s `TEXT` carries a u8 `font`, and M0 defines font 0 only ([28 §5.2], [28 §5.6]); the advance of wide codepoints is deferred to M1 with [29]'s F7, so M0 advances one cell per codepoint and ships no `wcwidth` table. Changed in place:
+
+- **M0, decision points.** The `TEXT`-glyphs point records both answers.
+- M1's "glyphs from a licence-checked font" is unchanged: [29]'s F3, F6, F7 and F9 stay open, and M1 settles F5 before v1 freezes. The owner also accepted F8 the same day: M1's `TEXT` and `BLIT` gain integer scale ×1–×4 ([28]'s §10.1).
+- Link definitions for 28 §5.2 and §5.6.
+
+[28 §5.2]: research/28-command-stream-v1.md#52-layouts
+[28 §5.6]: research/28-command-stream-v1.md#56-text

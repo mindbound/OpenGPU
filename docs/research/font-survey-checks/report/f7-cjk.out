@@ -1,0 +1,24 @@
+6x13.bdf: cell 6x13, ascent 11, descent 2, 4121 glyphs, advances {6: 4121}, boxes outside their advance x cell height: 0
+  6x13.bdf halfwidth katakana U+FF61-FF9F inked: 63/63
+12x13ja.bdf: cell 12x13, ascent 11, descent 2, 19208 glyphs, advances {12: 19208}, boxes outside their advance x cell height: 0
+  12x13ja.bdf kana: 179 encoded, 179 inked of 192, advances {12: 179}
+  12x13ja.bdf URO: 6356 encoded, 6356 inked of 20992, advances {12: 6356}
+  12x13ja.bdf Hangul: 11172 encoded, 11172 inked of 11172, advances {12: 11172}
+  12x13ja.bdf OC351 inked: 295/351
+  pair 6x13.bdf + 12x13ja.bdf: heights 13 and 13, ascent difference +0 px, wide cell 12 = 2 x 6: True
+8x13.bdf: cell 8x13, ascent 11, descent 2, 3703 glyphs, advances {8: 3703}, boxes outside their advance x cell height: 0
+  8x13.bdf halfwidth katakana U+FF61-FF9F inked: 63/63
+12x13ja.bdf: cell 12x13, ascent 11, descent 2, 19208 glyphs, advances {12: 19208}, boxes outside their advance x cell height: 0
+  12x13ja.bdf kana: 179 encoded, 179 inked of 192, advances {12: 179}
+  12x13ja.bdf URO: 6356 encoded, 6356 inked of 20992, advances {12: 6356}
+  12x13ja.bdf Hangul: 11172 encoded, 11172 inked of 11172, advances {12: 11172}
+  12x13ja.bdf OC351 inked: 295/351
+  pair 8x13.bdf + 12x13ja.bdf: heights 13 and 13, ascent difference +0 px, wide cell 12 = 2 x 8: False
+9x18.bdf: cell 9x18, ascent 14, descent 4, 4766 glyphs, advances {9: 4766}, boxes outside their advance x cell height: 0
+  9x18.bdf halfwidth katakana U+FF61-FF9F inked: 63/63
+18x18ja.bdf: cell 18x18, ascent 15, descent 3, 19168 glyphs, advances {18: 19168}, boxes outside their advance x cell height: 0
+  18x18ja.bdf kana: 179 encoded, 179 inked of 192, advances {18: 179}
+  18x18ja.bdf URO: 14655 encoded, 14655 inked of 20992, advances {18: 14655}
+  18x18ja.bdf Hangul: 2350 encoded, 2350 inked of 11172, advances {18: 2350}
+  18x18ja.bdf OC351 inked: 341/351
+  pair 9x18.bdf + 18x18ja.bdf: heights 18 and 18, ascent difference +1 px, wide cell 18 = 2 x 9: True

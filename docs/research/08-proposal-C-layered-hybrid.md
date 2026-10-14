@@ -109,7 +109,7 @@ Two components, mirroring OC's gpu/screen split so OpenOS conventions (`componen
 
 **Signals.** `opengpu_frame(cardAddr, frameId:Long, status:String)` is emitted from the card's `update()` on the server thread via `node.sendToReachable("computer.signal", ...)` (the `NetworkCard` pattern; the node network is not thread-safe from the pool, 00 implication 4), coalesced to one pending signal per device because `Machine.signal` drops when the 256-entry queue is full (07 §3). Arguments are `Long`/`String` only, because `Machine.save` turns `Integer` signal args into nil after a reload (04 §3). Screen input reuses OC's names and argument order so `event.listen("touch", …)` works unchanged: `touch/drag/drop(screenAddr, x, y, button, player)` and `scroll(screenAddr, x, y, delta, player)` with **0-based integer pixel coordinates**, sent as `computer.checked_signal` after the 8-block reach check (00 §3). Keyboard input is not reinvented: `keyboard.keyDown/keyUp/clipboard` node messages go to adjacent keyboards exactly as `TextBuffer.ServerProxy.sendToKeyboards` does (`TextBuffer.scala:909-916`), and OC's keyboard component applies its own reach check (03 §2).
 
-**Command stream v1** (the stable contract; little-endian; every operand fixed-size so the decoder is a table-driven loop with a per-opcode length check):
+**Command stream v1** (the stable contract; little-endian; every operand fixed-size so the decoder is a table-driven loop with a per-opcode length check): *2026-10-14 (M0 step S5): 28 (`28-command-stream-v1.md`) specifies v1 from this table as 09 §3.2 carries it: `CLEAR` loses depth and mask, `BLIT`'s `blend` byte becomes `flags`, `TEXT` gains `flags` and, from 2026-10-15, a u8 `font` (29 F4), and the compute opcodes are not in v1 (28 §1.3, §4.4, §5).*
 
 ```
 header  'O','G','P','U'  u8 version=1  u8 flags  u16 reserved
@@ -277,3 +277,11 @@ M0–M3 ≈ 16–22 weeks; the first shippable 2D release is after M1.
 - **Keyboard attachment (from 15 §1.10, §2).** §3's "`SidedEnvironment` accepting a keyboard on its front face" was half of `Screen.scala:63-67`: the display offers its node on the five non-front faces to anything and on the front only to an adjacent OC keyboard, so keyboards attach on any face and the front is keyboard-only. Corrected in place.
 - **Capability probing (from 14 §3).** §5's "`glGetString` behind an interface because the capabilities object differs between LWJGL majors" is superseded: `GLContext.getCapabilities()` plus `OpenGlHelper` flags work on both legs through lwjgl3ify's `org.lwjglx` shim; one final class, no `glGetString` branching, never `@Lwjgl3Aware`, read only fields present in LWJGL 2.9.4, the shim and LWJGL 3.4.3. Corrected in place.
 - **Per-call overhead (from 11 §2).** Risk 8's "5–20 µs per-call figure" is now measured (4.2–4.5 µs empty, 5–9 µs scalar on PUC Lua; 1.5–2.4 µs on OC-LuaJIT); the risk entry now lists only the constants that remain unmeasured.
+
+### Amendments after M0 step S5 (2026-10-14)
+
+- **Command stream v1 (§3).** A dated pointer to 28 (`28-command-stream-v1.md`, M0 step S5; the owner accepted its defaults for Q2–Q13 on 2026-10-14), which supersedes this table as the v1 layout: `CLEAR` loses depth and mask, `BLIT`'s `blend` byte becomes `flags`, `TEXT` gains `flags`, and `DISPATCH` and `WRITE_BUFFER` leave the stream, 0x40–0x4F staying reserved (28 §1.3 C5, C16; Q13 (a)). The table is kept as proposed.
+
+### Amendments after 29 F4 (2026-10-15)
+
+- **Command stream v1 (§3).** The pointer's list of departures gains `TEXT`'s u8 `font` at offset 14, which the owner added on 2026-10-15 (29 §8 F4; 28 §5.2). Changed in place; the table is kept as proposed.

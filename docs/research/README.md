@@ -52,6 +52,33 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    the shadow-jar fix, the bytecode reference and `-dev`-jar tests, a
    headless-GL smoke test and the CI permissions, and 05, 23, 24 and the
    roadmap were amended to match.
+9. M0 step S5 (2026-10-14, workflow run wf_3e3e37b3-af7) wrote 28: four
+   investigators extracted what the corpus and the code say about the command
+   stream, a drafter wrote the note, three critics (fidelity, implementability,
+   Lua and forward compatibility) reviewed it, and a reviser checked every
+   finding against the sources. On 2026-10-14 the owner accepted the defaults
+   of its questions Q2-Q13; Q1 (the glyph source for `TEXT`) stays open while
+   the owner's proposal, mcer12/PixelFonts, is evaluated. The edits 28 lists
+   for other documents were then applied, and 08-C, 09, 21, 23, 24, 26, the
+   roadmap and this index were amended.
+10. 28's Q1 (2026-10-14) took two more runs. Workflow run wf_9a3bba48-eef
+   evaluated the owner's proposal, mcer12/PixelFonts. Workflow run
+   wf_d03273f8-867 surveyed bitmap fonts in four sweeps (terminal, small,
+   display, wide coverage), with three measurers and a licence critic, and
+   produced 29. The owner then pointed out that the draft judged fonts partly
+   by OC text-screen criteria (grids, half-block cells, joined box drawing),
+   which a pixel GPU that draws text at any pixel does not need. They chose
+   X11 misc-fixed 6x13 as font 0, with 8x13 as the alternative. The main
+   session checked font 0 (`cmdstream-checks/q1_font0.py`) and amended 28 in
+   place, the roadmap, 24 and this index; a reviser rewrote 29 around the
+   decision.
+11. On 2026-10-15 the owner answered 29's F4 (`TEXT` gains a font byte now),
+   deferred F5 (the advance of wide codepoints, with CJK, to M1) and accepted
+   F8's defaults (integer scale ×1-×4 for `TEXT` and `BLIT` in M1). The main
+   session amended 28 in place, updated and re-ran `cmdstream-checks/`, and
+   recorded the answers in 29, the roadmap, 08-C, 24 and this index; workflow
+   run wf_17aa6788-a0a checked the F4 and F5 edits, and its findings were
+   applied.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
@@ -88,7 +115,11 @@ Java 17-21 + lwjgl3ify (GTNH packs), OC-LuaJIT commit a4994e6.
 | `25-angelica-version-floor.md` | Angelica version floor: 2.2.8 supported, older gated off at runtime (the 2.1.14-2.2.7 best-effort band was dropped on 2026-10-13); linkage matrix over all 2.x releases to 2.2.30, the M0 GL call set and deny-list, code rules, test matrix, GTNH pack coverage |
 | `26-lessons-from-general-engines.md` | Lessons from Godot, OpenSceneGraph, O3DE, small-program shader languages and PS1/N64/Dreamcast/Quake/Doom techniques: typed handles, GL state hygiene, a GL allocation ledger, crash guard, API dump, semantic attributes, palette ops, quantize and dither, a retro shader variant family; considered items and owner questions |
 | `27-graphics-language-es300.md` | Graphics shader language as an ES 3.00-based subset: input form, accepted subset, built-ins against GLSL 3.30, integer guards matching compute, ANGLE driver workarounds re-checked, flat and noperspective, interface conventions, shared frontend, effort, an index8 example |
+| `28-command-stream-v1.md` | Command stream v1 for M0, accepted by the owner on 2026-10-14, with its glyph-source question (Q1) answered the same day (font 0 is misc-fixed 6x13) and `TEXT`'s font byte added on 2026-10-15 (29 F4): framing, error codes, versioning and the opcode map; the four M0 ops with per-format pixel results and the tier-E oracle; the minimal texture path and its ordering; the lifecycle and the `RenderHost` SPI; caps, charges and the Lua encoder with a worked frame; S6's test plan; owner questions |
+| `29-font-survey.md` | Font survey for `TEXT` (2026-10-14), answering the follow-up to 28 Q1, revised the same day after the owner decided F1 (font 0 is misc-fixed 6x13), and on 2026-10-15 after F4 and F8 (decided) and F5 (deferred to M1); F3, F6, F7 and F9 open: why one size cannot serve a pixel GPU's labels, body text and headings; bitmap candidates by role (body text, small, display, wide coverage) measured for coverage, licence and provenance; a recommended M1 family by use, mostly misc-fixed; the licence obligations and atlas and jar cost; a font operand, advance and fill rules for `TEXT`; F1's decision record; owner questions F1-F9 |
 | `callbench/` | The ocelot-brain call-overhead harness (`src/Bench.scala`, `src/bench.lua`, run scripts) and every log of the 2026-10-08 campaign. The scripts hard-code the research-phase scratchpad in `S=` (`run.sh:6`, `matrix.sh:3`, `run-extra.sh:3`) and read `$S/lib/*.jar`, 17 public jars (35 MB) that nothing rebuilds; fetch them as OC-LuaJIT's `test/native/smoke-test.sh:353-378` does. No M0 item re-runs callbench; whoever does makes `S` script-relative first |
+| `cmdstream-checks/` | 28's check scripts (2026-10-14; `example.py`, `luabuilders.py` and `rev_checks.py` updated on 2026-10-15 for `TEXT`'s font byte): `q565.py` (quantize, expand and the `GL_R8` index recovery), `example.py` (the worked frame's bytes, handles, charges and caps), `luabuilders.py` (the Lua record builders against the layouts) and `rev_checks.py` (the revision's checks, among them a naive validator over the negative cases), plus Q1's `q1_font0.py` (font 0's cell, coverage with Greek and Cyrillic, and atlas, and the synthetic table at 6×13 and 8×13; it takes the BDFs under `opengpu-refs\font-survey\misc-fixed\x\` as arguments). Own code, MIT with the repo; Python 3 standard library only: run each with `python -I X.py` |
+| `font-survey-checks/` | 29's scripts and small outputs (2026-10-14), by survey role: `shared/fontmeasure.py` (BDF, `.hex` and PSF coverage and previews), `terminal/`, `small/`, `measure-cd/` (display and wide, with `ttfgrid.py` for pixel-grid outlines), `critic/` (ink and glyph-identity checks), `report/` (atlas cost with `setcost.py`'s per-set sums, `.hex` and BDF packing (`hexpack.py`, `bdfpack.py`), glyph boxes against the line (`boxcheck.py`), characters per line (`linefit.py`), the CJK companions (`f7_cjk.py`), inked coverage of the misc-fixed faces (`ink.py`), tier mock-ups and their specs, the revision's `*-f1.out` outputs, and `29-font-survey-files.tsv`, the sha256 of all 327 downloaded files), `pixelfonts/` (the PixelFonts coverage check). Own code, MIT with the repo; Python 3 standard library only. The fonts are not here: they are untrusted downloads under `opengpu-refs\font-survey\`, passed as arguments |
 | `inflatebench/` | 12's CRC32 and deflate benches, archived 2026-10-14: `src/CrcInflateBench.java` (12 section 5) and `src/InflateMid.java` (12 section 1). Own code, MIT with the repo; each is one default-package file at Java 8 source level with no dependencies: run it in `src/` with `javac --release 8 X.java && java X` |
 | `rasterbench/` | 06's software-rasterizer benches, archived 2026-10-14: `src/RasterBench.java` and `src/ShaderBench.java` (06 section 3.6), and the verifiers' re-run logs `logs/verify-bench.log` and `logs/verify6.log` (normalized to LF). Own code, MIT with the repo; each source is one default-package file at Java 8 source level with no dependencies: run it in `src/` with `javac --release 8 X.java && java X`. `RasterBench` takes `[W H [maxThreads]]`, `ShaderBench` takes `mono` or `mega` |
 
@@ -109,9 +140,9 @@ roadmap cover all of them:
   is metadata-only and pixels live in side files (24 sections 2.1 and 3.6);
   the side-file spec (layout, orphan cleanup, write ordering) is part of
   M1's persistence work.
-- Font licence: an M1 check (24 section 8, risk 16), needed before M1's
-  licence-checked glyphs. M0's `TEXT` op needs glyphs earlier, so either
-  the check moves into M0 or M0 uses a dev-only glyph source.
+- Font licence: done in M0 for font 0 (24 section 8, risk 16). On
+  2026-10-14, 29 checked X11 misc-fixed 6x13, which ships in M0 (28 Q1);
+  M1's further fonts are 29's open questions F3, F6 and F7.
 - GTNH registration conventions: roadmap tasks, with lang, textures,
   creative tab, OC manual pages and `DeviceInfo` in M1, and recipes and
   pack integration by v1 (M4).
