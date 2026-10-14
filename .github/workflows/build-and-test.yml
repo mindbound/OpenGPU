@@ -9,5 +9,14 @@ on:
 
 jobs:
   build-and-test:
+    # GTNH-Actions-Workflows 042346f (2026-10-12) posts a Tests commit status and, on PRs with failures, a comment,
+    # and a personal repository's GITHUB_TOKEN can only read by default (23 §1.1, roadmap Track T)
+    permissions:
+      contents: read
+      statuses: write
+      pull-requests: write
     uses: GTNewHorizons/GTNH-Actions-Workflows/.github/workflows/build-and-test.yml@master
     secrets: inherit
+    with:
+      # The spotless-fix PR pushes a branch, which needs contents: write; without it that step fails a second time
+      disable-spotless-pr: true

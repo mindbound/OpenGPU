@@ -48,6 +48,10 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    out of the Temp scratchpad or pinned (References and pins, below), the 06
    and 12 bench sources were archived next to `callbench/`, and 05, 11, 20,
    23, 24, 25, the roadmap and this index were amended.
+8. M0 step S4 (2026-10-14) added the `:core` and `:gl-testkit` subprojects,
+   the shadow-jar fix, the bytecode reference and `-dev`-jar tests, a
+   headless-GL smoke test and the CI permissions, and 05, 23, 24 and the
+   roadmap were amended to match.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on

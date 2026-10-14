@@ -1,0 +1,11 @@
+// Spotless formats the subprojects' Java by the root's rules; blowdryer's spotless.gradle (tag 0.2.2) targets the
+// root's src only. This part is Groovy because Spotless sits on the root's own buildscript classpath, which GTNHGradle's
+// settings plugin fills; a script plugin compiles against the settings and buildSrc classpath only, so a Kotlin one
+// cannot name SpotlessExtension. The construct is blowdryer's; java {} reuses its format and replaces only the target.
+plugins.withId('com.diffplug.spotless') {
+    spotless {
+        java {
+            target 'src/*/java/**/*.java', 'src/*/scala/**/*.java', '*/src/*/java/**/*.java'
+        }
+    }
+}

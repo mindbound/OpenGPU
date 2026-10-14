@@ -48,4 +48,9 @@ dependencies {
         def angelicaVersion = withAngelica in ["", "true"] ? "2.2.8" : withAngelica
         runtimeOnlyNonPublishable("com.github.GTNewHorizons:Angelica:${angelicaVersion}:dev")
     }
+
+    // The subprojects ship inside the mod jar at their own package names (24 §3.1; the identity relocation is in
+    // addon.gradle.kts). Not transitive, as Angelica shades glsm: each subproject is listed here, and so is every
+    // library one of them needs shaded (ASM, with :jit). Test dependencies are in addon.gradle.kts, with the test tasks.
+    shadowImplementation(project(":core")) { transitive = false }
 }

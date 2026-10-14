@@ -1,0 +1,67 @@
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+
+// The one Java 8 convention for OpenGPU's subprojects (roadmap M0, S4): what GTNHGradle 2.0.33's ToolchainModule does
+// for the root under enableModernJavaSyntax = jabel (a JDK 17 compiler, release 8, jabel on the processor path), plus
+// JUnit 5 with every test JVM on Java 8, decision 12's runtime (23 §4.4).
+plugins {
+    id 'java-library'
+}
+
+repositories {
+    maven {
+        name = 'GTNH Maven'
+        url = 'https://nexus.gtnewhorizons.com/repository/public/'
+        content { includeGroup 'com.github.GTNewHorizons' } // jabel
+    }
+    mavenCentral()
+}
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(17) }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    // As GTNHGradle sets them: release 8 fixes the Java 8 API and major 52, jabel lets newer syntax through
+    sourceCompatibility = '17'
+    options.release = 8
+}
+
+def jabel = "com.github.GTNewHorizons:jabel-javac-plugin:${OpenGpuVersions.JABEL}"
+sourceSets.configureEach { SourceSet sourceSet ->
+    // Every source set, test fixtures included; GTNHGradle covers the root's main and test
+    project.dependencies.add(sourceSet.annotationProcessorConfigurationName, jabel)
+    project.dependencies.add(sourceSet.annotationProcessorConfigurationName,
+        "net.java.dev.jna:jna-platform:${OpenGpuVersions.JNA_PLATFORM}")
+}
+
+dependencies {
+    compileOnly(jabel) { transitive = false } // for its @Desugar, as GTNHGradle adds it
+    testImplementation platform("org.junit:junit-bom:${OpenGpuVersions.JUNIT}")
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// The root's RetroFuturaGradle resolves project jars with these attributes; Angelica's glsm/build.gradle.kts:20-34:
+// "Without them, Gradle can't resolve the subproject variant"
+def rfgObfuscation = Attribute.of('com.gtnewhorizons.retrofuturagradle.obfuscation', String)
+def rfgDeobfuscated = Attribute.of('rfgDeobfuscatorTransformed', Boolean)
+['apiElements', 'runtimeElements'].each { name ->
+    configurations.named(name) {
+        attributes {
+            attribute(rfgObfuscation, 'mcp')
+            attribute(rfgDeobfuscated, true)
+        }
+    }
+}
+
+// jabel's output is major 52 already, so the tests run the classes that ship (Angelica has to downgrade first)
+def java8 = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(8) }
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    javaLauncher = java8
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat = TestExceptionFormat.FULL
+    }
+}
