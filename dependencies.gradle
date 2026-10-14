@@ -38,4 +38,14 @@ dependencies {
     compileOnly("com.github.GTNewHorizons:OpenComputers:1.12.64-GTNH:api") { transitive = false }
     // Transitive: dev runs get OC's own mod set, as in a pack. It contains no Angelica, so the Angelica-absent leg stays clean.
     runtimeOnlyNonPublishable("com.github.GTNewHorizons:OpenComputers:1.12.64-GTNH:dev")
+
+    // Angelica is optional at run time, so OpenGPU compiles against the floor's API only (25 §1.1).
+    compileOnly("com.github.GTNewHorizons:Angelica:2.2.8:api") { transitive = false }
+    // -PwithAngelica adds the floor's dev jar to dev runs (25 §6); -PwithAngelica=2.2.21 picks another release.
+    // No forceEnableMixins: the Mixin provider it would add, UniMixins' dev jar, already comes in with GTNHLib.
+    def withAngelica = project.findProperty("withAngelica")?.toString()
+    if (withAngelica != null && withAngelica != "false") {
+        def angelicaVersion = withAngelica in ["", "true"] ? "2.2.8" : withAngelica
+        runtimeOnlyNonPublishable("com.github.GTNewHorizons:Angelica:${angelicaVersion}:dev")
+    }
 }

@@ -138,6 +138,7 @@ Clones:
 | `gtnh-actions` | https://github.com/GTNewHorizons/GTNH-Actions-Workflows | be3d291 (2026-10-04; master is now 042346f) |
 | `horizon-qa` | https://github.com/GTNewHorizons/Horizon-QA | tag 0.15.0 = e05abc0 |
 | `ocglasses-gtnh\src` | https://github.com/GTNewHorizons/OCGlasses | tag 1.6.9-GTNH = bb1a1bb (source tree only) |
+| `ocelot-harness-renno231\repo` | https://github.com/Renno231/ocelot-harness | `main` HEAD e5f81e1 (2026-10-03, version 0.1.1), cloned straight into `opengpu-refs` on 2026-10-14; its `lib/ocelot-brain` submodule (bec1cc6) is not checked out. Evaluated, not adopted: [05's amendments](05-dev-stack-and-testing.md#amendments-after-the-ocelot-harness-evaluation-2026-10-14), cited there and in 23 as `RH:` |
 
 Jars and extractions:
 
