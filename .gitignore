@@ -35,3 +35,7 @@ addon.local.gradle.kts
 addon.late.local.gradle
 addon.late.local.gradle.kts
 layout.json
+
+# Claude Code: per-user settings, and session scratchpads mirrored here by a user-level Stop hook
+.claude/settings.local.json
+.claude/scratch/

@@ -40,6 +40,14 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    24 and this index were amended. The owner's answers of 2026-10-13 (Angelica
    band dropped, energy from M1, OC-LuaJIT inputs) were then applied to 20-25
    and the roadmap.
+7. The readiness check for M0 (2026-10-13, workflow run wf_42fc3d4f-f30)
+   covered the artifacts, the reference sources, build and CI, the local
+   environment and the plan, with every flagged item adversarially verified.
+   It found no day-1 blockers, but stale and wrong statements in the docs. On
+   2026-10-14 the owner accepted its defaults, the cited references were copied
+   out of the Temp scratchpad or pinned (References and pins, below), the 06
+   and 12 bench sources were archived next to `callbench/`, and 05, 11, 20,
+   23, 24, 25, the roadmap and this index were amended.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
@@ -73,10 +81,12 @@ Java 17-21 + lwjgl3ify (GTNH packs), OC-LuaJIT commit a4994e6.
 | `22-shader-and-compute-languages.md` | GLSL ES 1.00 graphics subset and its emitter, GLSL 4.30-syntax compute with CPU semantics, determinism rules, rack scheduling, the HBM RBMK check; section 1 superseded by 27 where they conflict |
 | `23-gl-testing-strategy.md` | Headless GL in the GTNH shared CI, tolerance tiers for golden images, the ocelot GL test host, in-game and dedicated-server tests |
 | `24-architecture-gl-first.md` | Current decision document: owner decisions, architecture, phased plan M0-M4 with M1.5 display block, questions, risks |
-| `25-angelica-version-floor.md` | Angelica version floor: 2.2.8 supported, older gated off at runtime (the 2.1.14-2.2.7 best-effort band was dropped on 2026-10-13); linkage matrix over all 2.x releases, the M0 GL call set and deny-list, code rules, test matrix, GTNH pack coverage |
+| `25-angelica-version-floor.md` | Angelica version floor: 2.2.8 supported, older gated off at runtime (the 2.1.14-2.2.7 best-effort band was dropped on 2026-10-13); linkage matrix over all 2.x releases to 2.2.30, the M0 GL call set and deny-list, code rules, test matrix, GTNH pack coverage |
 | `26-lessons-from-general-engines.md` | Lessons from Godot, OpenSceneGraph, O3DE, small-program shader languages and PS1/N64/Dreamcast/Quake/Doom techniques: typed handles, GL state hygiene, a GL allocation ledger, crash guard, API dump, semantic attributes, palette ops, quantize and dither, a retro shader variant family; considered items and owner questions |
 | `27-graphics-language-es300.md` | Graphics shader language as an ES 3.00-based subset: input form, accepted subset, built-ins against GLSL 3.30, integer guards matching compute, ANGLE driver workarounds re-checked, flat and noperspective, interface conventions, shared frontend, effort, an index8 example |
-| `callbench/` | The ocelot-brain call-overhead harness (`src/Bench.scala`, `src/bench.lua`, run scripts) and every log of the 2026-10-08 campaign |
+| `callbench/` | The ocelot-brain call-overhead harness (`src/Bench.scala`, `src/bench.lua`, run scripts) and every log of the 2026-10-08 campaign. The scripts hard-code the research-phase scratchpad in `S=` (`run.sh:6`, `matrix.sh:3`, `run-extra.sh:3`) and read `$S/lib/*.jar`, 17 public jars (35 MB) that nothing rebuilds; fetch them as OC-LuaJIT's `test/native/smoke-test.sh:353-378` does. No M0 item re-runs callbench; whoever does makes `S` script-relative first |
+| `inflatebench/` | 12's CRC32 and deflate benches, archived 2026-10-14: `src/CrcInflateBench.java` (12 section 5) and `src/InflateMid.java` (12 section 1). Own code, MIT with the repo; each is one default-package file at Java 8 source level with no dependencies: run it in `src/` with `javac --release 8 X.java && java X` |
+| `rasterbench/` | 06's software-rasterizer benches, archived 2026-10-14: `src/RasterBench.java` and `src/ShaderBench.java` (06 section 3.6), and the verifiers' re-run logs `logs/verify-bench.log` and `logs/verify6.log` (normalized to LF). Own code, MIT with the repo; each source is one default-package file at Java 8 source level with no dependencies: run it in `src/` with `javac --release 8 X.java && java X`. `RasterBench` takes `[W H [maxThreads]]`, `ShaderBench` takes `mono` or `mega` |
 
 The completeness critic's eight medium- and low-rated gaps got no gap-fill
 report of their own. As of 2026-10-10, later reports, 24's plan or the
@@ -104,3 +114,110 @@ roadmap cover all of them:
 - OC Lua program conventions (chug-library): design input at the start of
   M1, for the simple-2D callbacks, `opengpu.lua` and the OpenOS-style
   terminal.
+
+## References and pins
+
+Reports cite the research-phase scratchpad as `scratchpad\X`; since
+2026-10-14 that is `C:\Users\astro\Downloads\opengpu-refs\X` (328 MB, about
+10,700 files), copied with the names kept from
+`C:\Users\astro\AppData\Local\Temp\claude\C--Users-astro-Downloads-OpenGPU\170a14cc-5cc1-40e0-a7ec-6130b748eabf\scratchpad`
+(2.3 GB, still present but an orphaned Temp folder), and every copied file's
+checksum matches the original.
+
+Clones:
+
+| Name | Repo | Pin |
+|---|---|---|
+| `ocgtnh-master` | https://github.com/GTNewHorizons/OpenComputers | tag 1.12.64-GTNH = 1e4559f (shallow) |
+| `angelica-git` | https://github.com/GTNewHorizons/Angelica | full history; HEAD 78abc05 (master, 2026-10-07, one commit after 2.2.30); tags fetched to 2.2.32 on 2026-10-14. The working tree is not checked out: read it with `git show <rev>:<path>`, as 25 does |
+| `Angelica-2.2.21` | same repo | tag 2.2.21 = a8c29fa (shallow); its index, cleared during the research, was restored in the copy |
+| `GTNHLib` | https://github.com/GTNewHorizons/GTNHLib | tag 0.11.52 = 343a327 |
+| `lwjgl3ify` | https://github.com/GTNewHorizons/lwjgl3ify | tag 3.0.37 = c87172b |
+| `rfb` | https://github.com/GTNewHorizons/RetroFuturaBootstrap | tag 1.1.2 = 78b6871 |
+| `lwjgl2-src` | https://github.com/LWJGL/lwjgl | master 2df01dd (2016-12-08) |
+| `gtnh-actions` | https://github.com/GTNewHorizons/GTNH-Actions-Workflows | be3d291 (2026-10-04; master is now 042346f) |
+| `horizon-qa` | https://github.com/GTNewHorizons/Horizon-QA | tag 0.15.0 = e05abc0 |
+| `ocglasses-gtnh\src` | https://github.com/GTNewHorizons/OCGlasses | tag 1.6.9-GTNH = bb1a1bb (source tree only) |
+
+Jars and extractions:
+
+| Name | Contents | Cited by |
+|---|---|---|
+| `angelica-jars\{2.2.8, 2.2.21, 2.2.28, 2.2.30, 2.2.32}` | `Angelica-<v>.jar` and `-sources.jar` from `https://nexus.gtnewhorizons.com/repository/public/com/github/GTNewHorizons/Angelica/<v>/`; 2.2.32 was fetched on 2026-10-14 and its SHA-1 verified against Nexus, and the owner's installed jar is identical | 25 |
+| `lwjgl3jar` | `lwjgl-opengl-3.3.6.jar` plus an extraction | 14 |
+| `lwjgl2jar` | classes extracted from the instance's LWJGL 2.9.4 nightly jar | 14 |
+| `oc-jar-1.12.64` | an extraction of `OpenComputers-1.12.64-GTNH.jar` | 19 |
+| `glcaps-diff` | the capability lists `l2.txt`, `lx.txt`, `l3.txt` and `l3new.txt`, and `l343\lwjgl-opengl-3.4.3.jar` from Maven Central | 14 |
+
+Research evidence, made or downloaded by the research agents; it exists only
+in `opengpu-refs` and in the session transcripts:
+
+| Name | What it holds | Cited by |
+|---|---|---|
+| `angelica-floor` | 52 MB: the changelog notes, the linkage-work scripts, the call-set and class-matrix TSVs, traps and web API dumps (25's prefixes CL, LWK and related) | 25 |
+| `floor25` | F25: the writer's extended call set, evaluator, results and table generators | 25 |
+| `vchk`, `vscripts` | VCHK: the verifier's independent check (`vscripts\chk.py` with `vchk\*.txt`) | 25 |
+| `engine-lessons`, `retro-scripts` | the researchers' notes (`godot-server`, `shader-ergonomics`, `retro-techniques`) and the scripts `q565.py`, `bayer.py` and `lut.py` | 26 |
+| `bench`, `verify-bench`, `verify6` | the rasterizer and shader benches and the verifiers' re-run logs, also archived here as `rasterbench/` | 06 |
+| `gap12\bench` | the CRC32 and deflate benches, also archived here as `inflatebench/` | 12 |
+| `gtnh-pack-cfg` | the GTNH pack's shipped `OpenComputers.cfg` per pack version and the 2.8.4 and 2.9.0-RC-2 manifests | 10, 14 |
+| `web22` | ANGLE sources and the GL 3.3 core, GLSL 3.30 and WGSL specs | 22, 26, 27 |
+| `web27` | the GLSL ES 3.00 spec, the WebGL 2.0 spec and glslang sources | 27 |
+| `glsles100.txt` | the GLSL ES 1.00 spec text (revision 17) | 20, 26, 27 |
+
+Not copied; fetch these again from their pins if needed:
+
+- `Angelica-master` and `angelica-full.git`: both 78abc05, redundant with
+  `angelica-git`.
+- The other 116 versions in `angelica-jars` (the remaining 2.x releases to
+  2.2.30, and 1.0.0-beta29 and 1.0.0-beta66b): all on Nexus.
+- Extractions that can be rebuilt from the instance's jars and the Gradle
+  caches: gap12's `ct-jar`, `gtnhlib-jar` and `unimixins-jar`;
+  `hodgepodge-classes`; `netty-4.0.10-src`; `mc-classes`.
+- `callbench`'s `lib`, `classes`, `stage`, `modjar` and `ocjar`; its sources,
+  scripts and logs are in `callbench/` here (see its row in the Index).
+- Workflow intermediates (`edit*`, `answers*`, `*-results.md` and similar).
+
+Clones not copied, by citing report:
+
+| Cited by | Name | Repo | Pin |
+|---|---|---|---|
+| 01, 05 | `oclights2` | https://github.com/BlueAmulet/OCLights2 | 5438053 |
+| 01, 05 | `plethora` | https://github.com/SquidDev-CC/plethora | 3c9b415 |
+| 01, 05 | `oc2` | https://github.com/fnuecke/oc2 | tag 1.21.1/0.9.1 = 480af73 |
+| 01, 05 | `mcvm` | https://github.com/Delta2Force/MCVmComputers | 17f3890 |
+| 01, 05 | `ccdirectgpu` | https://github.com/tiktop101/CC-DirectGPU-Mod | 453be7a |
+| 01, 05 | `pine3d` | https://github.com/Xella37/Pine3D | 2fbbd2c |
+| 01, 05 | `cctweaked` | https://github.com/cc-tweaked/CC-Tweaked | c8b3f6a |
+| 01, 05 | `mcef` | https://github.com/montoyo/mcef | db8953e |
+| 01, 05 | `webdisplays` | https://github.com/montoyo/webdisplays | cf16d2e |
+| 01, 05 | `ocglasses` | https://github.com/Starchasers/OCGlasses | 9c0c8cc |
+| 01, 05 | `bennybox` | https://github.com/BennyQBD/3DSoftwareRenderer | b883775 |
+| 01, 05 | `ocelot-desktop` | https://gitlab.com/cc-ru/ocelot/ocelot-desktop | 4cd3cfa |
+| 22 | `hbmntm` | https://github.com/HbmMods/Hbm-s-Nuclear-Tech-GIT | 427c1ea |
+| 26 | `godot`, `el-src\godot` | https://github.com/godotengine/godot | 65e8d16 |
+| 26 | `el-src\godot-docs` | https://github.com/godotengine/godot-docs | 8973ac3 |
+| 26 | `el-src\love-11.5` | https://github.com/love2d/love | tag 11.5 = 6eb8d54 |
+| 26 | `el-src\love-main` | same repo | b7daef0 |
+| 26 | `el-src\raylib` | https://github.com/raysan5/raylib | a043255 |
+| 26 | `el-src\bgfx` | https://github.com/bkaradzic/bgfx | 73183be |
+| 26 | `el-src\threejs` | three files, not a clone | none |
+| 26 | `osg` | https://github.com/openscenegraph/OpenSceneGraph | 2e4ae2e |
+| 26 | `o3de` | https://github.com/o3de/o3de | e031590 |
+| 26 | `retro\doom` | https://github.com/id-Software/DOOM | a77dfb9 |
+| 26 | `retro\quake` | https://github.com/id-Software/Quake | bf4ac42 |
+| 26 | `retro\kos` | https://github.com/KallistiOS/KallistiOS | 84ed47b |
+| 26 | `retro\libdragon` | https://github.com/DragonMinded/libdragon | e356bf3 |
+| 26 | `retro\psx-spx` | https://github.com/psx-spx/psx-spx.github.io | 6d7d1bc |
+| 26 | `retro\shaders\URP-PSX` | https://github.com/Kodrin/URP-PSX | 8367000 |
+| 26 | `retro\shaders\godot-psx` | https://github.com/AnalogFeelings/godot-psx | 7e51770 |
+| 26 | `retro\shaders\godot-psx-style-demo` | https://github.com/MenacingMecha/godot-psx-style-demo | 91bd249 |
+| 26 | `retro\shaders\psx_retroshader` | https://github.com/dsoft20/psx_retroshader | d675407 |
+| 26 | `retro\shaders\ultimate-retro-shader-collection` | https://github.com/Zorochase/ultimate-retro-shader-collection | tag 1.5 = 8cd971d |
+| 27 | `angle27` | https://github.com/google/angle | 16a0aa0 (sparse) |
+
+The owner's own checkouts under `C:\Users\astro\Downloads\` are unchanged:
+OpenComputers-GTNH is a shallow 1.12.55-GTNH (f83bd95), which is why
+`ocgtnh-master` is the 1.12.64 reference; Angelica is a shallow 2.2.8
+(6d8cbf9), the floor; and OC-LuaJIT (62970a0, 2026-10-13), ocelot-brain
+(e98a5b2) and OC-JNLua (da3d4d4) are full clones.

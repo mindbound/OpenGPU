@@ -1,0 +1,82 @@
+=== JDK8 320x200
+JVM 1.8.0_504 OpenJDK 64-Bit Server VM  fb=320x200  cores=24
+fullscreen flat+z ST                  421.9 Mpix/s     0.01 Mtri/s  6592.5 frames/s
+fullscreen gouraud+z ST               207.0 Mpix/s     0.01 Mtri/s  3234.3 frames/s
+fullscreen tex(persp,nearest)+z ST    124.3 Mpix/s     0.00 Mtri/s  1941.6 frames/s
+  (checksum -358548964193)
+20k small tris (~8px) flat ST          23.5 Mpix/s     6.79 Mtri/s   339.6 frames/s
+20k small tris (~8px) tex ST           22.8 Mpix/s     6.58 Mtri/s   328.8 frames/s
+2k tris (~32px) tex ST                 45.4 Mpix/s     1.02 Mtri/s   512.4 frames/s
+fullscreen tex MT x1 tiles32          120.3 Mpix/s     0.00 Mtri/s  1879.9 frames/s
+fullscreen tex MT x2 tiles32          199.8 Mpix/s     0.01 Mtri/s  3122.1 frames/s
+fullscreen tex MT x4 tiles32          336.8 Mpix/s     0.01 Mtri/s  5263.0 frames/s
+fullscreen tex MT x8 tiles32          479.7 Mpix/s     0.01 Mtri/s  7495.1 frames/s
+fullscreen tex MT x16 tiles32         676.5 Mpix/s     0.02 Mtri/s 10570.7 frames/s
+=== JDK8 ShaderBench mono
+JVM 1.8.0_504  mode=monomorphic
+  warm inlined                                  133.5 Mpix/s
+  warm tex via interface                        143.8 Mpix/s
+  warm inlined                                  145.2 Mpix/s
+  warm tex via interface                        121.6 Mpix/s
+  warm inlined                                  123.1 Mpix/s
+  warm tex via interface                        122.8 Mpix/s
+inlined tex (baseline)                          124.1 Mpix/s
+tex via interface call (monomorphic site)       124.7 Mpix/s
+=== JDK8 ShaderBench mega
+JVM 1.8.0_504  mode=megamorphic
+  warm inlined                                  131.9 Mpix/s
+  warm flat via interface                       325.8 Mpix/s
+  warm gouraud via interface                    211.5 Mpix/s
+  warm tex via interface                        108.5 Mpix/s
+  warm inlined                                  122.6 Mpix/s
+  warm flat via interface                       196.3 Mpix/s
+  warm gouraud via interface                    178.3 Mpix/s
+  warm tex via interface                        114.5 Mpix/s
+  warm inlined                                  115.7 Mpix/s
+  warm flat via interface                       214.8 Mpix/s
+  warm gouraud via interface                    172.2 Mpix/s
+  warm tex via interface                        107.7 Mpix/s
+inlined tex (baseline)                          117.1 Mpix/s
+tex via interface call (megamorphic site)       113.5 Mpix/s
+flat via interface call (megamorphic site)      215.6 Mpix/s
+=== JDK25 ShaderBench mono
+JVM 25.0.4.1  mode=monomorphic
+  warm inlined                                  274.7 Mpix/s
+  warm tex via interface                        255.7 Mpix/s
+  warm inlined                                  252.7 Mpix/s
+  warm tex via interface                        237.3 Mpix/s
+  warm inlined                                  243.8 Mpix/s
+  warm tex via interface                        234.5 Mpix/s
+inlined tex (baseline)                          235.2 Mpix/s
+tex via interface call (monomorphic site)       229.2 Mpix/s
+=== JDK25 ShaderBench mega
+JVM 25.0.4.1  mode=megamorphic
+  warm inlined                                  290.1 Mpix/s
+  warm flat via interface                       590.3 Mpix/s
+  warm gouraud via interface                    310.6 Mpix/s
+  warm tex via interface                        155.9 Mpix/s
+  warm inlined                                  170.8 Mpix/s
+  warm flat via interface                       193.2 Mpix/s
+  warm gouraud via interface                    160.3 Mpix/s
+  warm tex via interface                        150.0 Mpix/s
+  warm inlined                                  178.6 Mpix/s
+  warm flat via interface                       199.8 Mpix/s
+  warm gouraud via interface                    164.4 Mpix/s
+  warm tex via interface                        137.3 Mpix/s
+inlined tex (baseline)                          171.8 Mpix/s
+tex via interface call (megamorphic site)       146.1 Mpix/s
+flat via interface call (megamorphic site)      205.8 Mpix/s
+=== JDK8 640x400
+JVM 1.8.0_504 OpenJDK 64-Bit Server VM  fb=640x400  cores=24
+fullscreen flat+z ST                  317.4 Mpix/s     0.00 Mtri/s  1239.7 frames/s
+fullscreen gouraud+z ST               220.0 Mpix/s     0.00 Mtri/s   859.3 frames/s
+fullscreen tex(persp,nearest)+z ST    121.9 Mpix/s     0.00 Mtri/s   476.1 frames/s
+  (checksum -1912146470658)
+20k small tris (~8px) flat ST          34.8 Mpix/s     7.82 Mtri/s   391.1 frames/s
+20k small tris (~8px) tex ST           32.1 Mpix/s     7.21 Mtri/s   360.5 frames/s
+2k tris (~32px) tex ST                 67.2 Mpix/s     1.00 Mtri/s   501.4 frames/s
+fullscreen tex MT x1 tiles32          110.3 Mpix/s     0.00 Mtri/s   430.9 frames/s
+fullscreen tex MT x2 tiles32          228.3 Mpix/s     0.00 Mtri/s   891.6 frames/s
+fullscreen tex MT x4 tiles32          415.0 Mpix/s     0.00 Mtri/s  1621.3 frames/s
+fullscreen tex MT x8 tiles32          620.5 Mpix/s     0.00 Mtri/s  2423.8 frames/s
+fullscreen tex MT x16 tiles32        1010.8 Mpix/s     0.01 Mtri/s  3948.6 frames/s

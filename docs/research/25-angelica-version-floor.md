@@ -2,13 +2,15 @@
 
 *Status, 2026-10-13: policy changed. The owner, who had delegated the floor (24 §7 answer 8), accepted §8 Q4's recommendation, option 1(b): the best-effort band is dropped, and 2.2.8 is the only threshold. Graphics need Angelica 2.2.8 or later; any older Angelica (2.x below 2.2.8, every 1.x) reports graphics unavailable, compute unaffected. The analysis below stays as the record; the policy statements that changed are marked in place, and [Amendments after the owner's answers (2026-10-13)](#amendments-after-the-owners-answers-2026-10-13) lists every change.*
 
+*Status, 2026-10-14: corrections from the readiness check for M0 (2026-10-13; workflow run wf_42fc3d4f-f30) and the owner's answers of 2026-10-14. Two releases followed this report's evidence: 2.2.31 (2026-10-11, tag 69428c1) and 2.2.32 (2026-10-13, tag 0cae2be), and `MVN` now names `<release>2.2.32</release>` (lastUpdated 2026-10-13 05:05 UTC). The link evidence below stops at 2.2.30 (tag 159f7ff), so ranges such as "2.2.0 to 2.2.30" state what was checked; 2.2.31 and 2.2.32 are unchecked, and M0's linkage test, which takes "latest" from `<release>` (§6), is the first check of a release after 2.2.30. The owner reports that Angelica has fixed the long-standing bug that kept them off the latest stable release: the owner's instance ran a 2.2.31 preview from 2026-10-09 and has run 2.2.32 since 2026-10-13 (its jar's SHA-1, 4106bdbc…, matches Nexus 2.2.32), and it is now §6's in-game latest leg. 2.2.21 stays in the CI linkage test and the `-Dangelica.unmappedGL=FAIL` run, with no in-game leg. The owner also decided that only OpenGPU's own failures in the in-game legs block a release (§6 notes). Tag commits: 2.2.8 = 6d8cbf9, 2.2.21 = a8c29fa, 2.2.28 = 0a4d489, 2.2.30 = 159f7ff, 2.2.31 = 69428c1, 2.2.32 = 0cae2be. Changed in place on 2026-10-14: the scope paragraph, Summary 1 and 6, §2's 2.2.30 row, R-8's range, §6's matrix and notes (the test shader pack included), §7's closing sentence and §8 Q2; one note was appended to the 2026-10-13 amendments.*
+
 Writer, 2026-10-09 (inputs gathered 2026-10-08). This report answers the owner's question 8 (24 §7): which is the lowest Angelica 2.x release that OpenGPU can support as an optional but first-class dependency? It merges the findings of three agents with checks the writer re-ran:
 
 - the changelog analyst (findings `CL F1`–`F16`);
 - the linkage analyst (`LK L1`–`L11`);
 - a verifier (`VF`).
 
-Scope: Java 8 + LWJGL 2.9.4 + Forge 10.13.4.1614, and the client GL path of 20 §1–§4 and 24 §3.7. Only the owner's 2.2.21 has ever run in game. Every statement about any other version is static: it rests on source, `javap` and simulated redirector maps.
+Scope: Java 8 + LWJGL 2.9.4 + Forge 10.13.4.1614, and the client GL path of 20 §1–§4 and 24 §3.7. Only the owner's 2.2.21 has ever run in game. Every statement about any other version is static: it rests on source, `javap` and simulated redirector maps. *2026-10-14: this describes the research period; the owner's instance has since moved to the latest release (2.2.32 since 2026-10-13), on which nothing in this report rests.*
 
 Citation prefixes. All scratchpad paths are under `C:\Users\astro\AppData\Local\Temp\claude\C--Users-astro-Downloads-OpenGPU\170a14cc-5cc1-40e0-a7ec-6130b748eabf\scratchpad\` and are read-only data.
 
@@ -28,12 +30,12 @@ Tags: **[V]** verified at the cited place; **[I]** inference; **[proposal]** a d
 
 ## Summary
 
-1. **Recommended floor: Angelica 2.2.8** (2026-08-19). It is supported, linkage-tested in CI and smoke-tested in game. It covers the owner's 2.2.21, the 2.2.28 shipped in the 2.9.0-RC-2 pack, the latest 2.2.30, and every GTNH manifest that ships Angelica 2.2.x (§7).
+1. **Recommended floor: Angelica 2.2.8** (2026-08-19). It is supported, linkage-tested in CI and smoke-tested in game. It covers 2.2.21 (the owner's release during the research), the 2.2.28 shipped in the 2.9.0-RC-2 pack, the latest 2.2.30 (as of 2026-10-08; 2.2.32 since 2026-10-13, which the owner's instance now runs), and every GTNH manifest that ships Angelica 2.2.x (§7).
 2. **The lowest release OpenGPU's code could run on is 2.1.14.** 2.1.12 is the hard linkage minimum, and 2.1.5–2.1.11 crash on the readback call. *Policy since 2026-10-13: below 2.2.8 a runtime version gate reports graphics as unavailable (§1.1).* Until then this report proposed a best-effort band, 2.1.14–2.2.7, with graphics on, a logged warning and a CI linkage canary but no in-game tests, and gated off only releases below 2.1.14; the owner dropped the band (§8 Q4).
 3. Why 2.2.8: it is the first release whose `glPopAttrib` undoes the blend, alpha-test, depth-mask and colour-mask changes a TESR makes while Iris holds an override lock (22c94799, verified in code). Making 2.1.14 first-class would add a second GLSM generation to every milestone's in-game tests, only to cover superseded 2.9.0 pre-releases (§1.2).
 4. All 124 planned calls link (the descriptor is identical) in every release from 2.2.0 to 2.2.30. Nothing needs 2.2.22 or later. 53 calls link in all 118 releases (§3).
 5. One workaround is mandatory inside the supported range: save and restore the scissor box explicitly. `glPopAttrib` does not restore it before 2.2.21, and RC-1's 2.2.19 is one of those releases. The other rules in §5.1 apply unconditionally; they are cheap and harmless on newer versions and without Angelica.
-6. Test matrix (§6): the CI linkage test runs against 2.2.8, 2.2.21, 2.2.28 and the latest release (the 2.1.14 canary was dropped with the band on 2026-10-13). The in-game smoke test with an Iris pack runs on 2.2.8, 2.2.21, 2.2.28 and the latest release.
+6. Test matrix (§6): the CI linkage test runs against 2.2.8, 2.2.21, 2.2.28 and the latest release (the 2.1.14 canary was dropped with the band on 2026-10-13). The in-game smoke test with an Iris pack (OpenGPU's own test pack) runs on 2.2.8, 2.2.28 and, in the owner's instance, the latest release (2026-10-14: 2.2.21 keeps only its CI runs).
 7. No stable GTNH release ships Angelica 2.x yet. GTNH 2.8.4 ships 1.0.0-beta66b, which falls below the gate (§7, Q3).
 
 ## 1. Decision
@@ -144,7 +146,7 @@ The verifier is right. Only the scissor rule is needed across 2.2.1–2.2.20. Al
 | 2.2.22 (2026-09-28) | `glReadPixels(IIIIIIJ)V` added | not used | 7bb5bfd4 (#2157) | none |
 | 2.2.23 (2026-09-29) | TESR state and batching leaks fixed; TESR item renderers without a world no longer overflow the attrib stack | protects against other mods' TESRs; see R-8 | 1f274a64 (#2162), 9814a96b (#2159) [V, writer: diff of 9814a96b] | rule R-8 |
 | 2.2.29 (2026-10-05) | legacy stack queries answered by GLSM; SDL-GPU selectable in the video settings | before this release `GL_ATTRIB_STACK_DEPTH` reaches the core driver | 6dfb0312 (#2211); REL #2215 | rule R-6 |
-| 2.2.30 (2026-10-07) | the latest release (`<release>2.2.30`) | — | MVN; master has only a README commit after it (`CL`) | latest |
+| 2.2.30 (2026-10-07) | the latest release as of 2026-10-08 (`<release>2.2.30`); 2.2.32 since 2026-10-13 | — | MVN; master has only a README commit after it (`CL`) | latest as of 2026-10-08 |
 
 ## 3. Linkage matrix
 
@@ -454,7 +456,7 @@ Each rule is cheap and harmless on newer versions and on vanilla. None of them n
 - **R-8 No world-less TESR rendering.**
   - *Rule:* never pass `TileEntityRendererDispatcher` a world-less tile entity whose `blockMetadata` is −1. One example is an item renderer that draws the display block through its TESR.
   - *Why:* before 2.2.23, Angelica's dispatcher mixin calls `te.getBlockMetadata()` at HEAD. 9814a96b replaces that call with a guarded version in `MixinTileEntityRendererDispatcher` and `TesrProviderDispatch` [V, writer]. Vanilla's getter dereferences `worldObj` when the field is −1 (`MC/net/minecraft/tileentity/TileEntity.java:153-161`). The commit title reports an attrib-stack overflow as the result.
-  - *Range:* this includes the owner's 2.2.21.
+  - *Range:* this includes the floor 2.2.8, whose `runClient` leg exercises the rule in game, and 2.2.21, which stays in CI (2026-10-14: the owner's instance, on 2.2.21 during the research, now runs 2.2.32; §6).
   - *Fix:* draw the display item through the ISBRH chassis's inventory path instead [proposal].
 - **R-9 Render bounds** (every 2.x).
   - *Rule:* every display tile entity returns one constant box from its very first `getRenderBoundingBox()` call: the maximal wall extent, whatever its role in a wall. Alternatively, the class returns `INFINITE_EXTENT_AABB` from its first instance onwards.
@@ -527,21 +529,22 @@ Each rule is cheap and harmless on newer versions and on vanilla. None of them n
 |---|---|---|---|---|---|---|
 | 2.1.14 | best-effort canary, **dropped 2026-10-13** | no (yes until 2026-10-13) | — (no detector before 2.2.0) | — | — | — |
 | **2.2.8** | **floor** | yes | yes | yes, including the R-1 hygiene case | yes, each milestone, `runClient` with the dev jar pinned | any one |
-| 2.2.21 | owner's instance | yes | yes | — | yes, each milestone, in the owner's instance | Intel, NVIDIA and AMD for the M0 measurements (24 §7 answer 7) |
+| 2.2.21 | CI only since 2026-10-14 (the owner's instance during the research) | yes | yes | — | no (yes until 2026-10-14, each milestone, in the owner's instance) | — |
 | 2.2.28 | pack (2.9.0-RC-2) | yes | yes | yes | yes, before each release | any one |
-| latest (2.2.30 today) | latest | yes, version taken from `MVN` `<release>` | yes | — | non-gating `runClient` (24 risk 2) | any one |
-| none | vanilla leg | — | — | the compat leg (23) | yes, each milestone, without a shader pack (Iris needs Angelica) | as for 2.2.21 |
+| latest (`MVN` `<release>`: 2.2.32 as of 2026-10-13) | latest; the owner's instance since 2026-10-14 | yes, version taken from `MVN` `<release>` | yes | — | yes, each milestone, in the owner's instance with the `-selftest` jar of 24 §3.1 (24 risk 2; until 2026-10-14 a non-gating `runClient`); blocks a release only on OpenGPU's own failures (notes) | Intel, NVIDIA and AMD for the M0 measurements (24 §7 answer 7) |
+| none | vanilla leg | — | — | the compat leg (23) | yes, each milestone, without a shader pack (Iris needs Angelica) | as for the latest release |
 
 Notes:
 
-- **Running the floor in game.** The floor runs through `runClient` with the Angelica dev jar pinned by a Gradle property. `Angelica-2.2.8-dev.jar` and `Angelica-2.1.14-dev.jar` are published (Maven listings of `.../Angelica/2.2.8/` and `.../2.1.14/`) [V]. The owner's instance stays on 2.2.21.
-- **GLSM CI leg.** 23 §8 pins this leg to 2.2.21. It moves to the floor and the pack version [proposal]; the owner's 2.2.21 stays covered in game.
+- **Running the floor in game.** The floor runs through `runClient` with the Angelica dev jar pinned by a Gradle property. `Angelica-2.2.8-dev.jar` and `Angelica-2.1.14-dev.jar` are published (Maven listings of `.../Angelica/2.2.8/` and `.../2.1.14/`) [V]. *2026-10-14:* the owner's instance runs the latest release (2.2.32 since 2026-10-13) and is the in-game latest leg, so the floor's `runClient` leg is the in-game run that exercises the version-dependent rules: R-1 matters up to 2.2.20, and R-8 before 2.2.23. 2.2.21 has no in-game leg; if one is ever wanted, it runs through `runClient` on `Angelica-2.2.21-dev.jar`, not in a second instance.
+- **GLSM CI leg.** 23 §8 pins this leg to 2.2.21. It moves to the floor and the pack version [proposal]; 2.2.21 stays covered by the CI linkage test and the `unmappedGL=FAIL` run (2026-10-14; until then also in game, in the owner's instance).
 - **What each in-game smoke checks**, per version:
   - the pattern and the sprite are visible, and the self-test readbacks are byte-identical (24 §6 M0);
   - the hygiene check is clean;
-  - the panel renders correctly next to other mods' TESRs, under a shader pack that overrides blend for block entities. Which pack to use is decided in M0 [I].
+  - the panel renders correctly next to other mods' TESRs, under a shader pack that overrides blend for block entities. *Decided 2026-10-14:* OpenGPU's own test pack, a small MIT pack written for OpenGPU and kept in the repo as a test fixture (`shaders.properties` with `blend.gbuffers_block`, plus minimal `gbuffers` programs), written at the end of M0. No common 1.7.10 pack overrides block blending: Iris reads `blend.<program>` from `shaders.properties` (`AG@2.2.8:src/main/java/net/coderbot/iris/shaderpack/ProgramDirectives.java:76-78`), `gbuffers_block` and its translucent variant have no default (`AG@2.2.8:src/main/java/net/coderbot/iris/shaderpack/loading/ProgramId.java:36-37`; both the same at 2.2.28 and 2.2.32), and Complementary Reimagined r5.9.3, BSL v10.1.8 and Sildur's Vibrant v2.02 set no `blend.gbuffers_block`; packs are also usually not redistributable [I]. The same pack is the Iris pack of the in-game column, and each run records the pack's version.
   - From M1.5 on, a 3 × 2 wall that crosses a chunk-section boundary is also checked.
 - **New Angelica releases.** The gating linkage test picks up each new release as "latest". A failure there is the signal to update §4 (24 risk 1).
+- **What blocks a release** (*decided 2026-10-14*; the owner: "only a direct OpenGPU failure should block"). The latest leg runs at each milestone and before each release. A failure in an in-game leg blocks the release only when it is OpenGPU's own: either OpenGPU's code is at fault (a call outside §4's set, a broken §5.1 rule, leaked GL state), or the failure also reproduces on the floor or the pack version. A regression in an Angelica release newer than the pack's does not block. It is reported upstream with a reproduction, worked around where that is cheap, and recorded with the run. This concerns the in-game legs; the CI linkage test keeps its role (24 risk 1).
 
 ## 7. GTNH pack coverage
 
@@ -557,7 +560,7 @@ Notes:
 | daily (2026-10-08) | 2.2.30 | 1.12.64 | **supported, tested as latest** | DAX daily |
 | 2.9.0 final | not released as of 2026-10-08 | — | expected ≥ 2.2.28 [I] | GT-New-Horizons-Modpack releases API: RC-2 followed only by nightlies (`CL F15`, VF) |
 
-OC 1.12.x first appears together with Angelica 2.x, from 2.9.0-beta-1 onwards (`CL` Table D). A player on OC 1.12.64 therefore normally has Angelica 2.2.28 or later, unless they have mixed versions as the owner has.
+OC 1.12.x first appears together with Angelica 2.x, from 2.9.0-beta-1 onwards (`CL` Table D). A player on OC 1.12.64 therefore normally has Angelica 2.2.28 or later, unless they have mixed versions, as the owner had during the research (2026-10-14: the owner's instance now runs 2.2.32).
 
 *2026-10-13: under the changed §1.1 the three rows marked best-effort (2.9.0-beta-1, experimental, 2.9.0-beta-2) fall below the gate, so graphics are unavailable there. Their OC versions, 1.12.44–1.12.48, are below decision 14's floor of 1.12.64 anyway (24 §1).*
 
@@ -568,7 +571,7 @@ OC 1.12.x first appears together with Angelica 2.x, from 2.9.0-beta-1 onwards (`
    - (b) Drop the band. Graphics become unavailable below 2.2.8, the canary goes away, and rules R-2, R-3 and R-5 remain only as hygiene.
 
    *Answered 2026-10-13: (b). The owner had delegated the floor (24 §7 answer 8) and accepted the recommendation of Q4 at decision 14's OC floor. Graphics need 2.2.8 or later; the band, its log warning and the 2.1.14 canary are gone. The amendments at the end refine (b)'s list of hygiene-only rules.*
-2. **Floor in game.** Should the floor be tested in game through `runClient` with the 2.2.8 dev jar pinned, while your instance stays on 2.2.21? *Default: yes.*
+2. **Floor in game.** Should the floor be tested in game through `runClient` with the 2.2.8 dev jar pinned, while your instance stays on 2.2.21? *Default: yes.* *2026-10-14: the instance no longer stays on 2.2.21: it runs the latest release (2.2.32 since 2026-10-13) and is §6's in-game latest leg. The floor's `runClient` leg stays, and it is now the in-game run that exercises R-1 and R-8.*
 3. **Angelica 1.x (GTNH up to 2.8.4, the current stable line).** *Default: graphics unavailable.* Revisit this only if OpenGPU is to support OC 1.11, which 2.8.x ships (1.11.20).
 4. **OC floor.** The packs in the band ship OC 1.12.44, 1.12.46 and 1.12.48. If OpenGPU's own OC floor ends up at 1.12.61 or later, the band covers no GTNH pack, and 1(b) becomes the simpler choice. *Default: decide together with the OC floor.* *Answered 2026-10-13: decision 14 set the OC floor at 1.12.64-GTNH (24 §1), so 1(b) was taken. Revisit only if that floor is ever lowered below 1.12.61, because only then could a supported GTNH pack carry an Angelica below 2.2.8 (§7).*
 
@@ -678,6 +681,6 @@ The owner, who had delegated the Angelica floor (24 §7 answer 8), accepted this
 - §7: a dated note; the three pre-release rows marked best-effort now fall below the gate.
 - §8 Q1 and Q4: answered. Revisit only if decision 14's OC floor is ever lowered below 1.12.61, because only then could a supported GTNH pack carry an Angelica below 2.2.8.
 - **Rules that lose their band rationale but stay as hygiene** (§5.1, read against §5.2–§5.3). R-2: both of its reasons (buffer positions before 2.1.16, index-0 writes in 2.1.12–2.1.15) lie below 2.2.8. R-3: its Angelica reason (removed capabilities issued before 2.1.57) lies below 2.2.8; the [I] that any mod can leave an error pending remains. R-4, in part: the clause that forbids changing blend, alpha test, depth mask and colour mask had one version reason, the Iris override leak fixed in 2.2.8 (§1.3 b); the per-unit texture-capability clause keeps a reason inside the supported range (Iris misread those capabilities until 2.2.12, 32d1c27b), and §5.2's row for other mods' TESR leaks (fixed in 2.2.23) still relies on R-4. R-5: its version reason (method handles redirected only from 2.1.13) lay below even the old gate; its second reason, that plain `invokestatic` calls keep every GL call visible to the linkage test, stands. R-7, in part: the fallback that treats a missing `isGLES()` as "not GLES" served 2.1.x (`JAR 2.1.61` lacks the method); it still covers a version string that does not parse, which §1.1 treats as supported [I]. This refines §8 Q1 (b)'s list of R-2, R-3 and R-5.
-- **Rules that keep a reason inside 2.2.8 → latest:** R-1 (2.2.8–2.2.20), R-6 (stack depth 18 until 2.2.18; stack queries reach the driver until 2.2.28), R-8 (before 2.2.23, the owner's 2.2.21 included), R-9 (every 2.x), R-10 (the same mechanism in 2.1.14 and 2.2.21), R-11 (the floor's `-api` jar), R-12 (deny-listed calls that throw `NoSuchMethodError` in 2.2.x, §3) and R-13 (now one range).
+- **Rules that keep a reason inside 2.2.8 → latest:** R-1 (2.2.8–2.2.20), R-6 (stack depth 18 until 2.2.18; stack queries reach the driver until 2.2.28), R-8 (before 2.2.23, the owner's 2.2.21 included), R-9 (every 2.x), R-10 (the same mechanism in 2.1.14 and 2.2.21), R-11 (the floor's `-api` jar), R-12 (deny-listed calls that throw `NoSuchMethodError` in 2.2.x, §3) and R-13 (now one range). *(2026-10-14: the owner's instance now runs 2.2.32, outside R-8's range; the range still includes the floor 2.2.8 and the CI jar 2.2.21.)*
 - Summary 2's heading reads "could run on": 2.1.14 remains the lowest release the evidence admits, but it is no longer linkage-tested. §4: step 4 of the test notes that only the 2.2.x clause applies; row C91 names 2.2.8 as the gate.
 - Not changed: the floor 2.2.8 and its supported-range table (§5.2); §2–§3, and §4 apart from the two notes above; §5.4; R-11's compile target; the GLSM render-core leg (2.2.8, 2.2.28) and the in-game matrix of §6; the Verification notes. §9's correction for 20 and 24 still lists the 2.1.14 jar; this amendment supersedes it, and 20 and 24 were amended to match on 2026-10-13.

@@ -20,25 +20,42 @@ OpenGPU is a Minecraft 1.7.10 Forge addon for GTNH OpenComputers (1.12.64-GTNH o
 - [x] Architecture chosen: GL-first, single player plus LAN first ([24]; supersedes 09 §3–§6)
 - [x] Owner decisions 1–15 recorded in [24 §1]; owner answers to [24 §7] questions 1–8 (2026-10-08), to 9, 10, 12 and 13 and report 27's nine open questions (2026-10-09), and to this roadmap's draft questions 2–6 (2026-10-13: Angelica band dropped, OC-LuaJIT leg local until an artifact, 4 MB/s guest cap, provisional energy from M1, `string.pack` scope), with a fourth OC-LuaJIT item, `string.buffer`, added the same day ([24 answers]). Only question 11 stays open ([Open questions](#open-questions))
 - [x] Pre-roadmap pass (2026-10-10): consistency audit of 24 against 20–27 and OC-LuaJIT, and a sweep of every open question in 00–27; fixes recorded in [24's amendments][24 amendments]
+- [x] Readiness check for M0 (2026-10-13): artifacts, reference sources, build and CI, the local environment and the plan, with every flagged item adversarially verified; no day-1 blockers. Its corrections and the owner's answers (all its defaults accepted; the owner's instance now on the latest Angelica) applied on 2026-10-14 ([24 readiness])
 - [x] Licence: MIT under the owner's name (`LICENSE`); `NOTICE` lists bundled third-party code (ASM, BSD-3-Clause, relocated)
 - [x] CI trimmed: the template's release-packages workflow and version script removed; `build-and-test` (GTNH shared workflow) and `release-tags` remain. Repository detached from the ExampleMod1.7.10 template fork
 
-## M0 — Vertical slice *(next)*
+## M0 — Vertical slice *(in progress)*
 
 **Goal:** one card and one cube display render 2D on the host GPU end to end, with Lua bytes equal to FBO bytes, and M0 measures the constants that later choices depend on.\
 **Depends on:** the research (done). OC-LuaJIT: an ocelot-brain-loadable build on the owner's machine; CI needs it only once a pinned artifact exists ([Track L](#track-l--oc-luajit-coordination)).
 
-- [ ] Preparation [proposal]: re-clone OC 1.12.64-GTNH (1e4559f) and the pinned Angelica tags and jars outside the session Temp scratchpad, where 20–27 cite them (the local OC checkout is a shallow 1.12.55); archive the 06 bench sources next to `callbench/` or record them as dropped (09 §5 Q10)
+- [x] Preparation [proposal], done 2026-10-14 (step S1): the reference clones, jars and research evidence copied from the session Temp scratchpad to `C:\Users\astro\Downloads\opengpu-refs\` (checksums matched), names kept, so a report's `scratchpad\X` is `opengpu-refs\X`; pins in [research/README.md's "References and pins"][README refs]; the 06 and 12 benchmark sources archived next to `callbench/` as `research/rasterbench/` and `research/inflatebench/` (09 §5 Q10)
 - [ ] Build and CI: the subprojects of [24 §3.1], `:gl-testkit`, `:ocelot-harness` and the `-selftest` jar included, wired into the shared workflow; the bytecode reference test; a check on the first `-dev` jar that project classes stay unrelocated (05 OQ2) [proposal]
 - [ ] Card and cube display: six facings plus floor/ceiling rotation, thickness (16 px) and tilt (0) saved in NBT, the shared screen-surface helper, one framebuffer per display, one constant render box (R-9); TESR (R-4) and the inventory path (R-8); minimal GUI with touch ([24 §6] M0 scope)
-- [ ] 2D render path: `bind/submit/present/readPixels/getCaps`; `CLEAR/FILL_RECT/BLIT/TEXT` into R8UI (T2) and R16UI (T3); the 565 quantize (26 R8) and expand; PBO ring with timestamps; confirmed-state fold and `opengpu_frame`; heartbeat and stall ([24 §3.7])
+- [ ] 2D render path: `bind/submit/present/readPixels/getCaps`; `CLEAR/FILL_RECT/BLIT/TEXT` into R8UI (T2) and R16UI (T3); a minimal 2D texture in the surface's own format (create, update a region, free) as `BLIT`'s source and the self-test's sprite, also exercising G1, G8 around uploads and G13b's upload cost (owner, 2026-10-14; ≈ 1–2 d [est.], within M0's range; designed in step S5's command-stream v1 note), with other formats, index8 palette rows and the rest of the texture work left in M2; the 565 quantize (26 R8) and expand; PBO ring with timestamps; confirmed-state fold and `opengpu_frame`; heartbeat and stall ([24 §3.7])
 - [ ] All four `RenderHost`s: `GlRenderHost`, `NoRenderHost`, `FakeRenderHost`, `GlTestHost` ([24 §3.1])
-- [ ] Angelica: the GLSM linkage test over 25 §4's call set (2.2.8, 2.2.21, 2.2.28, latest) and an `unmappedGL=FAIL` run on the same jars; the version gate (`[2.2.8,)`) and code rules R-1–R-13 ([25 §5.1]); the 2.2.8 dev jar booting in `runClient` (05 §2's recipe, [25 §6]), done early because the exit criteria depend on it [proposal]
+- [ ] Angelica: the GLSM linkage test over 25 §4's call set (2.2.8, 2.2.21, 2.2.28 and the latest release, 2.2.32 as of 2026-10-13: 25's linkage check stops at 2.2.30, so this test is the first check of a later release) and an `unmappedGL=FAIL` run on the same jars; the version gate (`[2.2.8,)`) and code rules R-1–R-13 ([25 §5.1]); the 2.2.8 dev jar booting in `runClient` (05 §2's recipe, [25 §6]), done early because the exit criteria depend on it [proposal]
 - [ ] Engine lessons: typed handles (G1), state rules G8 and V1, `GlLedger` (G10), the API invariants as text (G2) ([26 §4])
-- [ ] OC floor check (decision 14): an FML version range if FML orders the `-GTNH` qualifier correctly, else a clear error at preInit
+- [ ] OC floor check (decision 14): an FML version range if FML orders the `-GTNH` qualifier correctly, else a clear error at preInit. It does: FML's own `VersionParser` accepts `OpenComputers@[1.12.64-GTNH,)` for 1.12.64-GTNH (the version the OC dev jar reports in `@Mod` and `mcmod.info`) and every later GTNH release tried, numerically (1.12.100-GTNH included), and rejects 1.12.63-GTNH and a plain 1.12.64 (checked 2026-10-14), so the range goes in `@Mod` (S2) and S4's unit test pins it; no preInit fallback
 - [ ] Minimal `/opengpu selftest`: pattern and sprite readback, no goldens
+- [ ] Test shader pack, at the end of M0 (owner, 2026-10-14): a small MIT pack written for OpenGPU and kept in the repo as a test fixture, `shaders.properties` with `blend.gbuffers_block` plus minimal `gbuffers` programs. It is both the Iris pack and the pack that overrides block-entity blending (25 §6, the exit criteria), since no common 1.7.10 pack does (Complementary Reimagined r5.9.3, BSL v10.1.8 and Sildur's Vibrant v2.02 set no `blend.gbuffers_block`) and packs are usually not redistributable [I]; each run records the pack's version
 - [ ] Compute spike (1 w): IR → `V1_8` bytecode via relocated ASM 9 in a child loader
 - [ ] Measurements: render-thread cost per job (1/4/16 displays); PBO readback throughput and query latency on Intel, NVIDIA and AMD; vanilla `glGet` cost; OpenGPU fps against host fps 60/30/20; 1 k-triangle encode on 5.3/5.2/OC-LuaJIT (OC-LuaJIT on the owner's machine); OpenOS free memory at 192 KB; the G7, G13b and G16 inputs. Every run records `getCaps().hostRenderer`
+
+**Order of work** (the readiness check's proposal, accepted by the owner on 2026-10-14, [24 readiness]; S1–S10 are M0's steps, not 26's lesson ids):
+- **S1** References: done 2026-10-14 (Preparation above).
+- **S2** Skeleton: done 2026-10-14: the template's `com.myname.mymodid` renamed to `io.github.mindbound.opengpu`; the OC 1.12.64 dependencies; the OC floor as an FML range in `@Mod`; `gtnhShared/` removed.
+- **S3** Angelica: the 2.2.8 `:api`, plus its dev jar behind a Gradle property; the owner boots `runClient` with and without it.
+- **S4** The subprojects on one Java 8 convention: the shadow-jar fix (an identity relocation keeps project classes unrelocated; minimize off or with excludes; 05 OQ2), JUnit 5, the bytecode, `-dev`-jar and FML-range tests, the CI permissions ([Track T](#track-t--testing-and-ci)) and a headless-GL smoke test on CI's llvmpipe.
+- **GLSM spike** (half a day, right after S4's smoke test): bring GLSM up outside FML, which 23 §2.3 found feasible but never ran: after `GLStateManager` initialization, load a trivial GL-calling class through `GLSMRedirector.transformClassNode` on CI's llvmpipe. It comes early because it is M0's least-proven piece and the GLSM render-core criterion depends on it. Record the result before S8; if it fails, raise it at once, since the GLSM leg would need a different design.
+- **S5** The command-stream v1 note, for owner review, including the minimal texture path.
+- **S6** The `:core` codec, validator and tier-E Java oracle.
+- **S7** `Device`, the SPI, `NoRenderHost` and `FakeRenderHost`.
+- **S8** The first `:gl` pass on `:gl-testkit`.
+- **S9** The per-jar linkage and `unmappedGL=FAIL` runs.
+- **S10** `:ocelot-harness` ([Track T](#track-t--testing-and-ci)).
+
+S1–S8 take about two focused weeks [est.]. After them come `BLIT`/`TEXT`/T3, `GlRenderHost`, the blocks, the self-test, the compute spike and the measurements, with the test shader pack at the end.
 
 **Decision points.**
 - `TEXT` glyphs: run the unscii/Unifont licence check ([24 §8] risk 16) in M0, or use a dev-only glyph source until M1 [proposal].
@@ -46,7 +63,7 @@ OpenGPU is a Minecraft 1.7.10 Forge addon for GTNH OpenComputers (1.12.64-GTNH o
 
 **Done when** ([24 §6], condensed):
 - Ocelot on llvmpipe: Lua bytes == FBO bytes on 5.3 and 5.2 in CI, and on OC-LuaJIT on the owner's machine (non-gating until its pinned artifact exists); under `NoRenderHost`, `present` returns `nil,"no renderer"` and `readPixels` the cleared `frameId = 0` image.
-- `runClient` with Angelica absent, with the 2.2.8 dev jar (repeated in the owner's 2.2.21 instance with the `-selftest` jar), and with an Iris pack: pattern and sprite visible, self-test readbacks byte-identical, hygiene clean, panel correct next to other mods' TESRs under a blend-overriding pack.
+- `runClient` with Angelica absent, with the 2.2.8 dev jar (repeated in the owner's instance on the latest release, 2.2.32 as of 2026-10-13, with the `-selftest` jar), and with OpenGPU's test shader pack as the Iris pack: pattern and sprite visible, self-test readbacks byte-identical, hygiene clean, panel correct next to other mods' TESRs under that pack's block-entity blend override.
 - The GLSM render-core leg (2.2.8, 2.2.28) passes the hygiene case with a non-default scissor box (R-1).
 - T2 2D at 20 fps on a ≥ 30 fps host; `runServer` loads no client class; quitting with 2 frames in flight neither hangs nor leaks.
 - Spike ≤ 10 ns/element, same output on Java 8 and 21; every measurement above recorded.
@@ -70,6 +87,7 @@ OpenGPU is a Minecraft 1.7.10 Forge addon for GTNH OpenComputers (1.12.64-GTNH o
 - [ ] Dedicated servers: option (a)'s graphics results ([24 §4]; compute follows in M3)
 - [ ] Decisions on G7, G13b and G16 from M0's measurements ([24 §7], Considered)
 - [ ] Pack basics [proposal]: lang, textures, creative tab, OC manual pages, `DeviceInfo` (README gaps); recipes follow by v1
+- [ ] Publishing settings, decided before the release: `usesMavenPublishing`, a Maven target if any, and `jitpack.yml` (nothing publishes in M0)
 - [ ] **First single-player release**
 
 **Done when** ([24 §6], condensed):
@@ -177,20 +195,20 @@ OpenGPU is a Minecraft 1.7.10 Forge addon for GTNH OpenComputers (1.12.64-GTNH o
 ### v1 release (end of M4)
 
 - [ ] v1 on Java 8, with compute checked on a Java 17–21 pack server ([24 §3.9])
-- [ ] Pre-release runs: Angelica 2.2.28 in game and the latest release non-gating ([25 §6]); a production-jar server (risk 12)
+- [ ] Pre-release runs: Angelica 2.2.28 in game and the latest release in the owner's instance ([25 §6]), where only OpenGPU's own failures block the release and an Angelica regression newer than the pack's is reported upstream and worked around; a production-jar server (risk 12)
 - [ ] The frozen API dump as the baseline for later CI diffs (G12)
 
 ## Track T — Testing and CI
 
 Rationale: [23], [24 §3.9].
 
-- [ ] Gating in the unchanged GTNH shared workflow (`xvfb-run`, llvmpipe, Java 8 launchers): compiler fuzzing, compute bit-identity, render-core tests on compat and GLSM contexts with the hygiene assertion, ocelot Lua bytes == FBO bytes on 5.3 and 5.2, the linkage test; `runServer` smoke from M0, Horizon-QA GameTests from M3
+- [ ] Gating in the unchanged GTNH shared workflow (`xvfb-run`, llvmpipe, Java 8 launchers): compiler fuzzing, compute bit-identity, render-core tests on compat and GLSM contexts with the hygiene assertion, ocelot Lua bytes == FBO bytes on 5.3 and 5.2, the linkage test; `runServer` smoke from M0, Horizon-QA GameTests from M3. Once tests land (M0 step S4), the caller job grants `permissions: { contents: read, statuses: write, pull-requests: write }`: since GTNH-Actions-Workflows 042346f (2026-10-12), the shared workflow's test-results step posts a commit status and, on PRs, a comment, and a new personal-account repository's default `GITHUB_TOKEN` can only read contents and packages; without the grant the job stays green but logs a warning, and no Tests status appears
 - [ ] `:gl-testkit`: OpenGPU's own JUnit extension, not Angelica's LGPL fixtures (risk 16); `GlLedger` assertions (G10); `ImageCompare` tiers E/Q/G/S/T with sidecars and an expectations file (risk 13)
 - [ ] Calibration: Q/G in M1 on llvmpipe, softpipe and Intel; the WARP re-check and S/T in M2 on all four
 - [ ] Owner hardware: Intel iGPU and RTX 5060 on the main machine (picked per run with `dgpu-run.ps1`, `-Also` for the `java.exe` that `runClient` forks), RX 7600M XT on a second machine ([24 §7] answer 7); E-tier goldens and the conformance corpus per milestone and driver update
-- [ ] Ocelot harness: Scala 2.13 on Java 8, ocelot-brain vendored at e98a5b2 and built with `--release 8` ([23 §4]); `NoRenderHost` by default, `GlTestHost` for `gl` tests; runtimes 5.3 and 5.2 (gating), OC-LuaJIT on the owner's machine, non-gating, until OC-LuaJIT publishes a pinned artifact (jar, linux-x64 native, ocelot adapter), then gating in CI ([24 §6]), LuaJ correctness-only from M1, 5.4 on the owner's instance
+- [ ] Ocelot harness: ocelot-brain's sources at e98a5b2 as a git submodule or subtree (chosen in the harness commit; the shared CI checks out submodules recursively), compiled by the harness's Gradle Scala plugin with Scala 2.13.11 on a Java 8 toolchain, or on a Java 17 toolchain with `-release:8` if Zinc misbehaves on Java 8 ([23 §4]); ocelot-brain's three URL-only jars from asie.pl (`OC-LuaJ-20220907.1`, `OC-JNLua-20230530.0`, `OC-JNLua-Natives-20220928.1`) contain no LICENSE, NOTICE or COPYING entry, so they are vendored test-only with their sha256 sums and the upstream LuaJ, JNLua and Lua licence texts (MIT-style [I], checked against upstream before vendoring); `NOTICE` needs them only if they ever ship inside the mod jar; `NoRenderHost` by default, `GlTestHost` for `gl` tests; runtimes 5.3 and 5.2 (gating), OC-LuaJIT on the owner's machine, non-gating, until OC-LuaJIT publishes a pinned artifact (jar, linux-x64 native, ocelot adapter), then gating in CI ([24 §6]), LuaJ correctness-only from M1, 5.4 on the owner's instance
 - [ ] Non-gating OpenGPU workflow from M2: `runClient` under Xvfb, Windows llvmpipe/WARP, `glslangValidator`
-- [ ] Manual, per milestone: 23 §5.1's checklist and 25 §6's in-game matrix (2.2.8 via `runClient`, the owner's 2.2.21 instance with the `-selftest` jar, 2.2.28 before each release, latest non-gating)
+- [ ] Manual, per milestone: 23 §5.1's checklist and 25 §6's in-game matrix (2.2.8 via `runClient`, which exercises R-1 and R-8 in game, rules that matter before 2.2.21 and 2.2.23 respectively; the owner's instance on the latest release, 2.2.32 as of 2026-10-13, with the `-selftest` jar, as the "latest" leg; 2.2.28 before each release). 2.2.21 has no in-game leg: it stays in CI's linkage and `unmappedGL=FAIL` runs, and an in-game 2.2.21 run, if ever wanted, uses `runClient` on `Angelica-2.2.21-dev.jar`, not a second instance
 
 ## Track L — OC-LuaJIT coordination
 
@@ -242,7 +260,7 @@ Rationale: decision 15, [24 §3.4] ("Examples, not libraries").
 - [ ] Lua docs: `getCaps` and status strings, frame policy and the latency model (21 §2.3), "check `getCaps().renderer`" and dedicated-server behaviour ([24 §4]), no hashing of shaded 3D readback, `int64_t` exact only below 2^53 on 5.2 and OC-LuaJIT, TDR behaviour ([24 §3.8] layer 6)
 - [ ] Shader language reference ([27]) with the conventions of S10 and the ES 1.00 conversion hint (risk 18); compute reference: defined arithmetic and D1–D5 ([22 §2])
 - [ ] Rasterization rules in GL terms (seam 4): 2D from M0, 3D from M2 ([24 §5])
-- [ ] Residual wording 24's 2026-10-10 pass left in other reports: 23's `NullRenderHost` and `nil, reason` readback, 20 §7's `nil, reason`, 25 §6's in-game self-test without the `-selftest` jar, 26's library wording and `og_snap` ([24 amendments])
+- [ ] Residual wording 24's 2026-10-10 pass left in other reports: 23's `NullRenderHost` and `nil, reason` readback, 20 §7's `nil, reason`, 25 §6's in-game self-test without the `-selftest` jar (fixed 2026-10-14), 26's library wording and `og_snap` ([24 amendments])
 
 ## Track C — Compatibility
 
@@ -297,6 +315,7 @@ The 2026-10-10 draft's questions 2–6 (Angelica's best-effort band, how CI obta
 [24 §8]: research/24-architecture-gl-first.md#8-risks
 [24 amendments]: research/24-architecture-gl-first.md#amendments-before-the-roadmap-2026-10-10
 [24 answers]: research/24-architecture-gl-first.md#amendments-after-the-owners-answers-2026-10-13
+[24 readiness]: research/24-architecture-gl-first.md#amendments-after-the-readiness-check-2026-10-14
 [21 §4]: research/21-integrated-server-render-handoff.md#4-lan-guests
 [21 §6]: research/21-integrated-server-render-handoff.md#6-persistence-under-option-2
 [22 §2]: research/22-shader-and-compute-languages.md#2-compute-language-glsl-compute-syntax-cpu-semantics
@@ -316,4 +335,5 @@ The 2026-10-10 draft's questions 2–6 (Angelica's best-effort band, how CI obta
 [27 §9]: research/27-graphics-language-es300.md#9-effort
 [27 OQ]: research/27-graphics-language-es300.md#open-questions
 [README]: research/README.md
+[README refs]: research/README.md#references-and-pins
 [OC-LuaJIT roadmap]: https://github.com/mindbound/OC-LuaJIT/blob/master/docs/roadmap.md
