@@ -105,6 +105,22 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    and re-ran the reviewers' mutants. The main session recorded the points 28
    left open in 28's section "S6 implemented", and amended 24, the roadmap and
    this index; workflow run wf_2699d104-7d7 checked those edits.
+15. M0 step S7 (2026-10-15) built `:core`'s `Device`, the render SPI,
+   `NoRenderHost` and `FakeRenderHost` from 28. Workflow run wf_8dadf76e-689
+   planned it, with two critics; both found that frees deferred by an open
+   frame could grow without bound, and the owner chose the fix ("Count pending
+   frees", Q-S7-1). Run wf_e9b8f380-44b wrote the main code and, from 28 and a
+   brief alone, a reference model (`NaiveDevice`); run wf_1a88084c-40a wrote the
+   test fixtures and tests, one agent at a time, among them a model test that
+   compares the two. Run wf_59a9bdf2-6d6 reviewed it in four dimensions, each
+   finding checked by an adversarial verifier, and run wf_2bd6bb63-7da closed
+   the confirmed gaps and re-ran the reviewers' mutants. The main session
+   then let a fold that throws inside the executor's `execute` propagate
+   rather than count as a refused hand-off, and made a status test wait for
+   a fold instead of spinning (it had failed on two CPUs, CI's count). It
+   recorded the points 28 left open in 28's section "S7 implemented", and
+   amended 24, the roadmap and this index; workflow run wf_62516a40-f86
+   checked those edits.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
@@ -141,7 +157,7 @@ Java 17-21 + lwjgl3ify (GTNH packs), OC-LuaJIT commit a4994e6.
 | `25-angelica-version-floor.md` | Angelica version floor: 2.2.8 supported, older gated off at runtime (the 2.1.14-2.2.7 best-effort band was dropped on 2026-10-13); linkage matrix over all 2.x releases to 2.2.30, the M0 GL call set and deny-list, code rules, test matrix, GTNH pack coverage |
 | `26-lessons-from-general-engines.md` | Lessons from Godot, OpenSceneGraph, O3DE, small-program shader languages and PS1/N64/Dreamcast/Quake/Doom techniques: typed handles, GL state hygiene, a GL allocation ledger, crash guard, API dump, semantic attributes, palette ops, quantize and dither, a retro shader variant family; considered items and owner questions |
 | `27-graphics-language-es300.md` | Graphics shader language as an ES 3.00-based subset: input form, accepted subset, built-ins against GLSL 3.30, integer guards matching compute, ANGLE driver workarounds re-checked, flat and noperspective, interface conventions, shared frontend, effort, an index8 example |
-| `28-command-stream-v1.md` | Command stream v1 for M0, accepted by the owner on 2026-10-14, with its glyph-source question (Q1) answered the same day (font 0 is misc-fixed 6x13) and `TEXT`'s font byte added on 2026-10-15 (29 F4): framing, error codes, versioning and the opcode map; the four M0 ops with per-format pixel results and the tier-E oracle; the minimal texture path and its ordering; the lifecycle and the `RenderHost` SPI; caps, charges and the Lua encoder with a worked frame; S6's test plan; owner questions |
+| `28-command-stream-v1.md` | Command stream v1 for M0, accepted by the owner on 2026-10-14, with its glyph-source question (Q1) answered the same day (font 0 is misc-fixed 6x13) and `TEXT`'s font byte added on 2026-10-15 (29 F4): framing, error codes, versioning and the opcode map; the four M0 ops with per-format pixel results and the tier-E oracle; the minimal texture path and its ordering; the lifecycle and the `RenderHost` SPI; caps, charges and the Lua encoder with a worked frame; S6's test plan; owner questions; what S6 and S7 settled (2026-10-15) |
 | `29-font-survey.md` | Font survey for `TEXT` (2026-10-14), answering the follow-up to 28 Q1, revised the same day after the owner decided F1 (font 0 is misc-fixed 6x13), and on 2026-10-15 after F3, F4, F7 and F8 (decided), F6 (proportional fonts in M1, starting with Tiny5, Tiny5 Duo and ANAKRON), F5 (deferred to M1, then decided for M1 at the owner's request) and F9 (done, the ROM files deleted), and after a CJK provenance check (§10) that narrowed F7 to 12x13ja: why one size cannot serve a pixel GPU's labels, body text and headings; bitmap candidates by role (body text, small, display, wide coverage) measured for coverage, licence and provenance; a recommended M1 family by use, mostly misc-fixed; the licence obligations and atlas and jar cost; a font operand, advance and fill rules for `TEXT`; F1's decision record; owner questions F1-F9; the provenance check of misc-fixed's CJK faces |
 | `callbench/` | The ocelot-brain call-overhead harness (`src/Bench.scala`, `src/bench.lua`, run scripts) and every log of the 2026-10-08 campaign. The scripts hard-code the research-phase scratchpad in `S=` (`run.sh:6`, `matrix.sh:3`, `run-extra.sh:3`) and read `$S/lib/*.jar`, 17 public jars (35 MB) that nothing rebuilds; fetch them as OC-LuaJIT's `test/native/smoke-test.sh:353-378` does. No M0 item re-runs callbench; whoever does makes `S` script-relative first |
 | `cmdstream-checks/` | 28's check scripts (2026-10-14; `example.py`, `luabuilders.py` and `rev_checks.py` updated on 2026-10-15 for `TEXT`'s font byte): `q565.py` (quantize, expand and the `GL_R8` index recovery), `example.py` (the worked frame's bytes, handles, charges and caps), `luabuilders.py` (the Lua record builders against the layouts) and `rev_checks.py` (the revision's checks, among them a naive validator over the negative cases; on 2026-10-15 its `TEXT` string check became one scan, as 28:648 says), plus Q1's `q1_font0.py` (font 0's cell, coverage with Greek and Cyrillic, and atlas, and the synthetic table at 6×13 and 8×13; it takes the BDFs under `opengpu-refs\font-survey\misc-fixed\x\` as arguments), and S6's `oracle_goldens.py` (2026-10-15: an independent model of 28 §3, §5, §6.1–§6.4 and §7, with §2.2's reset, that re-derives every grid and total of `:core`'s `oracle-goldens.txt`; `--emit <case>` prints a case's grid; it takes the goldens file as its argument). Own code, MIT with the repo; Python 3 standard library only: run each with `python -I X.py` |

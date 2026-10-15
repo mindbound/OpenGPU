@@ -3,12 +3,12 @@ package io.github.mindbound.opengpu.core.cmd;
 import io.github.mindbound.opengpu.core.SurfaceDesc;
 
 /**
- * What validation sees of a device (28 §2.2): its surface, its caps and its live handle table. S7's {@code Device}
- * implements it with an allocation-free lookup by {@link io.github.mindbound.opengpu.core.Handles#slot}. The validator
- * reads {@link #surface()} and {@link #limits()} once per segment. Per {@code BLIT} it calls {@link #textureFormat} at
- * most twice, for rows 18 and 19 (28 §3.6), and {@link #textureWidth} and {@link #textureHeight} once each, only after
- * rows 15-20 pass (the handle, the format and the flags). None of them may allocate or box: validation allocates
- * nothing per record (28 §3.5).
+ * What validation sees of a device (28 §2.2): its surface, its caps and its live handle table.
+ * {@link io.github.mindbound.opengpu.core.device.Device} implements it with an allocation-free lookup by
+ * {@link io.github.mindbound.opengpu.core.Handles#slot}. The validator reads {@link #surface()} and {@link #limits()}
+ * once per segment. Per {@code BLIT} it calls {@link #textureFormat} at most twice, for rows 18 and 19 (28 §3.6), and
+ * {@link #textureWidth} and {@link #textureHeight} once each, only after rows 15-20 pass (the handle, the format and
+ * the flags). None of them may allocate or box: validation allocates nothing per record (28 §3.5).
  */
 public interface LiveView {
 
