@@ -1,0 +1,133 @@
+CJK unified                  total 14655
+      exact      j90_16       6190
+      exact      jksp16       5646
+      exact      gb16fs       2303
+      shift      j90_16        166
+      shift      jksp16        155
+      shift      hanglg16      119
+      shift      gb16fs         66
+      exact      hanglg16        9
+      none       -               1
+Hangul syllables             total 2350
+      exact      hanglg16     1275
+      shift      hanglg16     1075
+Symbols U+2000-2BFF          total 778
+      none       -             452
+      exact      hanglg16      101
+      exact      j90_16         95
+      exact      gb16fs         90
+      shift      gb16fs         20
+      elsewhere  j90_16          9
+      shift      j90_16          4
+      elsewhere  hanglg16        2
+      exact      jksp16          1
+      shift      jksp16          1
+      shift      hanglg16        1
+      elsewhere  gb16fs          1
+      blank      -               1
+Latin etc. <U+0370           total 355
+      exact      jksp16        145
+      elsewhere  j90_16         97
+      shift      jksp16         67
+      none       -              27
+      exact      j90_16          9
+      blank      -               2
+      exact      hanglg16        2
+      shift      j90_16          2
+      elsewhere  jksp16          2
+      exact      gb16fs          1
+      elsewhere  hanglg16        1
+CJK compat ideographs        total 268
+      shift      hanglg16      254
+      exact      hanglg16       14
+Kana                         total 179
+      exact      j90_16        106
+      shift      j90_16         71
+      none       -               2
+Fullwidth forms              total 100
+      exact      j90_16         65
+      shift      j90_16         25
+      none       -               3
+      exact      gb16fs          2
+      exact      hanglg16        2
+      elsewhere  j90_16          1
+      elsewhere  jksp16          1
+      shift      gb16fs          1
+Cyrillic                     total 94
+      exact      j90_16         56
+      exact      jksp16         17
+      shift      j90_16         10
+      shift      jksp16          9
+      none       -               2
+Hangul compat jamo           total 94
+      exact      hanglg16       75
+      shift      hanglg16       18
+      blank      -               1
+CJK compatibility            total 80
+      exact      hanglg16       69
+      shift      hanglg16       11
+Greek                        total 71
+      exact      j90_16         43
+      exact      jksp16         15
+      shift      jksp16          8
+      shift      j90_16          5
+Encl. CJK letters/months     total 68
+      exact      hanglg16       57
+      exact      gb16fs         10
+      shift      hanglg16        1
+other U+3100 block           total 37
+      exact      gb16fs         31
+      shift      gb16fs          6
+CJK symbols/punct            total 24
+      shift      j90_16         15
+      exact      j90_16          7
+      shift      gb16fs          2
+Radicals/IDC                 total 12
+      none       -              12
+other U+FB00 block           total 2
+      none       -               2
+other U+FF00 block           total 1
+      none       -               1
+
+Translation vectors (dx right+, dy down+) applied to the source glyph:
+   ('CJK compat ideographs', 'hanglg16') {(-1, 0): 254}
+   ('CJK compatibility', 'hanglg16') {(-1, 0): 11}
+   ('CJK symbols/punct', 'gb16fs') {(-1, 0): 1, (1, 0): 1}
+   ('CJK symbols/punct', 'j90_16') {(1, 0): 9, (-1, 0): 6}
+   ('CJK unified', 'gb16fs') {(1, 0): 62, (-1, 0): 4}
+   ('CJK unified', 'hanglg16') {(-1, 0): 119}
+   ('CJK unified', 'j90_16') {(-1, 0): 157, (1, 0): 9}
+   ('CJK unified', 'jksp16') {(-1, 0): 149, (1, 0): 6}
+   ('Cyrillic', 'j90_16') {(-1, 0): 10}
+   ('Cyrillic', 'jksp16') {(-1, 0): 8, (1, 0): 1}
+   ('Encl. CJK letters/months', 'hanglg16') {(-1, 0): 1}
+   ('Fullwidth forms', 'gb16fs') {(1, 0): 1}
+   ('Fullwidth forms', 'j90_16') {(-1, 0): 19, (1, 0): 6}
+   ('Greek', 'j90_16') {(-1, 0): 5}
+   ('Greek', 'jksp16') {(-1, 0): 5, (1, 0): 3}
+   ('Hangul compat jamo', 'hanglg16') {(-1, 0): 11, (-2, 0): 7}
+   ('Hangul syllables', 'hanglg16') {(-1, 0): 1075}
+   ('Kana', 'j90_16') {(-1, 0): 68, (1, 0): 3}
+   ('Latin etc. <U+0370', 'j90_16') {(1, 0): 2}
+   ('Latin etc. <U+0370', 'jksp16') {(-1, 0): 65, (1, 0): 2}
+   ('Symbols U+2000-2BFF', 'gb16fs') {(1, 0): 18, (-1, 0): 2}
+   ('Symbols U+2000-2BFF', 'hanglg16') {(-1, 0): 1}
+   ('Symbols U+2000-2BFF', 'j90_16') {(1, 0): 2, (-1, 0): 2}
+   ('Symbols U+2000-2BFF', 'jksp16') {(1, 0): 1}
+   ('other U+3100 block', 'gb16fs') {(1, 0): 6}
+
+ALL GLYPHS: 19168
+    ('exact', 'j90_16') 6571
+    ('exact', 'jksp16') 5824
+    ('exact', 'gb16fs') 2437
+    ('exact', 'hanglg16') 1604
+    ('shift', 'hanglg16') 1479
+    ('none', '-') 502
+    ('shift', 'j90_16') 298
+    ('shift', 'jksp16') 240
+    ('elsewhere', 'j90_16') 107
+    ('shift', 'gb16fs') 95
+    ('blank', '-') 4
+    ('elsewhere', 'jksp16') 3
+    ('elsewhere', 'hanglg16') 3
+    ('elsewhere', 'gb16fs') 1

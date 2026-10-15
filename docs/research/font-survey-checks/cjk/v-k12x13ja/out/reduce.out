@@ -1,0 +1,44 @@
+k14 BBX set {(14, 14, 0, -2)} k12 BBX set {(12, 12, 0, -1)}
+codes only in k14 [] only in k12 []
+compared glyphs 6877
+thr>= 50 ( 25.5%) identical 77
+thr>= 52 ( 26.5%) identical 77
+thr>= 54 ( 27.6%) identical 78
+thr>= 56 ( 28.6%) identical 78
+thr>= 58 ( 29.6%) identical 414
+thr>= 60 ( 30.6%) identical 414
+thr>= 62 ( 31.6%) identical 598
+thr>= 64 ( 32.7%) identical 598
+thr>= 66 ( 33.7%) identical 738
+thr>= 68 ( 34.7%) identical 738
+thr>= 70 ( 35.7%) identical 967
+thr>= 72 ( 36.7%) identical 967
+thr>= 74 ( 37.8%) identical 1599
+thr>= 76 ( 38.8%) identical 1599
+thr>= 78 ( 39.8%) identical 3795
+thr>= 79 ( 40.3%) identical 3795
+thr>= 80 ( 40.8%) identical 3795
+thr>= 82 ( 41.8%) identical 1913
+thr>= 84 ( 42.9%) identical 1913
+thr>= 86 ( 43.9%) identical 256
+thr>= 88 ( 44.9%) identical 256
+thr>= 90 ( 45.9%) identical 216
+thr>= 92 ( 46.9%) identical 216
+thr>= 94 ( 48.0%) identical 175
+thr>= 96 ( 49.0%) identical 175
+thr>= 98 ( 50.0%) identical 116
+thr>=100 ( 51.0%) identical 116
+thr>=102 ( 52.0%) identical 107
+thr>=104 ( 53.1%) identical 107
+thr>=106 ( 54.1%) identical 100
+thr>=108 ( 55.1%) identical 100
+detail thr 78 {'alnum': (14, 62), 'box': (32, 32), 'greekcyr': (114, 114), 'hira': (2, 83), 'kanji1': (200, 2965), 'kanji2': (3370, 3388), 'kata': (4, 86), 'sym': (59, 147)}
+detail thr 79 {'alnum': (14, 62), 'box': (32, 32), 'greekcyr': (114, 114), 'hira': (2, 83), 'kanji1': (200, 2965), 'kanji2': (3370, 3388), 'kata': (4, 86), 'sym': (59, 147)}
+nearest-neighbour identical 20
+baseline 40% output vs mplus: kanji identical 5/6353 median-ham 44 mean-jacc 0.494
+baseline 40% output vs shnm12: kanji identical 15/6353 median-ham 37 mean-jacc 0.561
+baseline k12 vs mplus: kanji identical 5/6353 median-ham 43
+baseline k12 vs shnm12: kanji identical 21/6353 median-ham 36
+kanji1 differing: 2765 lost-only 1524 gained-only 9 both 1232 median-changed 9 mean-jacc 0.845
+added pixels with nonzero k14 coverage: 3467/3748
+kanji2 differing codes: ['0x5021', '0x5023', '0x5024', '0x5027', '0x5028', '0x5029', '0x502a', '0x502b', '0x5030', '0x5031', '0x5037', '0x5038', '0x503a', '0x503b', '0x503c', '0x503e', '0x503f', '0x5040']

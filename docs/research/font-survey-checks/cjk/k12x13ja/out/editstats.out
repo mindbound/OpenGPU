@@ -1,0 +1,35 @@
+identical count per class and threshold (percent of 196 = 14*14 area units)
+class               n     30%     35%     38%     39%     40%     41%     42%     45%     50%
+symbols           146      52      56      56      56      58      58      53      45      38
+alnum              62      13      13      13      13      14      14      12       2       2
+hiragana           83       0       0       1       1       2       2       3       2       0
+katakana           86       0       2       4       4       4       4       5       5       0
+greek_cyrillic    114      46      68      83      83     114     114      69      10       1
+box                32      32      32      32      32      32      32      32      32      32
+kanji1           2965      45      67     111     111     200     200     135      85      30
+kanji2           3388     225     499    1298    1298    3370    3370    1603      74      12
+
+graylevel at 40%: 78
+kanji1 differing from 40% output: 2765; only pixels added 9, only removed 1524, both 1232
+  added px: mean 1.36 median 0; removed px: mean 9.24 median 9; changed px median 9, p90 19, max 58
+kanji1 added pixels lying under some k14 ink (gray > 0): 3467; under no k14 ink: 281
+
+kanji2 codes differing from 40% output:
+  5021 弌 +0 -3
+  5023 丕 +0 -1
+  5024 个 +0 -2
+  5027 丼 +0 -17
+  5028 丿 +1 -7
+  5029 乂 +0 -4
+  502A 乖 +0 -3
+  502B 乘 +0 -9
+  5030 舒 +0 -11
+  5031 弍 +5 -12
+  5037 亰 +0 -3
+  5038 亳 +2 -10
+  503A 从 +0 -10
+  503B 仍 +0 -12
+  503C 仄 +0 -10
+  503E 仂 +0 -9
+  503F 仗 +0 -17
+  5040 仞 +0 -10

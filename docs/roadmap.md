@@ -58,7 +58,7 @@ OpenGPU is a Minecraft 1.7.10 Forge addon for GTNH OpenComputers (1.12.64-GTNH o
 S1–S8 take about two focused weeks [est.]. After them come `BLIT`/`TEXT`/T3, `GlRenderHost`, the blocks, the self-test, the compute spike and the measurements, with the test shader pack at the end.
 
 **Decision points.**
-- `TEXT` glyphs: decided 2026-10-14 (28 Q1). Font 0 is misc-fixed 6x13, checked by [29] for licence and provenance ([24 §8] risk 16) and shipped in M0, the whole face by [28 §7.1]'s rule, with a credit line in `NOTICE`. 8x13 stays the alternative if 6x13 does not look right in game; a switch changes the cell, so it comes before v1 freezes at M1's release. [29]'s F4 and F5 were answered on 2026-10-15, before S6: `TEXT` carries a `font` byte, with only font 0 defined in M0 ([28 §5.2], [28 §5.6]), and the advance of wide (`wcwidth` 2) codepoints waits for M1 with CJK, so M0 advances one cell per codepoint; its F3, F6 and F7 are M1's, F8 (M1's integer scale) was decided the same day, and F9 is housekeeping.
+- `TEXT` glyphs: decided 2026-10-14 (28 Q1). Font 0 is misc-fixed 6x13, checked by [29] for licence and provenance ([24 §8] risk 16) and shipped in M0, the whole face by [28 §7.1]'s rule, with a credit line in `NOTICE`. 8x13 stays the alternative if 6x13 does not look right in game; a switch changes the cell, so it comes before v1 freezes at M1's release. [29]'s F4 and F5 were answered on 2026-10-15, before S6: `TEXT` carries a `font` byte, with only font 0 defined in M0 ([28 §5.2], [28 §5.6]), and the advance of wide (`wcwidth` 2) codepoints waits for M1 with CJK, so M0 advances one cell per codepoint; later that day the owner took misc-fixed's faces for M1 (F3) with 12x13ja as its CJK fallback (F7, after [29]'s §10 provenance check), decided that M1 supports proportional fonts, starting with Tiny5, Tiny5 Duo and ANAKRON (F6), decided M1's integer scale (F8), had the writer decide F5 for M1 (2 cells where musl's `wcwidth` is 2, else 1; [29]'s §6.2) and had F9's ROM files deleted.
 - End of M0: the measurements freeze tiers and budgets (risk 8; the 192 KB figure tests decision 7's one-stick 2D target) and feed M1's decisions on G7, G13b and G16.
 
 **Done when** ([24 §6], condensed):
@@ -76,7 +76,7 @@ S1–S8 take about two focused weeks [est.]. After them come `BLIT`/`TEXT`/T3, `
 **Depends on:** M0 and its measurements. OC-LuaJIT: architecture-name detection, for `opengpu.lua`'s encoder choice.
 
 - [ ] Design input first [proposal]: how OC programs drive `gpu`, `term` and `event` (the local chug-library's `chugraph`, `chug3d`, `chugkey`; OpenOS `term`/`tty`), for the simple-2D callbacks and `opengpu.lua` (README gaps)
-- [ ] All 2D ops: palette, scissor, `COPY`, T3 blending in RGBA8 with one quantize per present, integer-span lines and circles, glyphs from a licence-checked font; all tiers; frame and canvas modes with `setFramePolicy` ([24 §3.3])
+- [ ] All 2D ops: palette, scissor, `COPY`, T3 blending in RGBA8 with one quantize per present, integer-span lines and circles, glyphs from licence-checked fonts (misc-fixed's faces with 12x13ja for CJK, and proportional fonts, [29]'s §8); all tiers; frame and canvas modes with `setFramePolicy` ([24 §3.3])
 - [ ] Lua surface: simple-2D callbacks; `library()`/`opengpu.lua`, detecting OC-LuaJIT by `computer.getArchitecture() == "LuaJIT"`, never by `string.pack` ([24 §2.1])
 - [ ] Palette and dither: `setPalette` as an ordered, persisted op with expand-only presents (R7); `setDither`, default `"none"` (R8); the `index8`/`GL_R8` format rule (G5, R5)
 - [ ] Persistence: confirmed state plus tail, global write map ([24 §3.6], [21 §6]); versioned side-file decoders (G12); a side-file spec for layout, orphan cleanup and write ordering (README gaps) [proposal]
@@ -385,3 +385,10 @@ The owner answered [29]'s F4 and F5 on 2026-10-15, before S6. F4: "yes, let's ad
 
 [28 §5.2]: research/28-command-stream-v1.md#52-layouts
 [28 §5.6]: research/28-command-stream-v1.md#56-text
+
+## Amendments after 29 F3, F6, F7 and F9 (2026-10-15)
+
+The owner answered [29]'s remaining font questions on 2026-10-15. F3: "I think we can keep using misc-fixed, it's versatile, easy to read, has a good list of sizes, etc."; F6: "proportional font support is a definite yes but let's leave the question of *which* fonts to include for later if that's alright"; F7: "the misc-fixed CJK variants are a good (and obvious) choice, we can support those; as for any other CJK fonts, same as F6, let's leave that for later"; F9: "sure, let's clean up". Changed in place:
+
+- **M0, decision points.** The `TEXT`-glyphs point records the answers. M0 is unchanged: font 0 only, one cell per codepoint.
+- **M1.** The 2D-ops item names its fonts: misc-fixed's faces with 12x13ja for CJK, and proportional fonts, starting with Tiny5, Tiny5 Duo and ANAKRON (decided later the same day: "Sure, let's add those three to our selection for now - they look good and your use cases make sense."). [29]'s F5, the advance and fill rule both need, was decided for M1 the same day at the owner's request: 2 cells where musl's `wcwidth` is 2 and 1 otherwise, with musl's MIT section in `NOTICE` ([28]'s section "F5 decided"). A provenance check the same day ([29]'s §10) cleared 12x13ja and found no grant for 18x18ja's and 18x18ko's Hangul, so the owner left 18-pixel CJK for later: "Sure, in that case let's go for (1) - no 18-pixel CJK for now."

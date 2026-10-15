@@ -1,0 +1,11 @@
+CJK-area code points in 12x13ja (width>=7): 6659
+not mapped from k12: 9 U+3099 U+309A U+4E25 U+9AD9 U+FF00 U+FF02 U+FF07 U+FFE4 U+FFE6
+U+3099 bbx (12, 13, 0, -2) identical to k12 []
+U+309A bbx (12, 13, 0, -2) identical to k12 []
+U+4E25 bbx (12, 13, 0, -2) identical to k12 []
+U+9AD9 bbx (12, 13, 0, -2) identical to k12 []
+U+FF00 bbx (12, 13, 0, -2) identical to k12 ['0x2121']
+U+FF02 bbx (12, 13, 0, -2) identical to k12 []
+U+FF07 bbx (12, 13, 0, -2) identical to k12 []
+U+FFE4 bbx (12, 13, 0, -2) identical to k12 []
+U+FFE6 bbx (12, 13, 0, -2) identical to k12 []

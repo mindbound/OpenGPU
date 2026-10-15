@@ -1,0 +1,203 @@
+glyph counts: 12x13ja 19208 k12 6877 k14 6877 mplus_j12r 6963 shnmk12 6879
+k12 codes mapped to a 12x13ja code point: 6877 ; unmapped: 0
+
+== 12x13ja vs k12 (fixed alignment: same baseline, same origin)
+  kanji           n= 6353  identical=  575 (  9.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 575/1/1/3/9/5764  median ham=52  mean jaccard=0.470  median jaccard=0.434
+  non-kanji       n=  523  identical=   95 ( 18.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 95/23/2/15/54/334  median ham=26  mean jaccard=0.435  median jaccard=0.317
+  symbols         n=  146  identical=   27 ( 18.5%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 27/1/1/12/21/84  median ham=24.0  mean jaccard=0.357  median jaccard=0.225
+  alnum           n=   62  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/1/6/55  median ham=36.0  mean jaccard=0.325  median jaccard=0.279
+  hiragana        n=   83  identical=   33 ( 39.8%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 33/0/0/0/3/47  median ham=28  mean jaccard=0.520  median jaccard=0.278
+  katakana        n=   86  identical=   25 ( 29.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 25/0/0/1/10/50  median ham=24.0  mean jaccard=0.419  median jaccard=0.236
+  greek_cyrillic  n=  114  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/1/1/14/98  median ham=27.5  mean jaccard=0.400  median jaccard=0.400
+  box             n=   32  identical=   10 ( 31.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 10/22/0/0/0/0  median ham=1.0  mean jaccard=0.959  median jaccard=0.952
+  kanji1          n= 2965  identical=  296 ( 10.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 296/1/1/1/5/2661  median ham=52  mean jaccard=0.422  median jaccard=0.367
+  kanji2          n= 3388  identical=  279 (  8.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 279/0/0/2/4/3103  median ham=50.0  mean jaccard=0.511  median jaccard=0.483
+
+== 12x13ja vs k12 (best shift in dx,dy -2..2)
+  kanji           n= 6353  identical= 6353 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 6353/0/0/0/0/0  median ham=0  mean jaccard=1.000  median jaccard=1.000
+  non-kanji       n=  523  identical=  393 ( 75.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 393/48/29/27/21/5  median ham=0  mean jaccard=0.952  median jaccard=1.000
+  symbols         n=  146  identical=  111 ( 76.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 111/4/7/9/10/5  median ham=0.0  mean jaccard=0.903  median jaccard=1.000
+  alnum           n=   62  identical=   51 ( 82.3%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 51/7/2/2/0/0  median ham=0.0  mean jaccard=0.986  median jaccard=1.000
+  hiragana        n=   83  identical=   83 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 83/0/0/0/0/0  median ham=0  mean jaccard=1.000  median jaccard=1.000
+  katakana        n=   86  identical=   86 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 86/0/0/0/0/0  median ham=0.0  mean jaccard=1.000  median jaccard=1.000
+  greek_cyrillic  n=  114  identical=   52 ( 45.6%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 52/15/20/16/11/0  median ham=2.0  mean jaccard=0.924  median jaccard=0.967
+  box             n=   32  identical=   10 ( 31.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 10/22/0/0/0/0  median ham=1.0  mean jaccard=0.959  median jaccard=0.952
+  kanji1          n= 2965  identical= 2965 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 2965/0/0/0/0/0  median ham=0  mean jaccard=1.000  median jaccard=1.000
+  kanji2          n= 3388  identical= 3388 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 3388/0/0/0/0/0  median ham=0.0  mean jaccard=1.000  median jaccard=1.000
+  shifts of identical glyphs (dx,dy): count [((-1, 0), 5926), ((0, 0), 670), ((0, -1), 84), ((-1, -1), 64), ((1, 0), 1), ((1, 1), 1)]
+
+== 12x13ja vs k12 (dx in {-1,0}, dy 0: allowing only the adjustmargin move)
+  kanji           n= 6353  identical= 6353 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 6353/0/0/0/0/0  median ham=0  mean jaccard=1.000  median jaccard=1.000
+  non-kanji       n=  523  identical=  243 ( 46.5%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 243/24/5/9/57/185  median ham=2  mean jaccard=0.692  median jaccard=0.923
+  symbols         n=  146  identical=   64 ( 43.8%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 64/2/4/7/32/37  median ham=8.0  mean jaccard=0.600  median jaccard=0.599
+  alnum           n=   62  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/1/7/54  median ham=28.0  mean jaccard=0.398  median jaccard=0.405
+  hiragana        n=   83  identical=   83 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 83/0/0/0/0/0  median ham=0  mean jaccard=1.000  median jaccard=1.000
+  katakana        n=   86  identical=   86 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 86/0/0/0/0/0  median ham=0.0  mean jaccard=1.000  median jaccard=1.000
+  greek_cyrillic  n=  114  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/1/1/18/94  median ham=26.0  mean jaccard=0.439  median jaccard=0.432
+  box             n=   32  identical=   10 ( 31.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 10/22/0/0/0/0  median ham=1.0  mean jaccard=0.959  median jaccard=0.952
+  kanji1          n= 2965  identical= 2965 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 2965/0/0/0/0/0  median ham=0  mean jaccard=1.000  median jaccard=1.000
+  kanji2          n= 3388  identical= 3388 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 3388/0/0/0/0/0  median ham=0.0  mean jaccard=1.000  median jaccard=1.000
+
+== 12x13ja vs M+ j12r (baseline, unrelated 12 px) (best shift -2..2)
+  kanji           n= 6353  identical=    5 (  0.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 5/5/18/58/207/6060  median ham=43  mean jaccard=0.496  median jaccard=0.487
+  non-kanji       n=  523  identical=   30 (  5.7%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 30/19/30/41/197/206  median ham=18  mean jaccard=0.510  median jaccard=0.458
+  symbols         n=  146  identical=   13 (  8.9%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 13/7/26/22/52/26  median ham=12.0  mean jaccard=0.574  median jaccard=0.514
+  alnum           n=   62  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/1/34/27  median ham=18.0  mean jaccard=0.456  median jaccard=0.458
+  hiragana        n=   83  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/8/38/37  median ham=20  mean jaccard=0.464  median jaccard=0.462
+  katakana        n=   86  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/1/6/40/39  median ham=20.0  mean jaccard=0.386  median jaccard=0.365
+  greek_cyrillic  n=  114  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/4/33/77  median ham=24.0  mean jaccard=0.457  median jaccard=0.449
+  box             n=   32  identical=   17 ( 53.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 17/12/3/0/0/0  median ham=0.0  mean jaccard=0.959  median jaccard=1.000
+  kanji1          n= 2965  identical=    5 (  0.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 5/4/11/44/166/2735  median ham=40  mean jaccard=0.496  median jaccard=0.481
+  kanji2          n= 3388  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/1/7/14/41/3325  median ham=45.0  mean jaccard=0.495  median jaccard=0.490
+
+== 12x13ja vs Shinonome 12 (baseline, unrelated 12 px) (best shift -2..2)
+  kanji           n= 6353  identical=   21 (  0.3%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 21/29/48/131/511/5613  median ham=36  mean jaccard=0.566  median jaccard=0.551
+  non-kanji       n=  523  identical=   21 (  4.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 21/32/35/49/230/156  median ham=16  mean jaccard=0.536  median jaccard=0.486
+  symbols         n=  146  identical=   15 ( 10.3%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 15/11/25/23/48/24  median ham=10.0  mean jaccard=0.596  median jaccard=0.571
+  alnum           n=   62  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/3/35/24  median ham=20.0  mean jaccard=0.478  median jaccard=0.474
+  hiragana        n=   83  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/2/5/44/32  median ham=18  mean jaccard=0.472  median jaccard=0.466
+  katakana        n=   86  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/2/1/14/50/19  median ham=15.0  mean jaccard=0.471  median jaccard=0.444
+  greek_cyrillic  n=  114  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/4/53/57  median ham=20.5  mean jaccard=0.478  median jaccard=0.469
+  box             n=   32  identical=    6 ( 18.8%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 6/19/7/0/0/0  median ham=2.0  mean jaccard=0.922  median jaccard=0.923
+  kanji1          n= 2965  identical=   16 (  0.5%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 16/21/43/107/360/2418  median ham=32  mean jaccard=0.575  median jaccard=0.554
+  kanji2          n= 3388  identical=    5 (  0.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 5/8/5/24/151/3195  median ham=39.0  mean jaccard=0.558  median jaccard=0.549
+
+== k12 vs M+ j12r (baseline) (best shift -2..2)
+  kanji           n= 6353  identical=    5 (  0.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 5/5/18/57/208/6060  median ham=43  mean jaccard=0.495  median jaccard=0.487
+  non-kanji       n=  523  identical=   20 (  3.8%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 20/33/35/34/201/200  median ham=18  mean jaccard=0.518  median jaccard=0.469
+  symbols         n=  146  identical=   15 ( 10.3%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 15/13/27/17/51/23  median ham=11.0  mean jaccard=0.611  median jaccard=0.538
+  alnum           n=   62  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/1/34/27  median ham=18.0  mean jaccard=0.454  median jaccard=0.458
+  hiragana        n=   83  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/8/38/37  median ham=20  mean jaccard=0.464  median jaccard=0.462
+  katakana        n=   86  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/1/6/40/39  median ham=20.0  mean jaccard=0.386  median jaccard=0.365
+  greek_cyrillic  n=  114  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/2/38/74  median ham=23.5  mean jaccard=0.459  median jaccard=0.455
+  box             n=   32  identical=    5 ( 15.6%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 5/20/7/0/0/0  median ham=2.0  mean jaccard=0.919  median jaccard=0.923
+  kanji1          n= 2965  identical=    5 (  0.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 5/4/11/44/166/2735  median ham=40  mean jaccard=0.496  median jaccard=0.481
+  kanji2          n= 3388  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/1/7/13/42/3325  median ham=45.0  mean jaccard=0.495  median jaccard=0.490
+
+== k12 vs Shinonome 12 (baseline) (best shift -2..2)
+  kanji           n= 6353  identical=   21 (  0.3%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 21/29/48/130/512/5613  median ham=36  mean jaccard=0.566  median jaccard=0.551
+  non-kanji       n=  523  identical=   33 (  6.3%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 33/22/40/57/215/156  median ham=16  mean jaccard=0.549  median jaccard=0.500
+  symbols         n=  146  identical=   20 ( 13.7%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 20/12/26/29/36/23  median ham=8.0  mean jaccard=0.636  median jaccard=0.600
+  alnum           n=   62  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/3/35/24  median ham=20.0  mean jaccard=0.479  median jaccard=0.476
+  hiragana        n=   83  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/2/5/44/32  median ham=18  mean jaccard=0.472  median jaccard=0.466
+  katakana        n=   86  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/2/1/14/50/19  median ham=15.0  mean jaccard=0.471  median jaccard=0.444
+  greek_cyrillic  n=  114  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/6/50/58  median ham=21.0  mean jaccard=0.486  median jaccard=0.472
+  box             n=   32  identical=   13 ( 40.6%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 13/8/11/0/0/0  median ham=2.0  mean jaccard=0.923  median jaccard=0.917
+  kanji1          n= 2965  identical=   16 (  0.5%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 16/21/43/107/360/2418  median ham=32  mean jaccard=0.575  median jaccard=0.554
+  kanji2          n= 3388  identical=    5 (  0.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 5/8/5/23/152/3195  median ham=39.0  mean jaccard=0.558  median jaccard=0.549
+
+== M+ j12r vs Shinonome 12 (baseline pair of two unrelated 12 px fonts) (best shift -2..2)
+  kanji           n= 6355  identical=   12 (  0.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 12/27/57/193/764/5302  median ham=34  mean jaccard=0.566  median jaccard=0.547
+  non-kanji       n=  523  identical=   38 (  7.3%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 38/47/39/97/222/80  median ham=12  mean jaccard=0.600  median jaccard=0.560
+  symbols         n=  146  identical=   21 ( 14.4%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 21/17/14/33/37/24  median ham=8.0  mean jaccard=0.625  median jaccard=0.606
+  alnum           n=   62  identical=    5 (  8.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 5/2/8/16/23/8  median ham=10.5  mean jaccard=0.612  median jaccard=0.561
+  hiragana        n=   83  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/2/3/18/44/16  median ham=14  mean jaccard=0.547  median jaccard=0.514
+  katakana        n=   86  identical=    1 (  1.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 1/2/5/15/49/14  median ham=15.0  mean jaccard=0.525  median jaccard=0.487
+  greek_cyrillic  n=  114  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/3/9/15/69/18  median ham=15.0  mean jaccard=0.554  median jaccard=0.550
+  box             n=   32  identical=   11 ( 34.4%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 11/21/0/0/0/0  median ham=1.0  mean jaccard=0.962  median jaccard=0.957
+  kanji1          n= 2965  identical=   10 (  0.3%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 10/18/33/112/427/2365  median ham=32  mean jaccard=0.572  median jaccard=0.553
+  kanji2          n= 3390  identical=    2 (  0.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 2/9/24/81/337/2937  median ham=36.0  mean jaccard=0.561  median jaccard=0.543
+
+== k14 BBX set: [(14, 14, 0, -2)]  k12 BBX set: [(12, 12, 0, -1)]
+k12 vs k14->12 area 20%                           fixed alignment: n=6876 identical=53 (0.8%) median ham=20.0
+k12 vs k14->12 area 25% (bdfresize default -b 4)  fixed alignment: n=6876 identical=76 (1.1%) median ham=17.0
+k12 vs k14->12 area 30%                           fixed alignment: n=6876 identical=413 (6.0%) median ham=5.0
+k12 vs k14->12 area 35%                           fixed alignment: n=6876 identical=737 (10.7%) median ham=4.0
+k12 vs k14->12 area 40%                           fixed alignment: n=6876 identical=3794 (55.2%) median ham=0.0
+k12 vs k14->12 area 45%                           fixed alignment: n=6876 identical=255 (3.7%) median ham=10.0
+k12 vs k14->12 area 50%                           fixed alignment: n=6876 identical=115 (1.7%) median ham=13.0
+k12 vs k14->12 area 60%                           fixed alignment: n=6869 identical=60 (0.9%) median ham=26
+k12 vs k14->12 nearest                            fixed alignment: n=6876 identical=158 (2.3%) median ham=15.0
+
+== k12 vs k14 area-scaled 12/14 at 40% (fixed alignment)
+  kanji           n= 6353  identical= 3570 ( 56.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 3570/254/425/892/994/218  median ham=0  mean jaccard=0.932  median jaccard=1.000
+  non-kanji       n=  523  identical=  224 ( 42.8%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 224/75/111/76/32/5  median ham=2  mean jaccard=0.884  median jaccard=0.933
+  symbols         n=  146  identical=   58 ( 39.7%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 58/23/36/17/9/3  median ham=2.0  mean jaccard=0.854  median jaccard=0.900
+  alnum           n=   62  identical=   14 ( 22.6%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 14/17/15/10/6/0  median ham=2.5  mean jaccard=0.896  median jaccard=0.921
+  hiragana        n=   83  identical=    2 (  2.4%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 2/15/28/25/11/2  median ham=5  mean jaccard=0.810  median jaccard=0.839
+  katakana        n=   86  identical=    4 (  4.7%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 4/20/32/24/6/0  median ham=4.0  mean jaccard=0.802  median jaccard=0.814
+  greek_cyrillic  n=  114  identical=  114 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 114/0/0/0/0/0  median ham=0.0  mean jaccard=1.000  median jaccard=1.000
+  box             n=   32  identical=   32 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 32/0/0/0/0/0  median ham=0.0  mean jaccard=1.000  median jaccard=1.000
+  kanji1          n= 2965  identical=  200 (  6.7%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 200/252/421/886/988/218  median ham=9  mean jaccard=0.856  median jaccard=0.861
+  kanji2          n= 3388  identical= 3370 ( 99.5%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 3370/2/4/6/6/0  median ham=0.0  mean jaccard=0.999  median jaccard=1.000
+
+== k12 vs k14 nearest-scaled 12/14 (fixed alignment)
+  kanji           n= 6353  identical=   84 (  1.3%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 84/154/368/1100/2624/2023  median ham=16  mean jaccard=0.749  median jaccard=0.758
+  non-kanji       n=  523  identical=   74 ( 14.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 74/58/112/171/102/6  median ham=6  mean jaccard=0.765  median jaccard=0.767
+  symbols         n=  146  identical=   36 ( 24.7%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 36/26/33/31/17/3  median ham=4.0  mean jaccard=0.771  median jaccard=0.792
+  alnum           n=   62  identical=    3 (  4.8%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 3/7/12/23/17/0  median ham=8.0  mean jaccard=0.776  median jaccard=0.782
+  hiragana        n=   83  identical=    2 (  2.4%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 2/5/17/38/19/2  median ham=8  mean jaccard=0.715  median jaccard=0.727
+  katakana        n=   86  identical=    1 (  1.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 1/9/22/39/15/0  median ham=6.0  mean jaccard=0.699  median jaccard=0.705
+  greek_cyrillic  n=  114  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/11/28/40/34/1  median ham=8.0  mean jaccard=0.771  median jaccard=0.759
+  box             n=   32  identical=   32 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 32/0/0/0/0/0  median ham=0.0  mean jaccard=1.000  median jaccard=1.000
+  kanji1          n= 2965  identical=   63 (  2.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 63/109/257/684/1271/581  median ham=13  mean jaccard=0.768  median jaccard=0.776
+  kanji2          n= 3388  identical=   21 (  0.6%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 21/45/111/416/1353/1442  median ham=19.0  mean jaccard=0.732  median jaccard=0.738
+
+== k12 vs k14 area 40% (best shift -2..2)
+  kanji           n= 6353  identical= 3570 ( 56.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 3570/254/425/892/994/218  median ham=0  mean jaccard=0.932  median jaccard=1.000
+  non-kanji       n=  523  identical=  224 ( 42.8%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 224/76/114/76/32/1  median ham=2  mean jaccard=0.890  median jaccard=0.933
+  symbols         n=  146  identical=   58 ( 39.7%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 58/24/39/17/7/1  median ham=2.0  mean jaccard=0.872  median jaccard=0.900
+  alnum           n=   62  identical=   14 ( 22.6%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 14/17/15/10/6/0  median ham=2.5  mean jaccard=0.896  median jaccard=0.921
+  hiragana        n=   83  identical=    2 (  2.4%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 2/15/28/25/13/0  median ham=5  mean jaccard=0.817  median jaccard=0.839
+  katakana        n=   86  identical=    4 (  4.7%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 4/20/32/24/6/0  median ham=4.0  mean jaccard=0.802  median jaccard=0.814
+  greek_cyrillic  n=  114  identical=  114 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 114/0/0/0/0/0  median ham=0.0  mean jaccard=1.000  median jaccard=1.000
+  box             n=   32  identical=   32 (100.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 32/0/0/0/0/0  median ham=0.0  mean jaccard=1.000  median jaccard=1.000
+  kanji1          n= 2965  identical=  200 (  6.7%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 200/252/421/886/988/218  median ham=9  mean jaccard=0.856  median jaccard=0.861
+  kanji2          n= 3388  identical= 3370 ( 99.5%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 3370/2/4/6/6/0  median ham=0.0  mean jaccard=0.999  median jaccard=1.000
+
+== k14 area 40% vs M+ j12r (baseline) (best shift -2..2)
+  kanji           n= 6353  identical=    5 (  0.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 5/3/13/36/145/6151  median ham=44  mean jaccard=0.494  median jaccard=0.489
+  non-kanji       n=  523  identical=   13 (  2.5%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 13/31/32/49/196/202  median ham=18  mean jaccard=0.513  median jaccard=0.471
+  symbols         n=  146  identical=    8 (  5.5%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 8/11/23/32/48/24  median ham=10.0  mean jaccard=0.573  median jaccard=0.537
+  alnum           n=   62  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/2/36/24  median ham=18.0  mean jaccard=0.461  median jaccard=0.471
+  hiragana        n=   83  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/8/33/42  median ham=21  mean jaccard=0.470  median jaccard=0.469
+  katakana        n=   86  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/2/5/41/38  median ham=20.0  mean jaccard=0.410  median jaccard=0.398
+  greek_cyrillic  n=  114  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/2/38/74  median ham=23.5  mean jaccard=0.459  median jaccard=0.455
+  box             n=   32  identical=    5 ( 15.6%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 5/20/7/0/0/0  median ham=2.0  mean jaccard=0.919  median jaccard=0.923
+  kanji1          n= 2965  identical=    5 (  0.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 5/2/6/24/106/2822  median ham=42  mean jaccard=0.494  median jaccard=0.487
+  kanji2          n= 3388  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/1/7/12/39/3329  median ham=45.0  mean jaccard=0.495  median jaccard=0.490
+
+== k14 area 40% vs Shinonome 12 (baseline) (best shift -2..2)
+  kanji           n= 6353  identical=   15 (  0.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 15/19/20/66/422/5811  median ham=37  mean jaccard=0.561  median jaccard=0.551
+  non-kanji       n=  523  identical=   26 (  5.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 26/21/38/71/210/157  median ham=16  mean jaccard=0.553  median jaccard=0.500
+  symbols         n=  146  identical=   12 (  8.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 12/12/23/38/36/25  median ham=9.0  mean jaccard=0.610  median jaccard=0.587
+  alnum           n=   62  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/4/33/25  median ham=19.0  mean jaccard=0.489  median jaccard=0.486
+  hiragana        n=   83  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/2/7/41/33  median ham=19  mean jaccard=0.488  median jaccard=0.484
+  katakana        n=   86  identical=    1 (  1.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 1/1/2/16/50/16  median ham=14.5  mean jaccard=0.515  median jaccard=0.500
+  greek_cyrillic  n=  114  identical=    0 (  0.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 0/0/0/6/50/58  median ham=21.0  mean jaccard=0.486  median jaccard=0.472
+  box             n=   32  identical=   13 ( 40.6%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 13/8/11/0/0/0  median ham=2.0  mean jaccard=0.923  median jaccard=0.917
+  kanji1          n= 2965  identical=   10 (  0.3%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 10/11/16/42/275/2611  median ham=35  mean jaccard=0.565  median jaccard=0.553
+  kanji2          n= 3388  identical=    5 (  0.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 5/8/4/24/147/3200  median ham=39.0  mean jaccard=0.558  median jaccard=0.549
+
+== 12x13ja vs k14 area 40% (best shift -2..2)
+  kanji           n= 6353  identical= 3570 ( 56.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 3570/254/425/892/994/218  median ham=0  mean jaccard=0.932  median jaccard=1.000
+  non-kanji       n=  523  identical=  119 ( 22.8%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 119/110/135/101/50/8  median ham=3  mean jaccard=0.848  median jaccard=0.882
+  symbols         n=  146  identical=   39 ( 26.7%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 39/23/37/26/14/7  median ham=4.0  mean jaccard=0.793  median jaccard=0.854
+  alnum           n=   62  identical=   12 ( 19.4%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 12/15/18/10/6/1  median ham=3.0  mean jaccard=0.885  median jaccard=0.917
+  hiragana        n=   83  identical=    2 (  2.4%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 2/15/28/25/13/0  median ham=5  mean jaccard=0.817  median jaccard=0.839
+  katakana        n=   86  identical=    4 (  4.7%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 4/20/32/24/6/0  median ham=4.0  mean jaccard=0.802  median jaccard=0.814
+  greek_cyrillic  n=  114  identical=   52 ( 45.6%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 52/15/20/16/11/0  median ham=2.0  mean jaccard=0.924  median jaccard=0.967
+  box             n=   32  identical=   10 ( 31.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 10/22/0/0/0/0  median ham=1.0  mean jaccard=0.959  median jaccard=0.952
+  kanji1          n= 2965  identical=  200 (  6.7%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 200/252/421/886/988/218  median ham=9  mean jaccard=0.856  median jaccard=0.861
+  kanji2          n= 3388  identical= 3370 ( 99.5%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 3370/2/4/6/6/0  median ham=0.0  mean jaccard=0.999  median jaccard=1.000
+
+== 12x13ja vs k14 nearest (best shift -2..2)
+  kanji           n= 6353  identical=   84 (  1.3%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 84/154/368/1100/2624/2023  median ham=16  mean jaccard=0.749  median jaccard=0.758
+  non-kanji       n=  523  identical=   42 (  8.0%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 42/72/108/166/121/14  median ham=6  mean jaccard=0.741  median jaccard=0.750
+  symbols         n=  146  identical=   25 ( 17.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 25/23/32/36/23/7  median ham=5.0  mean jaccard=0.717  median jaccard=0.766
+  alnum           n=   62  identical=    3 (  4.8%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 3/6/12/23/17/1  median ham=8.0  mean jaccard=0.771  median jaccard=0.769
+  hiragana        n=   83  identical=    2 (  2.4%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 2/5/17/38/21/0  median ham=8  mean jaccard=0.722  median jaccard=0.727
+  katakana        n=   86  identical=    1 (  1.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 1/9/22/39/15/0  median ham=6.0  mean jaccard=0.699  median jaccard=0.705
+  greek_cyrillic  n=  114  identical=    1 (  0.9%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 1/7/25/30/45/6  median ham=10.0  mean jaccard=0.738  median jaccard=0.721
+  box             n=   32  identical=   10 ( 31.2%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 10/22/0/0/0/0  median ham=1.0  mean jaccard=0.959  median jaccard=0.952
+  kanji1          n= 2965  identical=   63 (  2.1%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 63/109/257/684/1271/581  median ham=13  mean jaccard=0.769  median jaccard=0.776
+  kanji2          n= 3388  identical=   21 (  0.6%)  ham buckets 0/1-2/3-5/6-10/11-20/>20 = 21/45/111/416/1353/1442  median ham=19.0  mean jaccard=0.732  median jaccard=0.738
+
+k12 glyphs differing from k14@40%: 3082; by class:
+   {'symbols': 88, 'alnum': 48, 'hiragana': 81, 'katakana': 82, 'kanji1': 2765, 'kanji2': 18}
+
+12x13ja inked code points in U+3000-9FFF/FF00-FFEF not mapped from k12: 13
+   U+3099 U+309A U+4E25 U+9AD9 U+FF02 U+FF07 U+FF0D U+FF5E U+FFE0 U+FFE1 U+FFE2 U+FFE4 U+FFE6
+12x13ja inked URO: 6356 ; of which mapped from k12 JIS codes: 6354
+
+(glyph renderings removed from this file: they reproduce third-party bitmaps)

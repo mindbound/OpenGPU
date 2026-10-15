@@ -1,0 +1,34 @@
+=== 12x13ja vs k12 C:/Users/astro/Downloads/opengpu-refs/font-survey/cjk-provenance/v-k12x13ja/a12k12-orig/x/a12k12-1.orig/k12.bdf
+unmapped/absent in 12x13ja: 0
+kanji1    identical  2965/ 2965  median-ham   0.0  mean-jacc 1.000  shifts {(0, 0): 296, (-1, 0): 2669}
+kanji2    identical  3388/ 3388  median-ham   0.0  mean-jacc 1.000  shifts {(-1, 0): 3109, (0, 0): 279}
+hira      identical    83/   83  median-ham   0.0  mean-jacc 1.000  shifts {(0, 0): 33, (-1, 0): 50}
+kata      identical    86/   86  median-ham   0.0  mean-jacc 1.000  shifts {(0, 0): 25, (-1, 0): 61}
+sym       identical   112/  147  median-ham   0.0  mean-jacc 0.904  shifts {(0, 0): 28, (1, 0): 1, (1, 1): 1, (0, -1): 28, (-1, 0): 37, (-1, -1): 17}
+alnum     identical    51/   62  median-ham   0.0  mean-jacc 0.986  shifts {(-1, -1): 24, (0, -1): 27}
+greekcyr  identical    52/  114  median-ham   2.0  mean-jacc 0.924  shifts {(-1, -1): 23, (0, -1): 29}
+box       identical    10/   32  median-ham   1.0  mean-jacc 0.959  shifts {(0, 0): 10}
+ALL KANJI identical 6353/6353 median-ham 0 mean-jacc 1.000
+=== 12x13ja vs mplus C:/Users/astro/Downloads/opengpu-refs/font-survey/mplus-bitmap/x/xfonts-mplus-2.2.4/fonts_j/mplus_j12r.bdf
+unmapped/absent in 12x13ja: 73
+kanji1    identical     5/ 2965  median-ham  40.0  mean-jacc 0.496  shifts {(0, 1): 3, (0, 0): 2}
+kanji2    identical     0/ 3388  median-ham  45.0  mean-jacc 0.495  shifts {}
+hira      identical     0/   83  median-ham  20.0  mean-jacc 0.464  shifts {}
+kata      identical     0/   86  median-ham  20.0  mean-jacc 0.386  shifts {}
+sym       identical    14/  147  median-ham  12.0  mean-jacc 0.577  shifts {(0, 0): 12, (1, 0): 1, (1, -1): 1}
+alnum     identical     0/   62  median-ham  18.0  mean-jacc 0.456  shifts {}
+greekcyr  identical     0/  114  median-ham  24.0  mean-jacc 0.457  shifts {}
+box       identical    17/   32  median-ham   0.0  mean-jacc 0.959  shifts {(0, 0): 16, (1, 0): 1}
+other     identical     0/   13  median-ham  17.0  mean-jacc 0.557  shifts {}
+ALL KANJI identical 5/6353 median-ham 43 mean-jacc 0.496
+=== 12x13ja vs shnm12 C:/Users/astro/Downloads/opengpu-refs/font-survey/cjk-provenance/v-k12x13ja/shinonome/x/xfonts-shinonome-0.9.11/bdf/shnmk12.bdf
+unmapped/absent in 12x13ja: 2
+kanji1    identical    16/ 2965  median-ham  32.0  mean-jacc 0.575  shifts {(0, 1): 16}
+kanji2    identical     5/ 3388  median-ham  39.0  mean-jacc 0.558  shifts {(0, 1): 5}
+hira      identical     0/   83  median-ham  18.0  mean-jacc 0.472  shifts {}
+kata      identical     0/   86  median-ham  15.0  mean-jacc 0.471  shifts {}
+sym       identical    16/  147  median-ham  10.0  mean-jacc 0.599  shifts {(0, 0): 5, (1, 1): 1, (0, 1): 6, (-1, 1): 2, (1, 0): 2}
+alnum     identical     0/   62  median-ham  20.0  mean-jacc 0.478  shifts {}
+greekcyr  identical     0/  114  median-ham  20.5  mean-jacc 0.478  shifts {}
+box       identical     6/   32  median-ham   2.0  mean-jacc 0.922  shifts {(0, 0): 2, (0, 1): 4}
+ALL KANJI identical 21/6353 median-ham 36 mean-jacc 0.566

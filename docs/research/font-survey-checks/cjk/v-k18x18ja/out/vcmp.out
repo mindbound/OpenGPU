@@ -1,0 +1,24 @@
+target glyphs 19168
+Hangul syllables in 18x18ja: 2350
+  vs j90_16     {'none': 2350} offsets {} mean-hamming(non-ident) -
+  vs jiskan16   {'none': 2350} offsets {} mean-hamming(non-ident) -
+  vs jksp16     {'none': 2350} offsets {} mean-hamming(non-ident) -
+  vs gb16fs     {'none': 2350} offsets {} mean-hamming(non-ident) -
+  vs gb16fs_intl {'none': 2350} offsets {} mean-hamming(non-ident) -
+  vs gb16st     {'none': 2350} offsets {} mean-hamming(non-ident) -
+  vs hanglg16   {'shift': 1075, 'exact': 1275} offsets {(-1, 0): 1075} mean-hamming(non-ident) -
+  vs hanglm16   {'none': 2350} offsets {} mean-hamming(non-ident) 50.6
+  vs ko18       {'none': 2350} offsets {} mean-hamming(non-ident) 74.3
+  vs unifont    {'none': 2349, 'shift': 1} offsets {(-1, 1): 1} mean-hamming(non-ident) 87.9
+  vs unifont_jp {'none': 2349, 'shift': 1} offsets {(-1, 1): 1} mean-hamming(non-ident) 87.9
+  hanglg16 shift rule (class, source ink touches col 15): {('shift', True): 1075, ('exact', False): 1275}
+attribution candidates: ['j90_16', 'jiskan16', 'jksp16', 'gb16fs', 'hanglg16']
+order ['j90_16', 'jiskan16', 'jksp16', 'gb16fs', 'hanglg16'] {'none': 553, 'blank': 5, 'j90_16(elsewhere)': 107, 'jksp16': 6064, 'j90_16': 6841, 'hanglg16': 3090, 'jksp16(elsewhere)': 2, 'gb16fs': 2496, 'hanglg16(elsewhere)': 9, 'gb16fs(elsewhere)': 1} sum 19168
+   hanglg16 by block: {'Latin': 4, 'symbols U+2000-2BFF': 116, 'Hangul compat jamo': 93, 'U+32xx': 58, 'U+33xx': 80, 'CJK unified': 128, 'Hangul syllables': 2350, 'CJK compat ideographs': 268, 'fullwidth': 2}
+order ['hanglg16', 'j90_16', 'jiskan16', 'jksp16', 'gb16fs'] {'none': 553, 'blank': 5, 'j90_16(elsewhere)': 85, 'hanglg16(elsewhere)': 31, 'jksp16': 6064, 'j90_16': 6812, 'hanglg16': 3119, 'jksp16(elsewhere)': 2, 'gb16fs': 2496, 'gb16fs(elsewhere)': 1} sum 19168
+   hanglg16 by block: {'Latin': 22, 'other': 5, 'symbols U+2000-2BFF': 126, 'Hangul compat jamo': 93, 'U+32xx': 58, 'U+33xx': 80, 'CJK unified': 129, 'Hangul syllables': 2350, 'CJK compat ideographs': 268, 'fullwidth': 19}
+glyphs matching hanglg16 at same cp: 3119  matching no other candidate anywhere: 3088 {'Latin': 2, 'symbols U+2000-2BFF': 108, 'Hangul compat jamo': 93, 'U+32xx': 58, 'U+33xx': 80, 'CJK unified': 128, 'Hangul syllables': 2350, 'CJK compat ideographs': 268, 'fullwidth': 1}
+baseline CJK unified vs unifont {'elsewhere': 6, 'none': 14647, 'exact': 2}
+baseline CJK unified vs unifont_jp {'exact': 23, 'none': 14627, 'elsewhere': 3, 'shift': 2}
+baseline CJK unified vs gb16st {'none': 14654, 'elsewhere': 1}
+baseline CJK unified vs hanglm16 {'none': 14526, 'shift': 119, 'exact': 10}

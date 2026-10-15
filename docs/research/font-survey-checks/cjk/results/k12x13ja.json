@@ -1,0 +1,416 @@
+{
+ "slug": "k12x13ja",
+ "title": "12x13ja's kanji: the unnamed 14x14 source",
+ "investigation": {
+  "question": "12x13ja's JIS X 0208 glyphs (kanji, kana, symbols): identify the unnamed \"14x14 source font\", who T. Maebashi is and how the 12-dot glyphs were made, and decide whether the public-domain label is reliable for these glyphs.",
+  "verdict": "ok-with-conditions",
+  "verdict_reason": "The chain behind these glyphs is now fully identified, and the bitmaps confirm it. All 6353 kanji and all 169 kana in 12x13ja are bit-identical to T. Maebashi's k12.bdf (1993) after Kuhn's documented 1-px left shift. k12 itself comes from X11's k14.bdf (Hiroshi Tachibana's 1987 design, in X11R4 since 1989): it is an automatic 12/14 area reduction at 40% that reproduces 3370 of 3388 level-2 kanji bit for bit, with hand-retouched level-1 kanji and kana. Every link carries the same \"Public domain font.  Share and enjoy.\" label, written into the file by the person who distributed that link: Kagotani for k14 in X11R4, Maebashi's distribution for k12, and Kuhn for 12x13ja. The k12 publisher (Meitetsu Computer Service) confirmed to Debian in 1999 that the font is free and under X11-font-like terms. One gap remains: no statement from Tachibana himself that uses the words \"public domain\" was found. His own 1995 statement shows he made k14 alone, as a freely usable font. The only condition is the misc-fixed credit line, with an optional lineage credit; nothing further needs to ship for these glyphs.",
+  "obligations": "None beyond the misc-fixed credit line, for 12x13ja's JIS X 0208 kanji, kana and symbols. No upstream licence text or notice is required: k14.bdf, k12.bdf and 12x13ja.bdf all carry only COPYRIGHT \"Public domain font.  Share and enjoy.\" Recommended, not required: extend the credit line with the lineage, e.g. \"12x13ja's kana and kanji: k12 by T. Maebashi (Meitetsu Computer Service, 1993), reduced from k14 by Hiroshi Tachibana (1987), donated to X11 by H. Kagotani\". Separately, and already known (not re-researched here), 12x13ja's Hangul still needs Baekmuk's notice.",
+  "claims": [
+   {
+    "claim": "The unnamed 14x14 source exists as a named intermediate: the 12x13ja kanji come from k12.bdf, whose own header names T. Maebashi, says it was machine-reduced 12/14 at a 40% threshold, and labels it public domain.",
+    "tag": "M",
+    "evidence": "k12.bdf lines 2-9: \"COMMENT Donated by T.Maebashi <maebashi@mcs.meitetsu.co.jp>; public domain\" / \"COMMENT font from Japan\" / \"COMMENT This font was automatically magnified\" / \"COMMENT mag_x = 12/14\" / \"COMMENT mag_y = 12/14\" / \"COMMENT threshold = 40%\"; FONT -Misc-Fixed-Medium-R-Normal--12-110-75-75-C-120-JISX0208.1983-0; COPYRIGHT \"Public domain font.  Share and enjoy.\"; CHARS 6877; file mtime 1993-03-26",
+    "source": "https://deb.debian.org/debian/pool/main/x/xfonts-a12k12/xfonts-a12k12_1.orig.tar.gz -> C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-a12k12-src\\orig-x\\a12k12-1.orig\\k12.bdf lines 1-32",
+    "load_bearing": true
+   },
+   {
+    "claim": "Every JIS X 0208 kanji and kana in 12x13ja is bit-identical to k12, shifted at most 1 px left. Unrelated 12-px fonts almost never match exactly.",
+    "tag": "M",
+    "evidence": "Kanji: 6353/6353 identical with dx in {-1,0}, dy 0 (5778 at dx -1, 575 at dx 0). Hiragana 83/83, katakana 86/86. Baselines over the same 6353 kanji with the best shift in -2..2: 12x13ja vs M+ j12r 5 identical (median Hamming 43 px, mean Jaccard 0.496); vs Shinonome 12 21 identical (median 36, Jaccard 0.566); M+ j12r vs Shinonome 12 12/6355. Non-kanji JIS cells are partly redrawn in 12x13ja: symbols 111/146 identical, fullwidth alnum 51/62, Greek/Cyrillic 52/114, box drawing 10/32.",
+    "source": "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k12x13ja\\out\\compare.out and out\\shifts.out (compare.py, shifts.py on FS\\misc-fixed-cjk\\x\\12x13ja.bdf, k12.bdf, mplus_j12r.bdf, shnmk12.bdf)",
+    "load_bearing": true
+   },
+   {
+    "claim": "The 1-px left offset is Kuhn's documented adjustmargin pass, not a different source.",
+    "tag": "I",
+    "evidence": "12x13ja.changes rev 1.16 (1999-11-01): \"Applied adjustmargin script that moved all characters that had more space on the left than on the right by one pixel to the left, except for block graphics, etc.\" Measured: the only shifts needed for kanji/kana are dx -1 or 0, dy 0.",
+    "source": "FS\\misc-fixed-cjk\\x\\12x13ja.changes; out\\shifts.out",
+    "load_bearing": false
+   },
+   {
+    "claim": "The 14x14 source is X11's k14.bdf. Applying bdfresize's area-coverage method at 12/14 with a 40% threshold reproduces k12 bit for bit for nearly all level-2 kanji and all Greek, Cyrillic and box glyphs.",
+    "tag": "M",
+    "evidence": "k12 vs k14 reduced at 40% (graylevel 78/196), fixed alignment: kanji2 3370/3388, Greek/Cyrillic 114/114, box 32/32, symbols 58/146, alnum 14/62, hiragana 2/83, katakana 4/86, kanji1 200/2965; total 3794/6876. Other thresholds match far less (all classes: 35% 737, 45% 255, 25% 76); nearest-neighbour 158. Baselines for the same 40% output: vs M+ j12r 5/6353 kanji identical (median Hamming 44, Jaccard 0.494); vs Shinonome 12 15/6353 (median 37, Jaccard 0.561). The same counts result from the X11R4 copy of k14.",
+    "source": "out\\compare.out, out\\editstats.out, out\\repro40-r4.out; algorithm from bdfresize-1.5\\charresize.c (https://deb.debian.org/debian/pool/main/b/bdfresize/bdfresize_1.5.orig.tar.gz)",
+    "load_bearing": true
+   },
+   {
+    "claim": "Where k12 differs from the automatic output, the glyphs are k14 reductions retouched by hand, almost always by removing pixels. They were not redrawn from another source.",
+    "tag": "I",
+    "evidence": "Level-1 kanji differing from the 40% output: 2765. Of these, 1524 only lost pixels, 9 only gained pixels, 1232 both; median 9 px changed (p90 19). Mean Jaccard to the 40% output 0.856, against unrelated-font baselines of 0.49-0.57. 3467 of the 3748 added pixels (92.5%) lie under k14 ink. The 18 differing level-2 kanji are JIS 5021-5040, the first codes of level 2. README.DOC says the font was corrected by hand.",
+    "source": "out\\editstats.out; a12k12-1.orig\\README.DOC",
+    "load_bearing": true
+   },
+   {
+    "claim": "k12's own README states how it was made and is signed by Yutaka Tsuboi of Meitetsu Computer Service.",
+    "tag": "M",
+    "evidence": "README.DOC (Shift_JIS, mtime 1993-04-07): \"このフォントは１４ドットフォントを１２ドットに縮小し、ＳＵＮのｘｆｅｄと、ＰＣ‐χ８６とその互換機のＢＤＦフォントエディタで修正して作られたものです。\" Install target \"Ｘ１１Ｒ５（ＰＡＮＩＸ Ｖｅｒ．２）\"; kterm example \"KTerm*kanjiFont:             k14  →  k12\"; signed \"ｙｕｔａｋａ（坪井 裕）ＧＧＡ０２６３１    yutaka@mcs.meitetsu.co.jp\"",
+    "source": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-a12k12-src\\orig-x\\a12k12-1.orig\\README.DOC",
+    "load_bearing": true
+   },
+   {
+    "claim": "The publisher of k12 confirmed to Debian in 1999 that the font is free and under the same terms as the X11 fonts, and explained its origin.",
+    "tag": "M",
+    "evidence": "Mail from Yutaka Tsuboi <yutaka@mcs.meitetsu.co.jp>, 1999-08-23, to Fumitoshi UKAI: \"もともと、a12k12は、UNIXの勉強と普及を目指していた、社内の有志で、ノートパソコンでも快適な環境をと作成されたもので、当初から、積極的に公開するつもりはなかったのです。それを、私が Nifty で PANIX 向けのデータとして公開したのが発端となっており\". To the DFSG question: \"読ましていただきましたが、この意味でフリーで良いかと思います。\" To \">例えば、X11附属のフォントと同じようなcopyrightと考えておけば >よろしいのでしょうか?\": \"はい、その通りです。\" Signature: \"坪井 裕      名鉄コンピュータサービス  第２事業部\".",
+    "source": "xfonts-a12k12_1-13.debian.tar.xz -> debian\\author-mesg.txt (C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-a12k12-src\\debian-x\\debian\\author-mesg.txt)",
+    "load_bearing": true
+   },
+   {
+    "claim": "Debian's copyright file for xfonts-a12k12 lists k12 as Maebashi's public-domain donation. This is secondhand.",
+    "tag": "M",
+    "evidence": "\" k12.bdf\\n  Donated by T.Maebashi <maebashi@mcs.meitetsu.co.jp>; public domain\\n  font from Japan\" ... \"Anyway, upstream maintainer, Yutaka Tsuboi <yutaka@mcs.meitetsu.co.jp>,\\nsays that it is licensed under the same copyright as X11 fonts.\"",
+    "source": "https://metadata.ftp-master.debian.org/changelogs/main/x/xfonts-a12k12/unstable_copyright",
+    "load_bearing": false
+   },
+   {
+    "claim": "T. Maebashi was one of the in-house volunteers at Meitetsu Computer Service (名鉄コンピュータサービス, Nagoya) who made a12k12. His given name and the kanji of his surname were not found.",
+    "tag": "I",
+    "evidence": "His address is @mcs.meitetsu.co.jp, the same domain as Tsuboi, who signs as 名鉄コンピュータサービス 第２事業部 (TEL 052 = Nagoya). Tsuboi says a12k12 was made by \"社内の有志\". Web searches for the name with Meitetsu/k12 found nothing further.",
+    "source": "author-mesg.txt; k12.bdf COMMENT; web searches 2026-10-15",
+    "load_bearing": false
+   },
+   {
+    "claim": "k14 was already in X11R4's core tree in 1989, with the same public-domain label and Kagotani as the donor. X.Org still ships it essentially unchanged.",
+    "tag": "M",
+    "evidence": "X11R4 tape-1 (all 24 parts match the 1990 BSD checksums; total 45313 12006): mit/fonts/bdf/misc/k14.bdf, tar mtime 1989-11-29, header \"COMMENT Donated by H. Kagotani <kagotani@cs.titech.ac.jp>; public domain\" / \"COMMENT font from Japan\", COPYRIGHT \"Public domain font.  Share and enjoy.\". The R4 misc README lists \"k14\t\tkanji 14 pt font\". X.Org font-misc-misc 1.1.3 k14.bdf: 6876/6877 glyphs identical to R4 (only JIS 4B65 妹 differs, by 3 px).",
+    "source": "https://ftp.funet.fi/pub/X11/X11R4/tape-1/tape-1.01..24 -> ...\\x11r4-tape-1\\x\\mit\\fonts\\bdf\\misc\\k14.bdf and README; https://www.x.org/releases/individual/font/font-misc-misc-1.1.3.tar.xz -> k14.bdf; out via samefont.py",
+    "load_bearing": true
+   },
+   {
+    "claim": "k14 was designed by Hiroshi Tachibana (橘浩志), alone and by hand, as a free kanji font for window systems. He did not use the words \"public domain\" in this statement.",
+    "tag": "M",
+    "evidence": "FSP 1995 award list: \"パイオニア賞\" / \"K14 〜橘 浩志氏〜\" / \"14ドット漢字フォント\". Tachibana's comment: \"ウィンドウシステムの上でフリーに使用できる漢字フォントがないということで、有志で手分けして作ろうというのが当初の計画でした。デザインの統一を図るために、とりあえず私がガイドラインの作成をすることになったのですが、いくつか試しに作ってみると意外と簡単だったので、これなら一人で使った方が早いしクオリティの高いものができるだろうという安易な気持ちでスタートしました。しかし、6000字を越えるものを一人で作るのはなかなかしんどい作業で...一年ぐらいかかって何とか作り上げました。\"",
+    "source": "https://web.archive.org/web/20250827061124id_/https://www.nmda.or.jp/enc/fsp/jis/commt95.html ; https://web.archive.org/web/20241108091619id_/https://www.nmda.or.jp/enc/fsp/jis/list95.html (ISO-2022-JP)",
+    "load_bearing": true
+   },
+   {
+    "claim": "A 2007 secondary account says k14 was made for JUNET after an attempt to get NEC's kanji ROM donated failed. It says Tachibana drew it alone, unpaid, in 1987.",
+    "tag": "M",
+    "evidence": "\"ＪＵＮＥＴの日本語化に使ったＮＥＣの漢字ＲＯＭをドネーション（寄付）させるのに失敗した村井グループは、自分たちで作ろうということになって、村井氏が目をつけたのが橘浩志氏なのです。\" ... \"１９８７年７月にＪＩＳ漢字第一水準、同年１２月に第二水準を完成します。\" ... \"もちろん一銭にもならない仕事です。\"",
+    "source": "http://electronic-journal.seesaa.net/article/37226513.html (EJ No. 2050, 2007-03-30; Shift_JIS)",
+    "load_bearing": false
+   },
+   {
+    "claim": "Shinonome, an independent project, credits Tachibana as k14's author and calls k14 public domain.",
+    "tag": "M",
+    "evidence": "AUTHORS: \"オリジナル k14 フォント製作者\\n\\t橘　浩志様\". THANKS: \"大変正確で、美しく、同時にPC-UNIXの普及に多いに貢献したPublic Doamin\\nなk14フォントの作者 橘　浩志様へ心から敬意と共に感謝いたします。\" shnmk14.bdf quotes \"> Donated by H. Kagotani <kagotani@cs.titech.ac.jp>;\" / \">   public domainfont from Japan\".",
+    "source": "https://deb.debian.org/debian/pool/main/x/xfonts-shinonome/xfonts-shinonome_0.9.11.orig.tar.gz -> AUTHORS, THANKS (ISO-2022-JP), bdf/shnmk14.bdf",
+    "load_bearing": false
+   },
+   {
+    "claim": "X11R5's notice about kanji fonts bought from the Japanese Standards Association does not cover k14.",
+    "tag": "I",
+    "evidence": "X11R5 RELNOTES footnote 6: \"The JIS Kanji fonts were purchased on behalf of the MIT X  Consortium  from the  Japanese  Standards  Association\" ... \"these fonts should not be transformed into other encod- ings\". The footnote is attached to the R5 font changes (\"The following sets of fonts are new: ... Kanji in JISX0208.1983-0 encoding\"). k14 already shipped in R4, and its R4 header names a private donor, not JSA. The footnote presumably concerns jiskan16/jiskan24 (not checked here).",
+    "source": "https://www.mirrorservice.org/sites/ftp.x.org/pub/X11R5/RELNOTES.TXT lines ~2325-2368; X11R4 tape-1 FILES line 2019",
+    "load_bearing": false
+   },
+   {
+    "claim": "The reduction tool is not bdfresize 1.5 as distributed; it is unidentified. Its method matches bdfresize's area coverage.",
+    "tag": "I",
+    "evidence": "bdfresize 1.5 writes \"COMMENT This font was automatically resized by bdfresize-%s\" and \"mag_x = %d/%d, mag_y = %d/%d, blackness = %d\" right after STARTFONT. Its threshold is bbw*bbh/blackness with an integer blackness (196/2=98, 196/3=65), so it cannot express 40%. k12's lines differ and follow the copied donor comment. The pixel output nevertheless matches bdfresize's algorithm with a 40% graylevel.",
+    "source": "bdfresize-1.5\\bdfresize.c lines 219-224, charresize.c (graylevel = bbw * bbh / blackness)",
+    "load_bearing": false
+   },
+   {
+    "claim": "X.Org's 12x13ja is glyph-identical to Kuhn's 2009 12x13ja. X.Org ships the whole package under a one-line public-domain COPYING. This is secondhand to the authors.",
+    "tag": "M",
+    "evidence": "19208/19208 code points identical. font-misc-misc-1.1.3 COPYING is exactly \"Public domain font.  Share and enjoy.\". The tarball sha256 79abe361... matches the xorg-announce post 2023-February/003363.",
+    "source": "out\\shifts.out; https://www.x.org/releases/individual/font/font-misc-misc-1.1.3.tar.xz; https://lists.x.org/archives/xorg-announce/2023-February/003363.html",
+    "load_bearing": false
+   },
+   {
+    "claim": "The few 12x13ja CJK-area glyphs that do not come from k12 were added by Kuhn's project, under its contributor terms.",
+    "tag": "M",
+    "evidence": "Not from k12's mapped codes: U+3099 U+309A U+4E25 U+9AD9 U+FF02 U+FF07 U+FF0D U+FF5E U+FFE0 U+FFE1 U+FFE2 U+FFE4 U+FFE6. U+FF0D and U+FFE2 equal k12's 215D and 224C. The changes log credits U+9AD9 (rev 1.11), U+4E25 (rev 1.18) and U+3099/U+309A (rev 1.22) to mgk25. Kuhn's README: \"By sending me extensions to these fonts, you agree that the resulting improved font files will remain in the public domain for everyone's free use.\"",
+    "source": "out\\extras.out, out\\compare.out; FS\\misc-fixed-cjk\\x\\12x13ja.changes; FS\\misc-fixed\\x\\README lines 279-281",
+    "load_bearing": false
+   },
+   {
+    "claim": "How far a public-domain dedication works in Japan is uncertain. Copyright in 12-14 px bitmap typefaces is in any case doubtful there.",
+    "tag": "I",
+    "evidence": "Shinonome LICENSE: \"但し、日本に於いては現時点で著作権を放棄することは法律上不可能であり、AUTHORS に列挙されている作者がその権利を行使しないと宣言することで実質的な Public Domain であるとします。\" Secondary summaries of Supreme Court of Japan 2000-09-07 (ゴナ書体事件) say typefaces are works only with 顕著な特徴を有する独創性 and 美的特性; the judgment itself was not read. Kuhn's page argues similarly for low-res pixel fonts under US law.",
+    "source": "xfonts-shinonome-0.9.11\\LICENSE; https://ipforce.jp/Hanketsu/jiken/no/10725 (search result only); FS\\licence-refs\\upstream\\kuhn-ucs-fonts.html ~line 160-175",
+    "load_bearing": false
+   }
+  ],
+  "glyph_checks": "I wrote my own BDF reader (bdflib.py). Glyphs are compared as pixel sets in baseline coordinates; JIS codes are mapped to Unicode with Python's euc_jp, euc_jis_2004 and cp932 codecs, and all 6877 k12 codes mapped. Similarity is measured as Hamming distance and Jaccard, plus the identical count, at a fixed alignment and at the best dx,dy shift in -2..2.\n\n(1) 12x13ja vs k12 (Debian xfonts-a12k12 orig, 1993): 6353/6353 kanji and 169/169 kana are identical with dx in {-1,0}, dy 0 (5778 kanji at -1, 575 at 0). Baselines on the same kanji, best shift: 12x13ja vs M+ j12r 5/6353 (median Hamming 43, mean Jaccard 0.496); vs Shinonome 12 21/6353 (36, 0.566); M+ vs Shinonome 12/6355.\n\n(2) k12 vs k14 reduced 14->12 with bdfresize's area-coverage algorithm (reimplemented from charresize.c, not run), thresholds 20-60%, and with nearest-neighbour. At 40%, 3794/6876 glyphs are identical at fixed alignment: kanji2 3370/3388, Greek/Cyrillic 114/114, box 32/32, symbols 58/146, alnum 14/62, kana 6/169, kanji1 200/2965. Other settings match far less: 35% 737, 45% 255, nearest 158. Baselines for the 40% output: vs M+ j12r 5/6353 kanji (median 44, Jaccard 0.494); vs Shinonome 12 15/6353 (37, 0.561).\n\n(3) Edit shape of the 2765 differing level-1 kanji: 1524 only lost pixels, 9 only gained, 1232 both; median 9 px; mean Jaccard 0.856; 92.5% of added pixels lie under k14 ink. The 18 differing level-2 kanji are JIS 5021-5040.\n\n(4) 12x13ja vs k14 directly, best shift: 40% area 3570/6353 kanji identical (Jaccard 0.932); nearest 84/6353 (0.749).\n\n(5) X11R4 k14 (1989) vs X.Org 1.1.3 k14: 6876/6877 identical, and the counts in (2) are unchanged with the R4 copy.\n\n(6) X.Org 12x13ja vs Kuhn 12x13ja: 19208/19208 identical.\n\nOutputs: scratchpad\\cjkprov\\k12x13ja\\out\\{compare,editstats,shifts,extras,repro40-r4}.out (glyph renderings removed).",
+  "downloads": [
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-a12k12-copyright\\unstable_copyright",
+    "url": "https://metadata.ftp-master.debian.org/changelogs/main/x/xfonts-a12k12/unstable_copyright",
+    "sha256": "a23d3b8e1da588c8f059aa7f5ebc5a371bfca6f636592ec4308b017713dadccc"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-a12k12-src\\xfonts-a12k12_1.orig.tar.gz",
+    "url": "https://deb.debian.org/debian/pool/main/x/xfonts-a12k12/xfonts-a12k12_1.orig.tar.gz",
+    "sha256": "8d5e1561276dcb66c93e35a2cf63992a75d441e91a78488edfd30d6e5bf78344"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-a12k12-src\\orig-x\\a12k12-1.orig\\k12.bdf",
+    "url": "(member of xfonts-a12k12_1.orig.tar.gz)",
+    "sha256": "35a82c453375edced5245f20114b494b036691b52964b457d238337cbe16c0c6"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-a12k12-src\\orig-x\\a12k12-1.orig\\README.DOC",
+    "url": "(member of xfonts-a12k12_1.orig.tar.gz)",
+    "sha256": "a2c0673359c1bf00b0013db234bef766a04b74704f1c0af4a3820158fee6fc5e"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-a12k12-src\\xfonts-a12k12_1-13.debian.tar.xz",
+    "url": "https://deb.debian.org/debian/pool/main/x/xfonts-a12k12/xfonts-a12k12_1-13.debian.tar.xz",
+    "sha256": "1fdebbbf6c373dc3c88f872ab6a54980bef378f51b52392d04e288b5daece347"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-a12k12-src\\debian-x\\debian\\author-mesg.txt",
+    "url": "(member of xfonts-a12k12_1-13.debian.tar.xz)",
+    "sha256": "b930c3a4acfd7d556ea71ad7ab76075ebe868dd8282417da4b3dd364471611de"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-a12k12-src\\xfonts-a12k12_1-13.dsc",
+    "url": "https://deb.debian.org/debian/pool/main/x/xfonts-a12k12/xfonts-a12k12_1-13.dsc",
+    "sha256": "c372570809c24fcb736b17c0460241a6ea7ba627d525191c676d3c544b3c1824"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\xorg-font-misc-misc-1.1.3\\font-misc-misc-1.1.3.tar.xz",
+    "url": "https://www.x.org/releases/individual/font/font-misc-misc-1.1.3.tar.xz",
+    "sha256": "79abe361f58bb21ade9f565898e486300ce1cc621d5285bec26e14b6a8618fed"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\xorg-font-misc-misc-1.1.3\\x\\font-misc-misc-1.1.3\\k14.bdf",
+    "url": "(member of font-misc-misc-1.1.3.tar.xz)",
+    "sha256": "b543015985a367edf09404a564b16058bf739ee035110e70505da91f482f7514"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\xorg-font-misc-misc-1.1.3\\x\\font-misc-misc-1.1.3\\12x13ja.bdf",
+    "url": "(member of font-misc-misc-1.1.3.tar.xz)",
+    "sha256": "29f1edcfe319996a7c228bcb28f7445153fe16bcbcecd83fef8e8b946e2ee5ee"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\x11r4-tape-1\\tape-1.01 .. tape-1.24 (concatenation)",
+    "url": "https://ftp.funet.fi/pub/X11/X11R4/tape-1/tape-1.01 .. tape-1.24",
+    "sha256": "0264f3b376e107a31f286d130648a7a0a851c0e3c714a469a28033d4fdcf2579"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\x11r4-tape-1\\CHECKSUMS",
+    "url": "https://ftp.funet.fi/pub/X11/X11R4/tape-1/CHECKSUMS",
+    "sha256": "27eaa98ce6d2846167fb85b1b1465db2afabcc1b0b915aa5c07d16be069a4232"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\x11r4-tape-1\\x\\mit\\fonts\\bdf\\misc\\k14.bdf",
+    "url": "(member mit/fonts/bdf/misc/k14.bdf of X11R4 tape-1)",
+    "sha256": "99df6e8414220662744b12f298dcf6824ad480cd0bd52c94cf5b0872c9743932"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\x11r4-tape-1\\x\\mit\\fonts\\bdf\\misc\\README",
+    "url": "(member mit/fonts/bdf/misc/README of X11R4 tape-1)",
+    "sha256": "0ddd26d0b167217dc25464e8db959fb2bafebe81e11df80577e18accf01a9027"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\x11r4-docs\\RELNOTES.txt",
+    "url": "https://ftp.funet.fi/pub/X11/X11R4/RELNOTES.txt",
+    "sha256": "7c3b309f1227a3c71ee9cd6c7972781786b524495e8e3841e15683b1eb3427ee"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\x11r4-docs\\FILES-tape-1",
+    "url": "https://ftp.funet.fi/pub/X11/X11R4/tape-1/FILES",
+    "sha256": "72fc508c446b798461e56dba54700e318a4277d1fd85eb4e72ca77a13ab923d7"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\x11r5-manifest\\RELNOTES.TXT",
+    "url": "https://www.mirrorservice.org/sites/ftp.x.org/pub/X11R5/RELNOTES.TXT",
+    "sha256": "f17ef2de41ef98c435896ceeba4f43265d780e420ed151d20aa4c75fa5c4209d"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-bdfresize-src\\bdfresize_1.5.orig.tar.gz",
+    "url": "https://deb.debian.org/debian/pool/main/b/bdfresize/bdfresize_1.5.orig.tar.gz",
+    "sha256": "440cfc0620a0237e46352c14a0774caa3f3059759b0a20defefc94e8490897a6"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-bdfresize-src\\x\\bdfresize-1.5\\charresize.c",
+    "url": "(member of bdfresize_1.5.orig.tar.gz)",
+    "sha256": "cc21f88445c3cb41fe3c5a69f1e0ddec719c11418c32b330affc8750f4942c3d"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-shinonome-src\\xfonts-shinonome_0.9.11.orig.tar.gz",
+    "url": "https://deb.debian.org/debian/pool/main/x/xfonts-shinonome/xfonts-shinonome_0.9.11.orig.tar.gz",
+    "sha256": "b5527bbd77a4d8df66c938015c3c85f75da488cfd4d3d9366f6563b090b32895"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-shinonome-src\\x\\xfonts-shinonome-0.9.11\\bdf\\shnmk12.bdf",
+    "url": "(member of xfonts-shinonome_0.9.11.orig.tar.gz)",
+    "sha256": "17b0fa218105027f1d6615af3e5e46c2d0fbb2a6ac2fa2f7e5d39dff92d2116f"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-shinonome-src\\x\\xfonts-shinonome-0.9.11\\THANKS",
+    "url": "(member of xfonts-shinonome_0.9.11.orig.tar.gz)",
+    "sha256": "2a85a7bc97b52af46a46d0ef303ca1871a52aff388b11587fe1cd76250df068f"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\debian-shinonome-src\\x\\xfonts-shinonome-0.9.11\\LICENSE",
+    "url": "(member of xfonts-shinonome_0.9.11.orig.tar.gz)",
+    "sha256": "86fbc28a39b01c4c0368e60b5234508353e860aeb10786057bf8ceb9b280afda"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\ej-2050\\37226513.html",
+    "url": "http://electronic-journal.seesaa.net/article/37226513.html",
+    "sha256": "c9262333c41c1489fa962ca9278bb1ad9e3f49a90c510e8293465cf5c5d856ff"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\nmda-fsp95\\commt95.html",
+    "url": "https://web.archive.org/web/20250827061124id_/https://www.nmda.or.jp/enc/fsp/jis/commt95.html",
+    "sha256": "f8694e7a07ef0c90e220f172003f3413f8a74a17d6faa7d58ea8f11131bdbcac"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k12x13ja\\nmda-fsp95\\list95.html",
+    "url": "https://web.archive.org/web/20241108091619id_/https://www.nmda.or.jp/enc/fsp/jis/list95.html",
+    "sha256": "00a9b19703f5852aa36979a0ffc7bb43e1c3ac0c3b0c9895dac951b98ba721bb"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\misc-fixed-cjk\\x\\12x13ja.bdf (pre-existing, used)",
+    "url": "https://www.cl.cam.ac.uk/~mgk25/download/ucs-fonts-asian.tar.gz",
+    "sha256": "01b78d34af31b61af68f8002bbfeac5e7c8ea5df3d486129164096bd070adaea"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\mplus-bitmap\\x\\xfonts-mplus-2.2.4\\fonts_j\\mplus_j12r.bdf (pre-existing, used as baseline)",
+    "url": "(member of FS\\mplus-bitmap\\xfonts-mplus_2.2.4.orig.tar.xz)",
+    "sha256": "72bf51cd7266b2a4cb2ae07400b960c7d914eb8decfe9eee36fb77538ed109cd"
+   }
+  ],
+  "scripts": [
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k12x13ja\\bdflib.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k12x13ja\\compare.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k12x13ja\\editstats.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k12x13ja\\shifts.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k12x13ja\\repro40.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k12x13ja\\samefont.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k12x13ja\\one.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k12x13ja\\extras.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k12x13ja\\unz_r4.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k12x13ja\\extract.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k12x13ja\\dectext.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k12x13ja\\html2txt.py"
+  ],
+  "open_points": [
+   "No statement by Tachibana himself that uses the words \"public domain\" was found. The earliest public-domain label found is the donor line \"Donated by H. Kagotani ...; public domain font from Japan\" in X11R4's k14.bdf (1989-11-29). Tachibana's own 1995 FSP statement only shows he drew k14 alone so that a freely usable kanji font would exist. The original 1987 JUNET/fj distribution of k14 (fj.sources archives) was not located.",
+   "T. Maebashi's given name, the kanji of his surname, and any statement from him beyond the BDF COMMENT were not found. a12k12 was made by in-house volunteers at Meitetsu Computer Service. The confirmation of its terms came from that company's employee Yutaka Tsuboi (1999 mail), not from a formal company statement, so an employer-ownership question (Japanese work for hire) stays open in principle. Debian has accepted these terms since 1999.",
+   "The tool that made k12's 12/14 reduction is unidentified. Its pixel output matches bdfresize's area-coverage algorithm at 40%, but its COMMENT format and percentage threshold differ from bdfresize 1.5's.",
+   "In 12x13ja, 13 CJK-area glyphs not taken from k12 (U+3099, U+309A, U+4E25, U+9AD9 and nine fullwidth forms), and the JIS symbol, Greek and Cyrillic cells that differ from k12, were drawn within Kuhn's project. Who drew each one was not traced; they fall under Kuhn's contributor terms.",
+   "The legal effect of public-domain dedications in Japan was not settled. Shinonome's licence says copyright cannot be waived in Japan and treats such dedications as a promise not to enforce. The typeface case (Supreme Court 2000-09-07) was seen only through secondary summaries.",
+   "Not checked: whether X11R5's JSA-purchased kanji fonts (footnote 6) are exactly jiskan16/jiskan24. That matters for 18x18ja's JIS X 9051-derived kanji, not for 12x13ja."
+  ]
+ },
+ "verification": {
+  "claim_checks": [
+   {
+    "claim": "k12.bdf's header names T. Maebashi, says the font was automatically magnified 12/14 at a 40% threshold, and labels it public domain.",
+    "status": "confirmed",
+    "note": "[M] I downloaded xfonts-a12k12_1.orig.tar.gz again (sha256 8d5e1561...78344, matches) and extracted it with tarfile filter='data'. k12.bdf (sha256 35a82c45...0c6c0, mtime 1993-03-26) lines 2-9 and 33 are exactly as quoted, and CHARS is 6877. One caveat: a12.bdf in the same archive carries H. Kagotani's donor COMMENT word for word. That COMMENT is copied from X11R4's 7x14.bdf, so the a12k12 makers copied the headers of their source fonts. k12's \"public domain\" line is therefore most likely k14's line with the name changed [I]."
+   },
+   {
+    "claim": "All 6353 JIS X 0208 kanji and all 169 kana in 12x13ja are bit-identical to k12, shifted at most 1 px left, and unrelated 12-px fonts almost never match.",
+    "status": "confirmed",
+    "note": "[M] I wrote my own BDF reader (vbdf.py) and comparison (cmp1.py), choosing the best dx,dy in -2..2. Kanji: 6353/6353 identical, 5778 at dx -1 and 575 at dx 0, dy always 0. Hiragana 83/83, katakana 86/86. Baselines on the same kanji: M+ j12r 5/6353 (median Hamming 43, mean Jaccard 0.496); Shinonome 12 21/6353 (36, 0.566). These are the investigator's numbers exactly. Symbols came out 112/147 (theirs 111/146), a difference in how codes were mapped."
+   },
+   {
+    "claim": "The 1-px left offset is Kuhn's adjustmargin pass.",
+    "status": "confirmed",
+    "note": "[M] 12x13ja.changes rev 1.16 (1999-11-01) is quoted exactly. In my run the only shifts kanji and kana need are dx -1 or 0 with dy 0, which fits that script [I]."
+   },
+   {
+    "claim": "The 14x14 source is X11's k14.bdf. bdfresize's area-coverage method at 12/14 and 40% reproduces k12 bit for bit for nearly all level-2 kanji and all Greek, Cyrillic and box glyphs.",
+    "status": "confirmed",
+    "note": "[M] I reimplemented the method from charresize.c myself (reduce.py). It gives 3370/3388 level-2 kanji, 114/114 Greek and Cyrillic, 32/32 box, 200/2965 level-1 kanji and 2+4 kana, 3795/6877 in all. Any threshold from 78 to 81 out of 196 gives the same result, which fits 40%. Results drop sharply away from it: 38.8% gives 1599, 41.8% gives 1913, 43.9% gives 256. The X11R4 copy of k14 gives the same counts. My nearest-neighbour variant matched only 20 glyphs (theirs 158); the count depends on the implementation, and either way it is far below 40%. The 40% output matches unrelated fonts almost never: M+ 5/6353, Shinonome 15/6353."
+   },
+   {
+    "claim": "Where k12 differs from the automatic output, the glyphs are k14 reductions retouched by hand, mostly by removing pixels.",
+    "status": "confirmed",
+    "note": "[M] Of the level-1 kanji, 2765 differ: 1524 only lost pixels, 9 only gained, 1232 both, median 9 px changed. Added pixels with k14 ink under them: 3467/3748, exactly the investigator's count. My mean Jaccard is 0.845 at fixed alignment (theirs 0.856). The 18 differing level-2 codes all fall in 0x5021-0x5040. That the edits were made by hand rather than copied from another 12-dot font is [I], but it is strongly supported."
+   },
+   {
+    "claim": "k12's README describes how the font was made and is signed by Yutaka Tsuboi of Meitetsu.",
+    "status": "confirmed",
+    "note": "[M] README.DOC (cp932, mtime 1993-04-07, sha256 a2c06733...fc5e) is exact: the sentence about reducing the 14-dot font and correcting it with xfed and a BDF editor, the X11R5 (PANIX Ver.2) install target, \"KTerm*kanjiFont: k14 → k12\", and the signature line."
+   },
+   {
+    "claim": "The publisher of k12 (Meitetsu Computer Service) confirmed to Debian in 1999 that the font is free and under X11-font-like terms.",
+    "status": "overstated",
+    "note": "[M] The quotes in author-mesg.txt (ISO-2022-JP, sha256 b930c3a4...11de) are exact. But this is a personal e-mail from Yutaka Tsuboi, signed with his department. He says he himself first published the font on Nifty, that in-house volunteers made it, and that it was never meant to be published. His DFSG answer is hedged: \"この意味でフリーで良いかと思います\" (\"I think it is fine to call it free in this sense\"). It is the publisher's own confirmation, but not the company's, and Maebashi is not named in it."
+   },
+   {
+    "claim": "Debian's copyright file lists k12 as Maebashi's public-domain donation, which is secondhand.",
+    "status": "confirmed",
+    "note": "[M] I fetched unstable_copyright again (sha256 a23d3b8e...dccc). It is identical to debian/copyright in 1-13 and is quoted exactly. Debian's bug list for src:xfonts-a12k12 has 8 bugs, archived ones included, and none concerns the licence."
+   },
+   {
+    "claim": "T. Maebashi was one of the in-house volunteers at Meitetsu Computer Service.",
+    "status": "unverified",
+    "note": "[I] This is plausible from the shared mcs.meitetsu.co.jp domain and Tsuboi's \"社内の有志\" (in-house volunteers). I found nothing more about him."
+   },
+   {
+    "claim": "k14 was in X11R4's core tree in 1989 with the same label and Kagotani as donor, and X.Org still ships it essentially unchanged.",
+    "status": "confirmed",
+    "note": "[M] I downloaded all 24 tape-1 parts again. The concatenation has sha256 0264f3b3...2579, and `sum -r` gives 45313 12006, matching the CHECKSUMS file. I decoded the .Z stream with my own LZW decoder and extracted with tarfile filter='data'. k14.bdf (sha256 99df6e84...3932, mtime 1989-11-29 22:38 UTC) has the quoted header and COPYRIGHT, and the misc README lists \"k14 kanji 14 pt font\". R4 vs X.Org 1.1.3: 6876/6877 identical, with only 0x4B65 differing (3 px). The xorg-announce post for 1.1.3 explains that glyph: \"KISHIMOTO, Makoto: fix k14 imouto(younger sister) glyph bug\"."
+   },
+   {
+    "claim": "Tachibana designed k14 alone as a freely usable kanji font and did not use the words \"public domain\".",
+    "status": "confirmed",
+    "note": "[M] I fetched the Wayback copies of commt95.html and list95.html again (sha256 f8694e7a..., 00a9b197..., both match) and decoded them from ISO-2022-JP. The quotes are exact; the ellipsis leaves out \"嫌になった時期もありましたが、ひたすら根性だけで\". The investigator left out one useful sentence in which Tachibana says he is glad to see free fonts based on k14: \"これをベースにした別のフリーフォントが作成されたりして広く利用されているのを見ると、嬉しく感じる\". k12 (1993) existed by then [I]. The words \"public domain\" do not appear."
+   },
+   {
+    "claim": "A 2007 account (EJ No. 2050) says k14 was made for JUNET after the attempt to get NEC's kanji ROM donated failed, and that Tachibana drew it alone, unpaid, in 1987.",
+    "status": "confirmed",
+    "note": "[M] Fetched again (sha256 c9262333...56ff, Shift_JIS). All three quotes are present. It adds that Tachibana had graduated from Tokyo Tech and worked at a software company, Astec, at the time. He drew the font after hours on a Sun in a Tokyo Tech lab. Japanese Wikipedia instead calls him a student; its infobox licence \"Public Domain\" has no citation."
+   },
+   {
+    "claim": "Shinonome credits Tachibana as k14's author and calls k14 public domain.",
+    "status": "confirmed",
+    "note": "[M] I downloaded xfonts-shinonome_0.9.11.orig.tar.gz again (sha256 b5527bbd...2895). The THANKS text, including the typo \"Public Doamin\", the LICENSE text and the shnmk14 COMMENT all match."
+   },
+   {
+    "claim": "X11R5's notice about kanji fonts bought from the Japanese Standards Association does not cover k14.",
+    "status": "confirmed",
+    "note": "[M] Footnote 6 is quoted exactly and is attached to \"Kanji in JISX0208.1983-0 encoding\" in the list of fonts new in R5. The file lists for R4 tapes 1-4 contain no kanji BDF other than k14, which was already in R4. So the footnote cannot refer to k14 [I]."
+   },
+   {
+    "claim": "The reduction tool is not bdfresize 1.5 as distributed, and it is unidentified.",
+    "status": "overstated",
+    "note": "[M] The COMMENT format differs from 1.5's, and 1.5's integer blackness cannot express 40%. However, charresize.c and bdfresize.c say \"Copyright 1988, 1992 Hiroto Kagotani\". The README says \"Hiroto Kagotani <kagotani@cs.titech.ac.jp> made the original version (1.4)\", and the ChangeLog shows 1.5 is a 2000 rework by Kazuhiko. That is the same Kagotani, at the same address, who donated k14. A pre-2000 Kagotani bdfresize is therefore the likely tool [I]. This does not affect the font's licence."
+   },
+   {
+    "claim": "X.Org's 12x13ja is glyph-identical to Kuhn's 2009 file, and X.Org ships the package under a one-line public-domain COPYING.",
+    "status": "confirmed",
+    "note": "[M] font-misc-misc-1.1.3.tar.xz came from the mirrorservice.org ftp.x.org mirror (www.x.org redirects to xorg.freedesktop.org, which refused connections). Its sha256 79abe361...8fed matches the xorg-announce post. 19208/19208 glyphs are identical. COPYING is 40 bytes and contains the sentence including its literal double quotes."
+   },
+   {
+    "claim": "The few CJK-area glyphs in 12x13ja not taken from k12 were added within Kuhn's project.",
+    "status": "confirmed",
+    "note": "[M] Using EUC-JP, EUC-JIS-2004 and CP932 (on proper Shift_JIS bytes), these 12x13ja code points have no k12 source cell: U+3099, U+309A, U+4E25, U+9AD9, U+FF02, U+FF07, U+FFE4, U+FFE6, plus a blank U+FF00. This fits the investigator's list, which differs only by mapping. The changes log shows these revisions committed by mgk25, and Kuhn's README contributor clause is quoted exactly."
+   },
+   {
+    "claim": "Whether a public-domain dedication works in Japan is uncertain.",
+    "status": "unverified",
+    "note": "[I] The Shinonome LICENSE quote is exact. I did not read the Supreme Court judgment either. Kuhn's page (lines 158-177) does say low-res pixel fonts are \"very unlikely\" to be copyrightable."
+   },
+   {
+    "claim": "Verdict reason: every link carries the same label, written into the file by the person who distributed that link (Kagotani for k14, Maebashi for k12, Kuhn for 12x13ja).",
+    "status": "overstated",
+    "note": "[M] COPYRIGHT \"Public domain font.  Share and enjoy.\" is stock X11 misc-fixed boilerplate. In R4 it also appears on 6x12, 6x13, 6x13B, 7x13, 7x13B, 7x14, 7x14rk, 8x13, 8x13B, 9x15 and 9x15B. Kuhn's page says \"Most of these fonts contained the following property\". So whether Kagotani or MIT staff added it to k14 is unknown. For k12 the label was inherited from k14's header (see claim 1) and is not an independent statement. The independent evidence for k12 is Tsuboi's 1999 mail. Only for 12x13ja is the label clearly the distributor's own (Kuhn)."
+   }
+  ],
+  "counter_evidence": [
+   "The COPYRIGHT string on k14 is the stock MIT misc-fixed property, shared by about a dozen R4 misc fonts and described as such on Kuhn's ucs-fonts page. So it is not evidence of a deliberate grant by Kagotani, let alone by Tachibana. The donor-specific text is only the COMMENT \"Donated by H. Kagotani ...; public domain font from Japan\".",
+   "a12.bdf in the a12k12 archive keeps Kagotani's donor COMMENT word for word from R4's 7x14.bdf. This shows the a12k12 makers copied source-font headers, so k12's \"Donated by T.Maebashi ...; public domain\" is most likely k14's header with the name swapped. It is not an independent dedication.",
+   "X11R4 RELNOTES (sha256 7c3b309f...7ee) says \"Sony has donated a set of Kanji and Kana fonts\". Yet R4's only kanji font is k14, whose header names Kagotani, and Sony's files (8x16, 12x24, ...) carry Sony copyright. This is a small inconsistency in a secondary MIT document and does not change the k14 attribution.",
+   "EJ No. 2050 says Tachibana was employed at the software company Astec when he drew k14, after hours and unpaid. In principle that leaves an employer-ownership question, but it is unlikely under Japanese Copyright Act Art. 15, since the work was not done in the course of his job and was not published under the company's name [I].",
+   "Tsuboi's 1999 confirmation for k12 is personal and hedged (\"良いかと思います\"). He says a12k12 was made by in-house volunteers and was not meant for publication. No formal statement from Meitetsu Computer Service, and no statement from Maebashi, was found.",
+   "No statement from Tachibana using the words \"public domain\" exists in the sources found. Wikipedia's \"Public Domain\" infobox has no source. The IEEE Milestones \"K14-translate.pdf\" now returns 404, and the Wayback CDX service was offline, so I could not check it.",
+   "Cuts against a 'problematic' verdict: Fedora's xorg-x11-fonts spec ships font-misc-misc (which contains k14, 12x13ja and 18x18ja) as \"SPDX LicenseRef-Fedora-Public-Domain\". The same spec dropped daewoo-misc because it has \"no upstream license terms\".",
+   "Also against 'problematic': Debian's bug list for xfonts-a12k12 (8 bugs, archived ones included) has no licence bug. Tachibana's own 1995 FSP comment says he is glad that other free fonts based on k14 have been made."
+  ],
+  "verdict_agrees": true,
+  "corrected_verdict": "ok-with-conditions",
+  "corrected_obligations": "For 12x13ja's JIS X 0208 kanji, kana and symbols, nothing has to ship beyond the misc-fixed credit line. k14.bdf, k12.bdf and 12x13ja.bdf all carry only COPYRIGHT \"Public domain font.  Share and enjoy.\", and no notice or licence text comes with them. Recommended: extend the credit with the lineage, e.g. \"12x13ja kana/kanji: k12 (Meitetsu Computer Service volunteers incl. T. Maebashi, 1993), reduced from k14 by Hiroshi Tachibana (1987), contributed to X11R4 by H. Kagotani\". Condition on the docs: OpenGPU's provenance record (29 §4 item 7 / §8 F7) must state the basis accurately, as follows. (a) The glyphs have been distributed as public domain since X11R4 (1989). (b) The original author's own grant does not use the words \"public domain\"; his 1995 statement shows the font was made to be freely usable and that he welcomed derivative free fonts. (c) The terms of the k12 step rest on Yutaka Tsuboi's personal 1999 e-mail (DFSG-free, \"like X11 fonts\"), not on an independent dedication. Separately, the Hangul in 12x13ja still needs Baekmuk's notice.",
+  "summary": "The investigator's identification holds, and I confirmed it with my own downloads, my own BDF reader and my own decoder for the X11R4 archive (old Unix compress format). Every kanji and kana in 12x13ja (6353/6353 and 169/169) is bit-identical to k12.bdf (1993) after a 0/-1 px shift, against 5 and 21 identical in unrelated 12-px fonts. The 40% area reduction of k14 at 12/14 reproduces 3370/3388 of k12's level-2 kanji. k14 is Hiroshi Tachibana's 1987 font, in X11R4 since 1989 with Kagotani's donor line, and the reduction tool was very likely Kagotani's own bdfresize. All file hashes, quotes and counts I re-checked match, apart from trivial differences. The one thing to correct is the claim that each link's label was written by its distributor. \"Public domain font.  Share and enjoy.\" is stock X11 misc-fixed boilerplate, and k12's \"public domain\" line was copied from k14's header. For k12 the real support is Tsuboi's personal 1999 mail; for k14 it is 35 years of X11/X.Org distribution, Fedora's public-domain classification and Tachibana's own 1995 welcome of free fonts derived from it, though he never used the words \"public domain\". On that basis \"ok-with-conditions\" stands: ship the misc-fixed credit line, preferably with the lineage, and record these limits accurately in the provenance docs."
+ }
+}

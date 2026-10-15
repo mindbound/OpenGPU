@@ -1,0 +1,8 @@
+thr>= 76 ( 38.8%) identical 1599
+thr>= 78 ( 39.8%) identical 3795
+thr>= 80 ( 40.8%) identical 3795
+thr>= 82 ( 41.8%) identical 1913
+detail thr 78 {'alnum': (14, 62), 'box': (32, 32), 'greekcyr': (114, 114), 'hira': (2, 83), 'kanji1': (200, 2965), 'kanji2': (3370, 3388), 'kata': (4, 86), 'sym': (59, 147)}
+nearest-neighbour identical 20
+kanji1 differing: 2765 lost-only 1524 gained-only 9 both 1232 median-changed 9 mean-jacc 0.845
+added pixels with nonzero k14 coverage: 3466/3747

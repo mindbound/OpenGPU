@@ -1,0 +1,244 @@
+18x18ja FBB (18, 18, 0, -3) glyphs 19168
+glyphs with ink in the 1-px border: 165
+18x18ja inventory by block:
+   CJK unified                   14655
+   Hangul syllables               2350
+   Symbols U+2000-2BFF             778
+   Latin etc. <U+0370              355
+   CJK compat ideographs           268
+   Kana                            179
+   Fullwidth forms                 100
+   Cyrillic                         94
+   Hangul compat jamo               94
+   CJK compatibility                80
+   Greek                            71
+   Encl. CJK letters/months         68
+   other U+3100 block               37
+   CJK symbols/punct                24
+   Radicals/IDC                     12
+   other U+FB00 block                2
+   other U+FF00 block                1
+  border-ink glyphs by block: {'Latin etc. <U+0370': 5, 'Cyrillic': 1, 'Symbols U+2000-2BFF': 145, 'Radicals/IDC': 12, 'Kana': 2}
+source hanglg16  glyphs  8224 mapped  8223 unmapped 1
+source hanglm16  glyphs  8224 mapped  8223 unmapped 1
+source jiskan16  glyphs  6877 mapped  6877 unmapped 0
+source j90_16    glyphs  6879 mapped  6879 unmapped 0
+source jksp16    glyphs  6067 mapped  6067 unmapped 0
+source gb16fs    glyphs  7614 mapped  7445 unmapped 169
+source gb16st    glyphs  7614 mapped  7445 unmapped 169
+
+PER-CODE-POINT COMPARISON (target inner 16x16 vs source 16x16)
+  identical / compared, plus identical-up-to-translation(+-2px) and mean Hamming distance of non-identical
+ source hanglg16
+   CJK unified                  compared  4620 identical    10 (0.2%)  shift-identical  119  mean-dist(non-ident) 75.9
+   Hangul syllables             compared  2350 identical  1275 (54.3%)  shift-identical 1075  mean-dist(non-ident) 43.6
+   Symbols U+2000-2BFF          compared   298 identical   106 (35.6%)  shift-identical    5  mean-dist(non-ident) 34.7
+   CJK compat ideographs        compared   268 identical    14 (5.2%)  shift-identical  254  mean-dist(non-ident) 85.0
+   Kana                         compared   169 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 46.3
+   Fullwidth forms              compared   100 identical    16 (16.0%)  shift-identical    3  mean-dist(non-ident) 27.3
+   Hangul compat jamo           compared    93 identical    75 (80.6%)  shift-identical   18  mean-dist(non-ident) 40.6
+   CJK compatibility            compared    80 identical    69 (86.2%)  shift-identical   11  mean-dist(non-ident) 70.7
+   Cyrillic                     compared    66 identical     5 (7.6%)  shift-identical    0  mean-dist(non-ident) 26.7
+   Encl. CJK letters/months     compared    58 identical    57 (98.3%)  shift-identical    1  mean-dist(non-ident) 76.0
+   Latin etc. <U+0370           compared    56 identical     2 (3.6%)  shift-identical    0  mean-dist(non-ident) 29.7
+   Greek                        compared    48 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 34.9
+   CJK symbols/punct            compared    17 identical     1 (5.9%)  shift-identical    0  mean-dist(non-ident) 39.7
+ source hanglm16
+   CJK unified                  compared  4620 identical    10 (0.2%)  shift-identical  119  mean-dist(non-ident) 75.9
+   Hangul syllables             compared  2350 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 50.6
+   Symbols U+2000-2BFF          compared   298 identical   106 (35.6%)  shift-identical    5  mean-dist(non-ident) 34.7
+   CJK compat ideographs        compared   268 identical    14 (5.2%)  shift-identical  254  mean-dist(non-ident) 85.0
+   Kana                         compared   169 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 46.3
+   Fullwidth forms              compared   100 identical    16 (16.0%)  shift-identical    3  mean-dist(non-ident) 27.3
+   Hangul compat jamo           compared    93 identical    75 (80.6%)  shift-identical   18  mean-dist(non-ident) 40.6
+   CJK compatibility            compared    80 identical    69 (86.2%)  shift-identical   11  mean-dist(non-ident) 70.7
+   Cyrillic                     compared    66 identical     5 (7.6%)  shift-identical    0  mean-dist(non-ident) 26.7
+   Encl. CJK letters/months     compared    58 identical    57 (98.3%)  shift-identical    1  mean-dist(non-ident) 76.0
+   Latin etc. <U+0370           compared    56 identical     2 (3.6%)  shift-identical    0  mean-dist(non-ident) 29.7
+   Greek                        compared    48 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 34.9
+   CJK symbols/punct            compared    17 identical     1 (5.9%)  shift-identical    0  mean-dist(non-ident) 39.7
+ source jiskan16
+   CJK unified                  compared  6354 identical  5560 (87.5%)  shift-identical  144  mean-dist(non-ident) 30.6
+   Kana                         compared   177 identical   106 (59.9%)  shift-identical   71  mean-dist(non-ident) 45.4
+   Symbols U+2000-2BFF          compared   107 identical    95 (88.8%)  shift-identical    4  mean-dist(non-ident) 17.8
+   Fullwidth forms              compared    92 identical    65 (70.7%)  shift-identical   26  mean-dist(non-ident) 33.5
+   Cyrillic                     compared    66 identical    56 (84.8%)  shift-identical   10  mean-dist(non-ident) 36.0
+   Greek                        compared    48 identical    43 (89.6%)  shift-identical    5  mean-dist(non-ident) 36.4
+   CJK symbols/punct            compared    22 identical     7 (31.8%)  shift-identical   15  mean-dist(non-ident) 33.5
+   Latin etc. <U+0370           compared    11 identical     9 (81.8%)  shift-identical    2  mean-dist(non-ident) 35.0
+ source j90_16
+   CJK unified                  compared  6356 identical  6190 (97.4%)  shift-identical  166  mean-dist(non-ident) 91.5
+   Kana                         compared   177 identical   106 (59.9%)  shift-identical   71  mean-dist(non-ident) 45.4
+   Symbols U+2000-2BFF          compared   107 identical    95 (88.8%)  shift-identical    4  mean-dist(non-ident) 17.8
+   Fullwidth forms              compared    92 identical    65 (70.7%)  shift-identical   26  mean-dist(non-ident) 33.5
+   Cyrillic                     compared    66 identical    56 (84.8%)  shift-identical   10  mean-dist(non-ident) 36.0
+   Greek                        compared    48 identical    43 (89.6%)  shift-identical    5  mean-dist(non-ident) 36.4
+   CJK symbols/punct            compared    22 identical     7 (31.8%)  shift-identical   15  mean-dist(non-ident) 33.5
+   Latin etc. <U+0370           compared    11 identical     9 (81.8%)  shift-identical    2  mean-dist(non-ident) 35.0
+ source jksp16
+   CJK unified                  compared  5801 identical  5646 (97.3%)  shift-identical  155  mean-dist(non-ident) 90.9
+   Latin etc. <U+0370           compared   215 identical   145 (67.4%)  shift-identical   67  mean-dist(non-ident) 34.9
+   Cyrillic                     compared    26 identical    17 (65.4%)  shift-identical    9  mean-dist(non-ident) 36.7
+   Greek                        compared    23 identical    15 (65.2%)  shift-identical    8  mean-dist(non-ident) 32.2
+   Symbols U+2000-2BFF          compared     2 identical     1 (50.0%)  shift-identical    1  mean-dist(non-ident) 22.0
+ source gb16fs
+   CJK unified                  compared  6763 identical  2303 (34.1%)  shift-identical   66  mean-dist(non-ident) 80.7
+   Symbols U+2000-2BFF          compared   198 identical   121 (61.1%)  shift-identical   20  mean-dist(non-ident) 35.0
+   Kana                         compared   170 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 47.5
+   Fullwidth forms              compared    98 identical     2 (2.0%)  shift-identical    2  mean-dist(non-ident) 34.1
+   Cyrillic                     compared    66 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 47.2
+   Greek                        compared    48 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 42.4
+   other U+3100 block           compared    37 identical    31 (83.8%)  shift-identical    6  mean-dist(non-ident) 39.3
+   Latin etc. <U+0370           compared    35 identical     1 (2.9%)  shift-identical    1  mean-dist(non-ident) 33.4
+   CJK symbols/punct            compared    20 identical     1 (5.0%)  shift-identical    4  mean-dist(non-ident) 39.2
+   Encl. CJK letters/months     compared    10 identical    10 (100.0%)  shift-identical    0  mean-dist(non-ident) -
+ source gb16st
+   CJK unified                  compared  6763 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 92.9
+   Symbols U+2000-2BFF          compared   198 identical    65 (32.8%)  shift-identical    1  mean-dist(non-ident) 53.4
+   Kana                         compared   170 identical     0 (0.0%)  shift-identical    1  mean-dist(non-ident) 50.3
+   Fullwidth forms              compared    98 identical     0 (0.0%)  shift-identical    2  mean-dist(non-ident) 38.8
+   Cyrillic                     compared    66 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 53.7
+   Greek                        compared    48 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 49.4
+   other U+3100 block           compared    37 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 18.3
+   Latin etc. <U+0370           compared    35 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 40.8
+   CJK symbols/punct            compared    20 identical     1 (5.0%)  shift-identical    0  mean-dist(non-ident) 39.9
+   Encl. CJK letters/months     compared    10 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 59.7
+ source 18x18ko-inner
+   CJK unified                  compared 14655 identical 10045 (68.5%)  shift-identical  119  mean-dist(non-ident) 75.9
+   Hangul syllables             compared  2350 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 73.7
+   Symbols U+2000-2BFF          compared   778 identical   481 (61.8%)  shift-identical    0  mean-dist(non-ident) 49.6
+   Latin etc. <U+0370           compared   355 identical   300 (84.5%)  shift-identical    2  mean-dist(non-ident) 37.6
+   CJK compat ideographs        compared   268 identical    14 (5.2%)  shift-identical  254  mean-dist(non-ident) 85.0
+   Kana                         compared   179 identical    10 (5.6%)  shift-identical    0  mean-dist(non-ident) 50.5
+   Fullwidth forms              compared   100 identical     1 (1.0%)  shift-identical    1  mean-dist(non-ident) 30.7
+   Cyrillic                     compared    94 identical    28 (29.8%)  shift-identical    0  mean-dist(non-ident) 51.6
+   Hangul compat jamo           compared    94 identical     1 (1.1%)  shift-identical    0  mean-dist(non-ident) 45.5
+   CJK compatibility            compared    80 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 69.0
+   Greek                        compared    71 identical    23 (32.4%)  shift-identical    0  mean-dist(non-ident) 49.0
+   Encl. CJK letters/months     compared    68 identical    10 (14.7%)  shift-identical    0  mean-dist(non-ident) 73.6
+   other U+3100 block           compared    37 identical    37 (100.0%)  shift-identical    0  mean-dist(non-ident) -
+   CJK symbols/punct            compared    24 identical     8 (33.3%)  shift-identical    0  mean-dist(non-ident) 36.9
+   Radicals/IDC                 compared    12 identical    12 (100.0%)  shift-identical    0  mean-dist(non-ident) -
+   other U+FB00 block           compared     2 identical     2 (100.0%)  shift-identical    0  mean-dist(non-ident) -
+   other U+FF00 block           compared     1 identical     1 (100.0%)  shift-identical    0  mean-dist(non-ident) -
+ source unifont-hex
+   CJK unified                  compared 14655 identical     2 (0.0%)  shift-identical    0  mean-dist(non-ident) 70.9
+   Hangul syllables             compared  2350 identical     0 (0.0%)  shift-identical    1  mean-dist(non-ident) 87.9
+   CJK compat ideographs        compared   268 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 84.0
+   Kana                         compared   179 identical     0 (0.0%)  shift-identical    2  mean-dist(non-ident) 45.3
+   Symbols U+2000-2BFF          compared   112 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 57.1
+   Fullwidth forms              compared   100 identical     2 (2.0%)  shift-identical    2  mean-dist(non-ident) 32.8
+   Hangul compat jamo           compared    94 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 47.7
+   CJK compatibility            compared    80 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 42.0
+   Encl. CJK letters/months     compared    68 identical    17 (25.0%)  shift-identical    0  mean-dist(non-ident) 19.0
+   other U+3100 block           compared    37 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 35.9
+   CJK symbols/punct            compared    24 identical     1 (4.2%)  shift-identical    5  mean-dist(non-ident) 38.0
+   Radicals/IDC                 compared    12 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 69.2
+   Latin etc. <U+0370           compared     2 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 73.0
+ source unifont_jp
+   CJK unified                  compared 14655 identical    23 (0.2%)  shift-identical    2  mean-dist(non-ident) 72.7
+   Hangul syllables             compared  2350 identical     0 (0.0%)  shift-identical    1  mean-dist(non-ident) 87.9
+   Symbols U+2000-2BFF          compared   778 identical     1 (0.1%)  shift-identical    0  mean-dist(non-ident) 46.0
+   Latin etc. <U+0370           compared   355 identical     2 (0.6%)  shift-identical    1  mean-dist(non-ident) 47.1
+   CJK compat ideographs        compared   268 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 83.9
+   Kana                         compared   179 identical     1 (0.6%)  shift-identical    4  mean-dist(non-ident) 41.6
+   Fullwidth forms              compared   100 identical     2 (2.0%)  shift-identical    2  mean-dist(non-ident) 32.8
+   Cyrillic                     compared    94 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 50.6
+   Hangul compat jamo           compared    94 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 47.7
+   CJK compatibility            compared    80 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 44.1
+   Greek                        compared    71 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 49.2
+   Encl. CJK letters/months     compared    68 identical    17 (25.0%)  shift-identical    0  mean-dist(non-ident) 19.0
+   other U+3100 block           compared    37 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 35.9
+   CJK symbols/punct            compared    24 identical     1 (4.2%)  shift-identical    5  mean-dist(non-ident) 38.0
+   Radicals/IDC                 compared    12 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 69.2
+   other U+FB00 block           compared     2 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 61.5
+   other U+FF00 block           compared     1 identical     0 (0.0%)  shift-identical    0  mean-dist(non-ident) 83.0
+
+ATTRIBUTION of each 18x18ja glyph to sources with an identical glyph at the same code point
+   CJK unified 14655
+       jksp16                                     5646
+       j90_16+jiskan16                            5559
+       gb16fs                                     2303
+       j90_16                                      630
+       NONE                                        507
+       hanglg16+hanglm16                             9
+       j90_16+jiskan16+hanglg16+hanglm16             1
+   Hangul syllables 2350
+       hanglg16                                   1275
+       NONE                                       1075
+   Symbols U+2000-2BFF 778
+       NONE                                        491
+       hanglg16+hanglm16                           101
+       j90_16+jiskan16                              60
+       gb16fs                                       56
+       gb16fs+gb16st                                34
+       j90_16+jiskan16+gb16fs+gb16st                30
+       j90_16+jiskan16+hanglg16+hanglm16             4
+       jksp16                                        1
+       j90_16+jiskan16+gb16fs+hanglg16+hanglm16+gb16st      1
+   Latin etc. <U+0370 355
+       NONE                                        198
+       jksp16                                      145
+       j90_16+jiskan16                               9
+       hanglg16+hanglm16                             2
+       gb16fs                                        1
+   CJK compat ideographs 268
+       NONE                                        254
+       hanglg16+hanglm16                            14
+   Kana 179
+       j90_16+jiskan16                             106
+       NONE                                         73
+   Fullwidth forms 100
+       j90_16+jiskan16                              51
+       NONE                                         31
+       j90_16+jiskan16+hanglg16+hanglm16            14
+       gb16fs                                        2
+       hanglg16+hanglm16                             2
+   Cyrillic 94
+       j90_16+jiskan16                              51
+       NONE                                         21
+       jksp16                                       17
+       j90_16+jiskan16+hanglg16+hanglm16             5
+   Hangul compat jamo 94
+       hanglg16+hanglm16                            75
+       NONE                                         19
+   CJK compatibility 80
+       hanglg16+hanglm16                            69
+       NONE                                         11
+   Greek 71
+       j90_16+jiskan16                              43
+       jksp16                                       15
+       NONE                                         13
+   Encl. CJK letters/months 68
+       hanglg16+hanglm16                            57
+       gb16fs                                       10
+       NONE                                          1
+   other U+3100 block 37
+       gb16fs                                       31
+       NONE                                          6
+   CJK symbols/punct 24
+       NONE                                         17
+       j90_16+jiskan16                               6
+       j90_16+jiskan16+gb16fs+hanglg16+hanglm16+gb16st      1
+   Radicals/IDC 12
+       NONE                                         12
+   other U+FB00 block 2
+       NONE                                          2
+   other U+FF00 block 1
+       NONE                                          1
+
+BITMAP-SET MEMBERSHIP (target glyph bitmap found anywhere in source, any code point)
+  source j90_16         Hangul syllables 0/2350; Hangul compat jamo 0/93; Encl. CJK letters/months 0/68; CJK unified 6190/14655; Symbols U+2000-2BFF 102/777; Kana 106/179
+  source jiskan16       Hangul syllables 0/2350; Hangul compat jamo 0/93; Encl. CJK letters/months 0/68; CJK unified 5560/14655; Symbols U+2000-2BFF 102/777; Kana 106/179
+  source jksp16         Hangul syllables 0/2350; Hangul compat jamo 0/93; Encl. CJK letters/months 0/68; CJK unified 5646/14655; Symbols U+2000-2BFF 1/777; Kana 0/179
+  source gb16fs         Hangul syllables 0/2350; Hangul compat jamo 0/93; Encl. CJK letters/months 10/68; CJK unified 2304/14655; Symbols U+2000-2BFF 124/777; Kana 1/179
+  source hanglg16       Hangul syllables 1275/2350; Hangul compat jamo 75/93; Encl. CJK letters/months 57/68; CJK unified 10/14655; Symbols U+2000-2BFF 114/777; Kana 0/179
+  source hanglm16       Hangul syllables 0/2350; Hangul compat jamo 75/93; Encl. CJK letters/months 57/68; CJK unified 10/14655; Symbols U+2000-2BFF 114/777; Kana 0/179
+  source gb16st         Hangul syllables 0/2350; Hangul compat jamo 0/93; Encl. CJK letters/months 0/68; CJK unified 0/14655; Symbols U+2000-2BFF 67/777; Kana 0/179
+  source 18x18ko-inner  Hangul syllables 0/2350; Hangul compat jamo 0/93; Encl. CJK letters/months 10/68; CJK unified 10045/14655; Symbols U+2000-2BFF 495/777; Kana 10/179
+  source unifont-hex    Hangul syllables 0/2350; Hangul compat jamo 0/93; Encl. CJK letters/months 17/68; CJK unified 8/14655; Symbols U+2000-2BFF 19/777; Kana 1/179
+  source unifont_jp     Hangul syllables 0/2350; Hangul compat jamo 0/93; Encl. CJK letters/months 17/68; CJK unified 26/14655; Symbols U+2000-2BFF 13/777; Kana 2/179
+
+unmatched in Hangul syllables: 1075 U+AC00 U+AC01 U+AC04 U+AC07 U+AC08 U+AC09 U+AC0A U+AC10 U+AC11 U+AC12 U+AC13 U+AC14 U+AC15 U+AC16 U+AC17 U+AC19 U+AC1A U+AC1B U+AC38 U+AC39 U+AC3C U+AC40 U+AC4B U+AC4D U+ACE0 U+ACE1 U+ACE4 U+ACE7 U+ACE8 U+ACEA U+ACEC U+ACEF U+ACF0 U+ACF1 U+ACF3 U+ACF5 U+ACF6 U+ACFC U+ACFD U+AD00 U+AD04 U+AD06 U+AD0C U+AD0D U+AD0F U+AD11 U+AD50 U+AD54 U+AD58 U+AD61 U+AD63 U+AD6C U+AD6D U+AD70 U+AD73 U+AD74 U+AD75 U+AD76 U+AD7B U+AD7C
+unmatched in Hangul compat jamo: 19 U+314F U+3150 U+3151 U+3152 U+3153 U+3154 U+3155 U+3156 U+3157 U+3158 U+315B U+315C U+3160 U+3161 U+3163 U+3164 U+3170 U+3187 U+318E
+unmatched in Encl. CJK letters/months: 1 U+327F

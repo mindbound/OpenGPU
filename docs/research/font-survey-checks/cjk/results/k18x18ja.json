@@ -1,0 +1,427 @@
+{
+ "slug": "k18x18ja",
+ "title": "18x18ja's Hangul and Daewoo's X11 fonts",
+ "investigation": {
+  "question": "18x18ja (misc-fixed CJK face, paired with 9x18): where do its 2 350 Hangul syllables and its Korean symbols come from, and under what terms did Daewoo contribute its fonts? Also, briefly: the terms of its two main parts, the JIS X 9051-1984 16x16 kanji (X11 jiskan16) and Koichi Yasuoka et al.'s JIS X 0212-1990 glyphs (jisksp16-1990).",
+  "verdict": "problematic",
+  "verdict_reason": "18x18ja is not Kuhn's own drawing. It merges four 16-px fonts, and its own RCS log names them: Yasuoka's j90-16 and jksp16, ISAS gb16fs, and Daewoo hanglg16. A glyph check ties 3 086 of its 19 168 glyphs to Daewoo Electronics' hanglg16, including all 2 350 Hangul syllables. Against unrelated 16-px Hangul fonts the match rate is 0 of 2 350. No licence grant from Daewoo exists in any version from 1990 to 2023. The X.Org maintainers' own conclusion is that the font \"should be considered proprietary in some jurisdictions\", and Fedora/RHEL removed it in 2021. A further 2 533 glyphs are from ISAS's gb16fs. 18x18ja's comments never mention gb16fs, and its permission notice must be reproduced. The JIS parts (13 043 glyphs, 68%) carry the authors' own \"Public Domain\" labels, but under them sits JIS X 9051 data that the X Consortium labelled only \"by permission to use\", under \"JIS rules\" whose text has not been found. So the face cannot ship as is on Kuhn's public-domain label alone.",
+  "obligations": "No notice makes the Daewoo-derived glyphs usable, because there is no grant to comply with. That is 3 086 glyphs: all 2 350 Hangul syllables, 93 compatibility jamo, 58 in U+32xx, 80 in U+33xx, 268 in U+F900-FAFF, 128 unified hanja, 104 symbols and 5 others; the full code-point list is in C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\_results\\attribution.tsv, source \"hanglg16\". OpenGPU must leave them out of its tables or get permission from the rights holder. The only rights text they carry is: \"Copyright (c) 1987, 1988 Daewoo Electronics Co.,Ltd.\"\n\nIf OpenGPU keeps the 2 533 glyphs derived from ISAS gb16fs (2 369 simplified hanzi, 37 Bopomofo, 111 symbols, 10 parenthesised ideographs, 6 others; source \"gb16fs\" in attribution.tsv), it must reproduce this notice in all copies and in the supporting documentation. Text from font-isas-misc-1.0.4/COPYING, identical in the gb16fs.bdf COMMENT block:\n\n\"Copyright (C) 1988  The Institute of Software, Academia Sinica.\n\nCorrespondence Address:  P.O.Box 8718, Beijing, China 100080.\n\nPermission to use, copy, modify, and distribute this software and\nits documentation for any purpose and without fee is hereby granted,\nprovided that the above copyright notices appear in all copies and\nthat both those copyright notices and this permission notice appear\nin supporting documentation, and that the name of \"the Institute of\nSoftware, Academia Sinica\" not be used in advertising or publicity\npertaining to distribution of the software without specific, written\nprior permission.  The Institute of Software, Academia Sinica,\nmakes no representations about the suitability of this software\nfor any purpose.  It is provided \"as is\" without express or\nimplied warranty.\n\nTHE INSTITUTE OF SOFTWARE, ACADEMIA SINICA, DISCLAIMS ALL WARRANTIES\nWITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF\nMERCHANTABILITY AND FITNESS, IN NO EVENT SHALL THE INSTITUTE OF\nSOFTWARE, ACADEMIA SINICA, BE LIABLE FOR ANY SPECIAL, INDIRECT OR\nCONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM\nLOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,\nNEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION\nWITH THE USE OR PERFORMANCE OF THIS SOFTWARE.\"\n\nThe JIS X 0208 kanji (from Yasuoka's jiskan16-1990, i.e. j90-16) and the JIS X 0212 glyphs (Yasuoka et al.'s jisksp16-1990) carry COPYRIGHT \"Public Domain\". There is no text OpenGPU is required to ship, beyond the misc-fixed credit line. A courtesy credit is advisable: \"16x16 kanji from JIS X 9051-1984 via Koichi Yasuoka's jiskan16-1990; JIS X 0212 glyphs by Koichi Yasuoka, KANOU Hiroki, ITO Takayuki, Toshiyuki Imamura, Ken'ichi Nakata and SUNAGAWA Keiki\". This part is open, not cleared: the X Consortium's source label \"from JIS X 9051-1984, by permission to use\", and X11R5's \"JIS rules\" (\"these fonts should not be transformed into other encodings\"), have no grant text that could be shipped. See open_points.",
+  "claims": [
+   {
+    "claim": "18x18ja's own revision log names four source fonts, including two that its BDF comments do not credit as sources: ISAS gb16fs (not mentioned at all) and Daewoo hanglg16 (mentioned only for 'some Korean symbols').",
+    "tag": "M",
+    "evidence": "\"JIS X 208 repertoire derived from GNU intlfonts-1.2 j90-16.bdf and jksp16.bdf / plus merged in extract of gb16fs.bdf and hanglg16.bdf to also cover / GB2312.1980 and KSC5601.1987 as required for ISO-2022-JP-2.\"",
+    "source": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\misc-fixed-cjk\\x\\18x18ja.changes lines 12-14 (sha256 a410f3bb5eb15f71654f579d52670bd4a55187e15907e8bc0d68cf15c12295b)",
+    "load_bearing": true
+   },
+   {
+    "claim": "The BDF comments credit Daewoo only with symbols, and the font carries Kuhn's public-domain label; his README says it covers GB 2312-80 and KS X 1001:1992 in full.",
+    "tag": "M",
+    "evidence": "18x18ja.bdf line 6 \"COMMENT Some Korean symbols derived from Daewoo's X11 font contribution.\"; line 16 COPYRIGHT \"Public domain font.  Share and enjoy.\"; README: \"Covers all JIS X 0208, JIS X 0212, GB 2312-80, KS X 1001:1992, ...\"",
+    "source": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\misc-fixed-cjk\\x\\18x18ja.bdf lines 2-8, 16 (sha256 12bc0c0a4d64d760ed61d21e0b05c69e2d5da9e7ad1599549febbe22ce68baa2); C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\misc-fixed\\x\\README lines 126-135",
+    "load_bearing": true
+   },
+   {
+    "claim": "All 2 350 Hangul syllables in 18x18ja are Daewoo Gothic (hanglg16) bitmaps. 1 275 are identical in place. The other 1 075 are identical after a 1-px move to the left, and they are exactly the source glyphs whose ink touches the right edge. Unrelated 16-px Hangul fonts match 0 of 2 350.",
+    "tag": "M",
+    "evidence": "Inner 16x16 (rows 1-16, cols 1-16) of 18x18ja vs the hanglg16 glyph at the same code point, KS X 1001 mapped with Python's euc_kr: 1275 identical, 1075 identical under translation (dx=-1 for all 1075). Every moved glyph has source (left,right) margins (1,0); every glyph copied in place has a right margin of 1-4. Baselines at the same code points: hanglm16 (Daewoo Mincho) 0/2350 exact and 0 translation; 18x18ko inner 16x16 (KAIST Gothic per its comments) 0/2350; Unifont 18.0.01 0/2350 exact and 1 translation-identical; unifont_jp 0/2350. Bitmap found anywhere in the font: hanglg16 1275/2350 exact; all others 0/2350.",
+    "source": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\_results\\compare18ja.out, attrib18ja.out; scripts compare18ja.py, attrib18ja.py, shiftrule.py",
+    "load_bearing": true
+   },
+   {
+    "claim": "In total, 3 086 of 18x18ja's 19 168 glyphs (16.1%) come from hanglg16. Besides the Hangul syllables they include compatibility jamo, enclosed Hangul, U+33xx squares, the 268 U+F900-FAFF compatibility ideographs and 128 unified hanja.",
+    "tag": "M",
+    "evidence": "Shift-aware attribution, crediting each glyph to the first matching source in the order j90-16, jiskan16, jksp16, gb16fs, hanglg16: Hangul syllables 2350, compatibility jamo 93 (75 exact, 11 moved 1 px, 7 moved 2 px; the 94th, U+3164, is blank), U+32xx 58, U+33xx 80, U+F900-FAFF 268 (14 exact, 254 moved 1 px), CJK unified 128, symbols U+2000-2BFF 104, Latin 3, fullwidth 2. Daewoo's jamo, symbol and hanja rows are identical in hanglg16 and hanglm16 (4888/4888 hanja, 986/986 symbol rows); only the Hangul rows differ (0/2350).",
+    "source": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\_results\\attribution.tsv, attrib18ja.out; pairbdf.py runs",
+    "load_bearing": true
+   },
+   {
+    "claim": "hanglg16 has been byte-identical from the X Consortium's 1990 initial check-in through X.Org 1.0.4 and intlfonts. In every version its only rights statement is a bare Daewoo copyright line, with no grant and no explanatory comment. X.Org's COPYING has been that one line since 1.0.0 (2005).",
+    "tag": "M",
+    "evidence": "sha256 89e2af1a0c4ae544ee598fbfbb32d85d28bacc967dfc79dd1c6a6209b2829ac8 for: xc-historical commit 8c43ff6f (1990-07-09, 'Initial revision', rws, the only commit on that path), X11R5 mit-3 mit/fonts/bdf/misc/hanglg16.bdf, font-daewoo-misc 1.0.0 and 1.0.4, intlfonts-1.2.1 Korean.X. Header: COPYRIGHT \"Copyright (c) 1987, 1988 Daewoo Electronics Co.,Ltd.\" and no COMMENT lines. COPYING in 1.0.0 and in 1.0.4 is exactly: \"Copyright (c) 1987, 1988 Daewoo Electronics Co.,Ltd.\"",
+    "source": "https://gitlab.freedesktop.org/api/v4/projects/16658/repository/files/xc%2Ffonts%2Fbdf%2Fmisc%2Fhanglg16.bdf/raw?ref=8c43ff6f; .../repository/commits?path=xc%2Ffonts%2Fbdf%2Fmisc%2Fhanglg16.bdf; CP\\x11r5-mit-3; CP\\xorg-font-daewoo-misc-1.0.{0,4}\\ex\\*\\COPYING (CP = C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja)",
+    "load_bearing": true
+   },
+   {
+    "claim": "The X11R5 release notes, the first release with the Daewoo fonts, give no licence terms for fonts. They say only that the fonts were contributed, and their own permission notice covers only the release-notes document.",
+    "tag": "M",
+    "evidence": "\"A collection of bitmap and outline fonts are included in the distribution, contributed by various individuals and companies.\" (lines 112-115); \"The following sets of fonts are new: ... Kanji in JISX0208.1983-0 encoding, Hangul in KSC5601.1987-0 encoding.\" (2325-2330); \"Permission to use, copy, modify, and distribute this document ...\" (lines 19-24). There are no other licence passages: grep for license/permission/public domain/freely/redistribut finds only the document notice.",
+    "source": "https://mirror.csclub.uwaterloo.ca/x.org/X11R5/RELNOTES.TXT (sha256 f17ef2de41ef98c435896ceeba4f43265d780e420ed151d20aa4c75fa5c4209d), lines cited",
+    "load_bearing": true
+   },
+   {
+    "claim": "X.Org's own maintainers looked for Daewoo's terms in 2021-2023 and found none, including in the X Consortium mail archives (which start in 1992). Their working conclusion: probably legal to distribute in the US, but to be considered proprietary in some jurisdictions. The issue is still open.",
+    "tag": "M",
+    "evidence": "Issue xorg/font/daewoo-misc#1 'License terms for daewoo-misc?', opened 2021-04-20, state opened. Note of 2021-05-05: \"Summary from a private conversation with @keithp: US Copyright law appears to have an exception for glyphs ... so the distribution of this font even absent any specific notices is probably legal in the US. It is unlikely legal in some or many other jurisdictions ... absent any further information, this font should be considered proprietary in some jurisdictions.\" Note of 2021-05-23 (alanc): \"I think the historical assumption was that with no specific license terms in the individual font files that the license terms in the X11R5 Release Notes covered them. ... it doesn't record any useful information for these files beyond that they were imported by Bob Scheifler in 1990.\" Note of 2023-09-05: \"I think I found those archives on an expo backup but unfortunately they only go back to '92. `grep` cannot find any mention of daewoo in those archives.\"",
+    "source": "https://gitlab.freedesktop.org/api/v4/projects/xorg%2Ffont%2Fdaewoo-misc/issues/1 (sha256 25a4c31d3d1c0cbc69c08e73255700bfc4c0b15c11d2ab3a208ca60fc557bf6e); notes via POST https://gitlab.freedesktop.org/api/graphql (CP\\gitlab-daewoo-issue1\\graphql.json, sha256 931427fc66994c7a975570f497d71954816bf85b39b224b9ffd671d5071a8571)",
+    "load_bearing": true
+   },
+   {
+    "claim": "Distributors disagree: Fedora/RHEL removed daewoo-misc as possibly proprietary, Debian still ships it citing only the copyright line, and FreeBSD invents a custom licence whose file is that same line. These are secondhand distributor judgements, not Daewoo's grant.",
+    "tag": "M",
+    "evidence": "Fedora spec: \"# Daewoo-misc has no license terms, just Copyright (#1952723)\" (line 69); changelog 7.5-31, 2021-04-23: \"Drop the daewoo-misc fonts, they have no upstream license terms and may be proprietary (#1952723)\". RH bug 1952723 'daewoo-misc are (potentially) proprietary', CLOSED ERRATA. Debian xfonts-base copyright: \"font-daewoo-misc/COPYING: \\\"Copyright (c) 1987, 1988 Daewoo Electronics Co.,Ltd.\\\"\" (lines 79-80). FreeBSD: LICENSE=Daewoo_font, LICENSE_FILE=${WRKSRC}/COPYING, LICENSE_PERMS=dist-mirror dist-sell pkg-mirror pkg-sell auto-accept.",
+    "source": "https://src.fedoraproject.org/rpms/xorg-x11-fonts/raw/rawhide/f/xorg-x11-fonts.spec (sha256 cf2697b3...); https://bugzilla.redhat.com/rest/bug/1952723/comment (sha256 97707d0e...); https://metadata.ftp-master.debian.org/changelogs/main/x/xfonts-base/stable_copyright (sha256 051e52a2...); https://cgit.freebsd.org/ports/plain/x11-fonts/font-daewoo-misc/Makefile (sha256 d8497f82...)",
+    "load_bearing": false
+   },
+   {
+    "claim": "The statement that Daewoo 'donated' its fonts to the X Consortium is secondhand (18x18ko's comment and FreeBSD's pkg-descr). No document records the donation or its terms, and nothing shows that third parties were granted any right to modify or redistribute the fonts.",
+    "tag": "I",
+    "evidence": "18x18ko COMMENT \"donated by Daewoo Inc. of Korea to the X Consortium\" (Jungshik Shin, 2000); FreeBSD pkg-descr \"donated by Daewoo to X consortium\". Weighed against the absence of any grant in the 1990-2023 files, in the X11R5 notes, in X.Org's License.xml and in the X Consortium archives searched by X.Org.",
+    "source": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\misc-fixed-cjk\\x\\18x18ko.bdf comments; https://cgit.freebsd.org/ports/plain/x11-fonts/font-daewoo-misc/pkg-descr (sha256 6dcc6b23...)",
+    "load_bearing": true
+   },
+   {
+    "claim": "2 533 glyphs, mostly 2 369 simplified hanzi, come from ISAS's gb16fs (Fangsong). ISAS's own notice permits use but requires its copyright and permission notice to be reproduced. A different ISAS design (gb16st, Song) matches none of these hanzi.",
+    "tag": "M",
+    "evidence": "Per code point: gb16fs 2303 of 6763 CJK identical plus 66 moved 1 px; Bopomofo 31 + 6 moved; U+3220-3229 10/10. Baseline gb16st (ISAS Song): 0/6763. The grant appears in gb16fs.bdf's COMMENT block and in X.Org's COPYING: \"Permission to use, copy, modify, and distribute this software and its documentation for any purpose and without fee is hereby granted, provided that the above copyright notices appear in all copies and that both those copyright notices and this permission notice appear in supporting documentation ...\"",
+    "source": "CP\\xorg-font-isas-misc-1.0.4\\font-isas-misc-1.0.4.tar.gz (https://mirror.csclub.uwaterloo.ca/x.org/individual/font/font-isas-misc-1.0.4.tar.gz, sha256 711a648206f0d7f4a8c3fa61b4b4703e789f37603937b488a6edd7c71182f7d5), COPYING and gb16fs.bdf lines 2-26; _results\\compare18ja.out",
+    "load_bearing": true
+   },
+   {
+    "claim": "The JIS X 0208 kanji come from Yasuoka's jiskan16-1990 (= intlfonts j90-16, byte-identical), which is the JIS X 9051-1984 data with about 650 edits. Most of its kanji (5 703 of 6 353) are bitmap-identical to X11 jiskan16.",
+    "tag": "M",
+    "evidence": "Yasuoka's own FTP copy (Wayback, 2001) and intlfonts-1.2.1 Japanese/j90-16.bdf are both sha256 3ddd9635c1004eaac6ea507398d0396c40b7d844eb382d5d433179f8909a900d. Header: \"16x16 JIS X 0208-1990 Kanji Font, Version 0.97 (August 23, 1996) / Rearranged and modified from JIS X 9051-1984 by Koichi Yasuoka\"; COPYRIGHT \"Public Domain\". 18x18ja vs j90-16: 6190/6356 identical plus 166 translation-identical; vs jiskan16: 5560 identical plus 144 translation-identical. j90-16 vs jiskan16 kanji rows: 5703/6353 identical, and 337 of the other 650 differ by fewer than 10 px; non-kanji rows 524/524 identical. Baseline for 18x18ja CJK vs unrelated 16-px fonts: Unifont 18 2/14655, unifont_jp 23/14655. (intlfonts' README instead credits j90-16 to \"ntakahas@etl.go.jp and takada@seraph.ntt.jp\".)",
+    "source": "https://web.archive.org/web/20010629220002id_/http://kanji.zinbun.kyoto-u.ac.jp:80/~yasuoka/ftp/fonts/jiskan16-1990.bdf.Z (sha256 94b52acd...), lines 2-14; intlfonts-1.2.1 Japanese/README line 13; _results\\compare18ja.out; pairbdf.py",
+    "load_bearing": true
+   },
+   {
+    "claim": "The X Consortium deliberately dropped a 'public domain' label from jiskan16 in 1990 in favour of 'by permission to use', after advice from a Japanese contact. Its R5 release notes attach conditions, the 'JIS rules': the fonts were bought from JSA, should only be used in the JISX0208.1983-0 encoding, and companies should buy the originals from JSA.",
+    "tag": "M",
+    "evidence": "xc-historical 2a6673c7 (1990-07-05, 'add COMMENT and COPYRIGHT, giving origin') removes \"COMMENT 16x16 public domain jis font\" and adds COPYRIGHT \"from JIS X 9051-1984, by permission\". ff792657 (1990-08-27, 'fix comment and copyright as Morisaki-san suggests') changes it to \"by permission to use\". X11R5 RELNOTES note 6: \"The JIS Kanji fonts were purchased on behalf of the MIT X Consortium from the Japanese Standards Association ... They were converted to BDF format, keeping within the JIS rules. In keeping with JIS rules, these fonts should not be transformed into other encodings, they should only be used in the JISX0208.1983-0 encoding. It is also strongly recommended that companies wishing to use these fonts in commercial products should purchase the original JIS font standards directly from JSA.\" X.Org's jis-misc COPYING: \"\\\"from JIS X 9051-1984, by permission to use\\\"\".",
+    "source": "https://gitlab.freedesktop.org/api/v4/projects/16658/repository/commits/2a6673c7/diff (sha256 6084f9c5...), .../ff792657/diff (sha256 96ce7652...); X11R5 RELNOTES.TXT lines 2362-2369; CP\\xorg-font-jis-misc-1.0.4 COPYING",
+    "load_bearing": true
+   },
+   {
+    "claim": "Fedora Legal treats the JIS bitmap fonts as not copyrightable. This is a US distributor's view, not a grant from JSA or the standard's drafter.",
+    "tag": "M",
+    "evidence": "fedora-license-data#327 'License Review: JIS-Fonts' (closed 2023-09-06), reviewer note 2023-09-08: \"We should assume this is not copyrightable and therefore need not be reflected in the License: field unless it would otherwise be empty.\" Fedora spec line 74: \"# Not copyrightable, see fedora-license-data#327\".",
+    "source": "https://gitlab.com/api/v4/projects/fedora%2Flegal%2Ffedora-license-data/issues/327 (sha256 eb014e9c...); notes via POST https://gitlab.com/api/graphql (CP\\fedora-license-data-327\\graphql327.json, sha256 7da22811...)",
+    "load_bearing": false
+   },
+   {
+    "claim": "The JIS X 0212 glyphs are Yasuoka et al.'s jisksp16-1990 version 0.983 (= intlfonts jksp16, byte-identical). All 6 067 of its glyphs are in 18x18ja, and the authors' own distribution labels the file 'Public Domain'.",
+    "tag": "M",
+    "evidence": "Yasuoka's FTP copy and intlfonts jksp16.bdf: sha256 c05b62fd600d2d7b8704151d6c9e467e64408ee6d98126a496f88725e07e358d. Header: \"16x16 JIS X 0212-1990 Kanji Font, Version 0.983 (December 15, 1998) / JISX9051-based design by Koichi Yasuoka ... KANOU Hiroki ... ITO Takayuki ... Toshiyuki Imamura ... Ken'ichi Nakata ... SUNAGAWA Keiki\"; COPYRIGHT \"Public Domain\". In 18x18ja: 5824 exact, 240 moved 1 px, 3 at another code point, for 6067 in total. The NetBSD distfile is version 0.981 (SHA512 matches distinfo) and differs from 0.983 in 3 glyphs; 18x18ja matches 0.983 slightly better (5646 vs 5644 exact CJK).",
+    "source": "https://web.archive.org/web/20010629210924id_/http://kanji.zinbun.kyoto-u.ac.jp:80/~yasuoka/ftp/fonts/jisksp16-1990.bdf.Z (sha256 2571c173...); https://cdn.netbsd.org/pub/pkgsrc/distfiles/jisksp16-1990.bdf.Z (sha256 7aa6bc50...); _results\\attrib18ja.out",
+    "load_bearing": true
+   },
+   {
+    "claim": "Yasuoka et al.'s 'Public Domain' label can only cover their own work. Both of their fonts are built on JIS X 9051: jiskan16-1990 is mostly the unaltered JIS X 9051 bitmaps, and jisksp16 is a 'JISX9051-based design'. Whatever the status of the JIS X 9051 data is, it carries into them.",
+    "tag": "I",
+    "evidence": "5703/6353 of jiskan16-1990's kanji are identical to jiskan16; for jisksp16, the stated 'JISX9051-based design'. How much JIS X 9051 material jisksp16 reuses was not measured.",
+    "source": "pairbdf.py results; jisksp16-1990.bdf line 4",
+    "load_bearing": false
+   },
+   {
+    "claim": "Nothing in X.Org's own licence documentation states terms for the Daewoo, JIS or ISAS fonts. It tells readers to check each package.",
+    "tag": "M",
+    "evidence": "License.xml: \"you must check each file and/or package for precise redistribution terms\"; no mention of Daewoo, JIS or Academia Sinica.",
+    "source": "https://mirror.csclub.uwaterloo.ca/x.org/individual/doc/xorg-docs-1.7.2.tar.gz (sha256 0c1e0188...), general/License.xml lines 20-25",
+    "load_bearing": false
+   },
+   {
+    "claim": "506 glyphs match none of the four sources (4 of them blank). They are mostly Braille patterns, box drawing, geometric shapes and ideographic description characters, and are probably Kuhn's own additions under his public-domain statement.",
+    "tag": "I",
+    "evidence": "Measured: U+2800-28FF 254, box drawing 58, geometric shapes 56, block elements 20, U+2FF0-2FFB 12, and others. 165 glyphs have ink in the 1-px border, none of them CJK or Hangul. The attribution to Kuhn rests on RCS revisions 1.14 \"CP437 and geometric shapes/block elements completed\" and 1.15 \"added U+2FFx Ideographic Description Characters\".",
+    "source": "_results\\attribution.tsv; 18x18ja.changes revisions 1.14-1.15",
+    "load_bearing": false
+   },
+   {
+    "claim": "The intlfonts-1.2.1 files should stand in for Kuhn's intlfonts-1.2 inputs. 1.2.1's ChangeLog records no edits to the Japanese, Korean.X or Chinese.X BDFs after 1.2 (NEWS dated 9 June 1999), and the j90-16/jksp16 files are byte-identical to Yasuoka's own.",
+    "tag": "I",
+    "evidence": "The ChangeLog entries from 1999-06-11 to 1999-12-07 touch only Asian/*, European/fonts.alias, the build files and Emacs.ap. intlfonts-1.2 itself was not obtained.",
+    "source": "https://ftp.gnu.org/gnu/intlfonts/intlfonts-1.2.1.tar.gz (sha256 f208ec06573e935116d27994be4b58f8121184f855a85acd2cdb8848479a10f3), ChangeLog lines 1-60, NEWS",
+    "load_bearing": false
+   }
+  ],
+  "glyph_checks": "Method: my own stdlib BDF and Unifont-hex reader (bdflib.py). Glyphs are rendered into each font's common BBX canvas, because jiskan16's FONTBOUNDINGBOX y offset disagrees with every glyph's BBX. 18x18ja is 19 168 glyphs, all BBX 18 18 0 -3. Its inner 16x16 is rows 1-16, cols 1-16. Source fonts use 94x94 GL codes, mapped to Unicode with Python's euc_kr, euc_jp (0x8F prefix for JIS X 0212) and gb2312 codecs. Three tests, in order: exact identity at the same code point; identity after a translation of up to +-2 px; then identity anywhere in the source.\n\nHangul syllables (2 350):\n- hanglg16 (Daewoo Gothic): 1 275 exact plus 1 075 identical after a 1-px move left, so 2 350/2 350. The moved glyphs are exactly those with ink in the source's last column (margins (1,0)).\n- Baselines: hanglm16 (Daewoo Mincho) 0 exact / 0 translation; 18x18ko inner 16x16 (KAIST Gothic per its comments) 0/2 350; Unifont 18.0.01 0 exact / 1 translation; unifont_jp 0. Mean Hamming distance for the non-identical ones: hanglm16 50.6, 18x18ko 73.7, Unifont 87.9.\n\nKorean symbols and hanja from hanglg16:\n- Compatibility jamo 93/94 (75 exact, 11 moved 1 px, 7 moved 2 px; U+3164 is blank). Unifont 0/94.\n- U+32xx: 58 Daewoo plus 10 ISAS. Unifont matches 17, but 10 of those are the ISAS parenthesised ideographs and 7 are simple enclosed jamo, so this block is not a clean baseline.\n- U+33xx 80/80; U+F900-FAFF 268/268 (254 moved 1 px); 128 unified hanja; 104 symbols. Total 3 086 glyphs.\n- Daewoo's jamo, symbol and hanja rows are identical between Gothic and Mincho; only the Hangul rows differ.\n\nKanji (6 356 JIS X 0208 code points):\n- Yasuoka's jiskan16-1990 / j90-16: 6 190 exact plus 166 translation-identical.\n- X11 jiskan16: 5 560 exact plus 144 translation-identical.\n- j90-16 vs jiskan16 directly: 5 703/6 353 kanji identical; 337 of the other 650 differ by fewer than 10 px; non-kanji rows 524/524 identical.\n- Baselines (18x18ja's 14 655 unified CJK): Unifont 18 2/14 655 exact; unifont_jp 23/14 655; ISAS gb16st 0/6 763.\n\nJIS X 0212: jksp16 0.983 accounts for all 6 067 of its glyphs (5 824 exact, 240 moved 1 px, 3 elsewhere); 5 646 of 5 801 CJK exact. NetBSD's jisksp16-1990 0.981 differs from 0.983 in 3 glyphs.\n\nGB2312: gb16fs gives 2 303 CJK exact plus 66 moved; baseline gb16st 0.\n\nWhole-font attribution: j90-16 6 976, jksp16 6 067, hanglg16 3 086, gb16fs 2 533, none 502, blank 4; total 19 168.\n\nSource-file identity: hanglg16 is byte-identical across the 1990 X Consortium RCS revision, X11R5, X.Org 1.0.0 and 1.0.4, and intlfonts-1.2.1. jiskan16 is identical across X11R5, X.Org and intlfonts. The intlfonts j90-16/jksp16 are byte-identical to Yasuoka's own 2001 FTP files.\n\nOutputs are in C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\_results (compare18ja.out, attrib18ja.out, attribution.tsv).",
+  "downloads": [
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\xorg-font-daewoo-misc-1.0.4\\font-daewoo-misc-1.0.4.tar.gz",
+    "url": "https://www.x.org/archive/individual/font/font-daewoo-misc-1.0.4.tar.gz",
+    "sha256": "54d9c3778a676f1ad4e467d6cc6e4c596147a85ac2dd4cfee2ba0e893a6eaf59"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\xorg-font-daewoo-misc-1.0.0\\font-daewoo-misc-1.0.0.tar.gz",
+    "url": "https://mirror.csclub.uwaterloo.ca/x.org/individual/font/font-daewoo-misc-1.0.0.tar.gz",
+    "sha256": "f94cbc5a58943fab2d641294025114d3bb5b3eb5862982a11422daf080f1424a"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\xorg-font-jis-misc-1.0.4\\font-jis-misc-1.0.4.tar.gz",
+    "url": "https://mirror.csclub.uwaterloo.ca/x.org/individual/font/font-jis-misc-1.0.4.tar.gz",
+    "sha256": "7ab270255b27061003058ccbfc775d0813d17dca7aa8e07bdccb728f1b713984"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\xorg-font-jis-misc-1.0.0\\font-jis-misc-1.0.0.tar.gz",
+    "url": "https://www.x.org/archive/individual/font/font-jis-misc-1.0.0.tar.gz",
+    "sha256": "041fa14ee07214b2c6109ce836f77c9bd95955680421a307c9e7f3ee29820353"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\xorg-font-isas-misc-1.0.4\\font-isas-misc-1.0.4.tar.gz",
+    "url": "https://mirror.csclub.uwaterloo.ca/x.org/individual/font/font-isas-misc-1.0.4.tar.gz",
+    "sha256": "711a648206f0d7f4a8c3fa61b4b4703e789f37603937b488a6edd7c71182f7d5"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\xorg-font-isas-misc-1.0.0\\font-isas-misc-1.0.0.tar.gz",
+    "url": "https://mirror.csclub.uwaterloo.ca/x.org/individual/font/font-isas-misc-1.0.0.tar.gz",
+    "sha256": "46587bfc90b7001110470f120e955ed1d28bd0674577259f63770d85640c1129"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\gnu-intlfonts-1.2.1\\intlfonts-1.2.1.tar.gz",
+    "url": "https://ftp.gnu.org/gnu/intlfonts/intlfonts-1.2.1.tar.gz",
+    "sha256": "f208ec06573e935116d27994be4b58f8121184f855a85acd2cdb8848479a10f3"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\x11r5-relnotes\\RELNOTES.TXT",
+    "url": "https://mirror.csclub.uwaterloo.ca/x.org/X11R5/RELNOTES.TXT",
+    "sha256": "f17ef2de41ef98c435896ceeba4f43265d780e420ed151d20aa4c75fa5c4209d"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\x11r5-relnotes\\CHECKSUMS",
+    "url": "https://mirror.csclub.uwaterloo.ca/x.org/X11R5/CHECKSUMS",
+    "sha256": "1c1c61ca63fb370f018b783a5dc12543c555ddcdab0988fabfcc5678bf63ca55"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\x11r5-mit-3\\mit-3.tar.Z",
+    "url": "https://mirror.csclub.uwaterloo.ca/x.org/X11R5/mit-3.tar.Z",
+    "sha256": "2ebd3630bfeccdf36f4b11bc6233ef8820ca8c8ed8fb46361e75c076314648c9"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\gitlab-daewoo-issue1\\issue1.json",
+    "url": "https://gitlab.freedesktop.org/api/v4/projects/xorg%2Ffont%2Fdaewoo-misc/issues/1",
+    "sha256": "25a4c31d3d1c0cbc69c08e73255700bfc4c0b15c11d2ab3a208ca60fc557bf6e"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\gitlab-daewoo-issue1\\graphql.json",
+    "url": "https://gitlab.freedesktop.org/api/graphql (POST: project xorg/font/daewoo-misc issue 1 notes)",
+    "sha256": "931427fc66994c7a975570f497d71954816bf85b39b224b9ffd671d5071a8571"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\debian-xfonts-base-copyright\\stable_copyright",
+    "url": "https://metadata.ftp-master.debian.org/changelogs/main/x/xfonts-base/stable_copyright",
+    "sha256": "051e52a2b0ee12d118c3bea65d6e79c0b2e64a973d77541d8f9843ff7bdd5be8"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\debian-intlfonts-copyright\\stable_xfonts-intl-japanese.copyright",
+    "url": "https://metadata.ftp-master.debian.org/changelogs/main/i/intlfonts/stable_xfonts-intl-japanese.copyright",
+    "sha256": "6ec107619a12e8b4a33d752be9efd4e2024f621b3338d10d0eaf9d7a166f9c0d"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\fedora-xorg-x11-fonts\\xorg-x11-fonts.spec",
+    "url": "https://src.fedoraproject.org/rpms/xorg-x11-fonts/raw/rawhide/f/xorg-x11-fonts.spec",
+    "sha256": "cf2697b3c9ea7347ebe7ee50c27d146b75e2d0e95b5e4871b448c32ce4104bf0"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\rhbz-1952723\\comments.json",
+    "url": "https://bugzilla.redhat.com/rest/bug/1952723/comment",
+    "sha256": "97707d0eaf454e720c9a761fd0c38a560cb5a8a547c058c6e6f1e3f2156d86ab"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\fedora-license-data-327\\issue327.json",
+    "url": "https://gitlab.com/api/v4/projects/fedora%2Flegal%2Ffedora-license-data/issues/327",
+    "sha256": "eb014e9c558fa7ddb0025dbd353baac5fd8f406f1818d4a25c54d335bf320865"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\fedora-license-data-327\\graphql327.json",
+    "url": "https://gitlab.com/api/graphql (POST: project fedora/legal/fedora-license-data issue 327 notes)",
+    "sha256": "7da22811b2fb55da9c1362635a20b25f78614f966627d5b3777cc9b4f4df87f1"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\freebsd-port-font-daewoo-misc\\Makefile",
+    "url": "https://cgit.freebsd.org/ports/plain/x11-fonts/font-daewoo-misc/Makefile",
+    "sha256": "d8497f82c7d17da2cf7f0b0c1233345d2b35bfaf6e3aa4443ef9bc63ce4abe4d"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\freebsd-port-font-daewoo-misc\\pkg-descr",
+    "url": "https://cgit.freebsd.org/ports/plain/x11-fonts/font-daewoo-misc/pkg-descr",
+    "sha256": "6dcc6b23249862dfeb0f1d331cb46eac722b7cf3b53f4e147a40bb02fdaaa454"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\xorg-docs-1.7.2\\xorg-docs-1.7.2.tar.gz",
+    "url": "https://mirror.csclub.uwaterloo.ca/x.org/individual/doc/xorg-docs-1.7.2.tar.gz",
+    "sha256": "0c1e018868a00cb5a5bc8622ffd87e706e119ffa0949edde00d0d0d912663677"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\xc-historical-api\\commits-hanglg16.bdf.json",
+    "url": "https://gitlab.freedesktop.org/api/v4/projects/16658/repository/commits?path=xc%2Ffonts%2Fbdf%2Fmisc%2Fhanglg16.bdf&per_page=50",
+    "sha256": "293088a1f3da0bf27a817c6bfa3dc6024cac4de9bc6e5ef8f0e10dd47c266d10"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\xc-historical-api\\commits-jiskan16.bdf.json",
+    "url": "https://gitlab.freedesktop.org/api/v4/projects/16658/repository/commits?path=xc%2Ffonts%2Fbdf%2Fmisc%2Fjiskan16.bdf&per_page=50",
+    "sha256": "f200a7454eee9a69482858c7f5b30d0fb359ed583f1dbe78c4f6e1799a07c635"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\xc-historical-api\\diff-2a6673c7.json",
+    "url": "https://gitlab.freedesktop.org/api/v4/projects/16658/repository/commits/2a6673c7/diff",
+    "sha256": "6084f9c5bb26da2ff78831ec50a60a813d87415405e58fdeac8421c0d57f1cd6"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\xc-historical-api\\diff-ff792657.json",
+    "url": "https://gitlab.freedesktop.org/api/v4/projects/16658/repository/commits/ff792657/diff",
+    "sha256": "96ce76529a1c4278d7b5c3776a1422cac39cc73c1216c2ecd4f35fee83ea83b0"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\xc-historical-api\\hanglg16-8c43ff6f.bdf",
+    "url": "https://gitlab.freedesktop.org/api/v4/projects/16658/repository/files/xc%2Ffonts%2Fbdf%2Fmisc%2Fhanglg16.bdf/raw?ref=8c43ff6f",
+    "sha256": "89e2af1a0c4ae544ee598fbfbb32d85d28bacc967dfc79dd1c6a6209b2829ac8"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\yasuoka-ftp-fonts\\jiskan16-1990.bdf.Z",
+    "url": "https://web.archive.org/web/20010629220002id_/http://kanji.zinbun.kyoto-u.ac.jp:80/~yasuoka/ftp/fonts/jiskan16-1990.bdf.Z",
+    "sha256": "94b52acdeb25afb068333e530ac8f997e64b4a7bf65ed6fde4b805041707b85a"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\yasuoka-ftp-fonts\\jisksp16-1990.bdf.Z",
+    "url": "https://web.archive.org/web/20010629210924id_/http://kanji.zinbun.kyoto-u.ac.jp:80/~yasuoka/ftp/fonts/jisksp16-1990.bdf.Z",
+    "sha256": "2571c1730b17f331444ba3aec132b80c6ee1317264af9d86c6a2518161f203e8"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\yasuoka-ftp-fonts\\index-20000915.html",
+    "url": "https://web.archive.org/web/20000915221906id_/http://kanji.zinbun.kyoto-u.ac.jp:80/~yasuoka/ftp/fonts/",
+    "sha256": "a37cc05aa943bbc575f89596265a250232c67597ec5b69c0cafec8fcfdd37eb1"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\netbsd-distfile-jisksp16-1990\\jisksp16-1990.bdf.Z",
+    "url": "https://cdn.netbsd.org/pub/pkgsrc/distfiles/jisksp16-1990.bdf.Z",
+    "sha256": "7aa6bc508f79242ec6625179045dd59b8dcc436c79f0fe73bd2f770eab6ef31a"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\pkgsrc-jisx0212fonts\\distinfo",
+    "url": "https://ftp.netbsd.org/pub/pkgsrc/current/pkgsrc/fonts/jisx0212fonts/distinfo",
+    "sha256": "17e8954072bb4f657a005d5611c42d7c6ce1501673d283b7023b2a8365ff14bc"
+   },
+   {
+    "path": "C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\jisc-jis-copyright-doc\\jis-copyright.doc",
+    "url": "https://web.archive.org/web/20130105090723id_/http://www.jisc.go.jp/jis-act/pdf/jis-copyright.doc",
+    "sha256": "7777660d875ec75ea365fc668324496513c1beeb3872a2f64b6bf44df0501292"
+   }
+  ],
+  "scripts": [
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k18x18ja\\extract.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k18x18ja\\bdflib.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k18x18ja\\compare18ja.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k18x18ja\\attrib18ja.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k18x18ja\\pairbdf.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k18x18ja\\shiftrule.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k18x18ja\\unienc.py",
+   "C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\k18x18ja\\doctext.py"
+  ],
+  "open_points": [
+   "Daewoo's terms remain unknown. No document of the 1990 contribution or its conditions was found. The X Consortium archives X.Org searched start in 1992 and do not mention Daewoo. The X11R5 notes and X.Org's License.xml are silent. Only the copyright holder (Daewoo Electronics or its successor) or pre-1992 X Consortium correspondence could settle it.",
+   "Practical consequence for M1: an 18x18ja table without the 3 086 Daewoo glyphs (list in _results\\attribution.tsv) has no Hangul at all. Wide-glyph Hangul at 18 px would need another source, and 18x18ko's KAIST Hangul is the separate k18x18ko question.",
+   "The 2 533 ISAS gb16fs glyphs are a fourth source that 18x18ja's BDF comments never mention (only its RCS log does). Their notice obligation was not in survey 29's §4 item 7 / §8 F7 and should be added there.",
+   "The JSA permission and the 'JIS rules' cited in X11R5's note 6 were not found in writing. It is unknown what 'Morisaki-san' advised in 1990, or whether those rules bind downstream re-encoders. 18x18ja, and any OpenGPU table built from it, has re-encoded the glyphs into ISO 10646, which the note asks against. Fedora's 'not copyrightable' reflects a US view. Japanese Wikipedia, a secondary source not checked against primary sources, says Japanese law protects only typefaces with notable features (Supreme Court 2000).",
+   "Yasuoka et al.'s 'Public Domain' is a bare label with no fallback licence (survey 29 §4 item 7's caution applies). It covers their own edits and designs, but the base is JIS X 9051 data. How much of jisksp16's 'JISX9051-based design' reuses JIS X 9051 parts was not measured. Attribution of j90-16 also conflicts: the BDF header names Yasuoka, while intlfonts' README names ntakahas@etl.go.jp and takada@seraph.ntt.jp.",
+   "intlfonts-1.2 itself (Kuhn's stated input) was not obtained; 1.2.1 and Yasuoka's own files were used. 1.2.1's ChangeLog shows no edits to these BDFs, and the glyph matches are complete, so this gap looks harmless.",
+   "506 glyphs (Braille, box drawing, geometric shapes, IDC and others) match none of the four sources. They were not traced and are presumed to be Kuhn's own additions.",
+   "Whether bitmap glyph data is protected in Korea, Japan or elsewhere is a legal question this research cannot answer. X.Org's own position is 'probably legal in the US ... should be considered proprietary in some jurisdictions'."
+  ]
+ },
+ "verification": {
+  "claim_checks": [
+   {
+    "claim": "18x18ja's RCS log names four source fonts (j90-16, jksp16, gb16fs, hanglg16). Its BDF comments never mention gb16fs and credit Daewoo only with 'some Korean symbols'.",
+    "status": "confirmed",
+    "note": "[M] Re-read 18x18ja.changes (sha256 a410f3bbb5eb15f71654f579d52670bd4a55187e15907e8bc0d68cf15c12295b). The description is exactly: \"JIS X 208 repertoire derived from GNU intlfonts-1.2 j90-16.bdf and jksp16.bdf / plus merged in extract of gb16fs.bdf and hanglg16.bdf to also cover / GB2312.1980 and KSC5601.1987 as required for ISO-2022-JP-2.\" The BDF COMMENT lines 2-6 match the investigator's reading."
+   },
+   {
+    "claim": "The BDF says 'Some Korean symbols derived from Daewoo's X11 font contribution', carries COPYRIGHT \"Public domain font.  Share and enjoy.\", and Kuhn's README says it covers all of GB 2312-80 and KS X 1001:1992.",
+    "status": "confirmed",
+    "note": "[M] 18x18ja.bdf sha256 12bc0c0a4d64d760ed61d21e0b05c69e2d5da9e7ad1599549febbe22ce68baa2: line 6 and line 16 are as quoted. misc-fixed/x/README reads: \"Covers all JIS X 0208, JIS X 0212, GB 2312-80, KS X 1001:1992, ...\""
+   },
+   {
+    "claim": "All 2 350 Hangul syllables are Daewoo Gothic (hanglg16) bitmaps: 1 275 in place, and 1 075 moved 1 px left, which are exactly the source glyphs whose ink touches the right edge. Unrelated 16-px Hangul fonts match 0 of 2 350.",
+    "status": "confirmed",
+    "note": "[M] Re-run with my own reader (vbdf.py, vcmp.py in scratchpad\\cjkprov\\v-k18x18ja). It places glyphs on baseline-relative coordinates and compares translation-normalised ink sets. The hanglg16 copy was my own download, sha256 89e2af1a0c4ae544ee598fbfbb32d85d28bacc967dfc79dd1c6a6209b2829ac8. Results: 1 275 exact after the 1-px pad, plus 1 075 identical with offset (-1,0). All 1 075 have source ink in column 15, and none of the 1 275 do. Baselines at the same code point: hanglm16 0/2 350 with no translation match (mean Hamming 50.6); 18x18ko 0/2 350 (74.3); Unifont 18.0.01 and unifont_jp 0 exact and 1 translation-identical; j90-16, jiskan16, jksp16, gb16fs and gb16st 0. hanglm16 0/2 350 also holds for a match anywhere in the font."
+   },
+   {
+    "claim": "3 086 of 18x18ja's 19 168 glyphs come from hanglg16: 2 350 syllables, 93 jamo, 58 in U+32xx, 80 in U+33xx, 268 in U+F900-FAFF, 128 unified hanja, plus symbols. Daewoo's Gothic and Mincho share the hanja and symbol rows.",
+    "status": "confirmed",
+    "note": "[M] Same priority order: I get 3 090. 3 088 glyphs match hanglg16 and no other candidate at any position. The Hangul, jamo, U+32xx, U+33xx, F900 and unified-hanja counts agree exactly. Only the small symbol, Latin and fullwidth tail differs by a few, and that depends on method. My any-translation test adds U+00B9, U+2074, U+207F and U+2081-2084: they match hanglg16 only after a vertical move of more than 2 px, so they are absent from attribution.tsv. Gothic vs Mincho: hanja rows 4 888/4 888 identical, rows below 0x30 986/986, Hangul 0/2 350. Daewoo's hanja are its own design: only 1 of 4 083 is identical to jiskan16, 1/4 085 to j90-16, 0/2 684 to gb16fs or gb16st, so the 396 hanja really are Daewoo's."
+   },
+   {
+    "claim": "hanglg16 has been byte-identical from the 1990 X Consortium check-in through X11R5, X.Org 1.0.0 and 1.0.4, and intlfonts. Its only rights text is a bare Daewoo copyright line, which is also X.Org's whole COPYING.",
+    "status": "confirmed",
+    "note": "[M] I re-downloaded and hashed three copies, all sha256 89e2af1a...: xc-historical raw at 8c43ff6f, font-daewoo-misc-1.0.4 (tarball 54d9c3778a676f1ad4e467d6cc6e4c596147a85ac2dd4cfee2ba0e893a6eaf59), and intlfonts-1.2.1 Korean.X. The investigator's X11R5 mit-3 and 1.0.0 copies also hash to 89e2af1a..., but I re-hashed those without re-downloading. The commit list for the path (sha256 293088a1...) has one entry: 8c43ff6f, 1990-07-09, rws, 'Initial revision'. The file has no COMMENT lines; COPYRIGHT is \"Copyright (c) 1987, 1988 Daewoo Electronics Co.,Ltd.\" COPYING in 1.0.4 is that single 55-byte line, and 1.0.0's has the same text. The 1.0.4 ChangeLog has no licence entry."
+   },
+   {
+    "claim": "The X11R5 release notes give no licence terms for fonts; their permission notice covers only the release-notes document.",
+    "status": "confirmed",
+    "note": "[M] Re-fetched RELNOTES.TXT, sha256 f17ef2de41ef98c435896ceeba4f43265d780e420ed151d20aa4c75fa5c4209d. Its only grant is \"Permission to use, copy, modify, and distribute this document ...\". A grep for licen/permission/public domain/freely/redistribut/donat finds no other grant. The quotes for 'Fonts', 'Font Changes' and note 6 are exact. Separately, I read the X11R5 mit/fonts/bdf/misc/README in the investigator's extraction: no Daewoo terms."
+   },
+   {
+    "claim": "X.Org's maintainers searched in 2021-2023 and found no Daewoo terms. Their working conclusion: probably legal in the US, to be considered proprietary in some jurisdictions. The issue is still open.",
+    "status": "confirmed",
+    "note": "[M] Re-fetched issue1.json (same sha256 25a4c31d...) and the notes via GraphQL (my file sha256 75bda7019b9f03239f8005efe066bc124228a4d154aee34775f36dfa86255a70). State is 'opened', and all three quotes are exact. One nuance: the 'proprietary' sentence is whot's summary of a private conversation with keithp, and the same note says 'probably legal in the US'. The verdict_reason quotes only the proprietary half."
+   },
+   {
+    "claim": "Distributors disagree: Fedora/RHEL dropped daewoo-misc as possibly proprietary, Debian still ships it citing only the copyright line, and FreeBSD defines a custom licence whose file is that same line.",
+    "status": "confirmed",
+    "note": "[M] Fedora spec (sha256 cf2697b3..., same as the investigator's): line 69 and the 7.5-31 changelog entry of 2021-04-23 are exact. RH bug 1952723 is product Fedora, CLOSED ERRATA. For RHEL I add evidence the investigator did not cite: the CentOS Stream 9 spec (gitlab.com/redhat/centos-stream/rpms/xorg-x11-fonts, c9s, sha256 c2736168...) carries the same comment and the same drop. 'RHEL in 2021' is loose, though: that is RHEL 9 lineage, and RHEL 9 shipped in 2022 [I]. Debian stable_copyright lines 79-80 are exact, and the xfonts-base 1:1.0.5+nmu1 source still contains font-daewoo-misc/hanglg16.bdf. The FreeBSD Makefile is exact."
+   },
+   {
+    "claim": "That Daewoo 'donated' its fonts is secondhand. No document records the donation or its terms.",
+    "status": "confirmed",
+    "note": "[I], supported. The 18x18ko COMMENT and FreeBSD's pkg-descr (sha256 6dcc6b23...) say 'donated'. No terms appear in the 1990 file, X11R5, the X.Org COPYING or ChangeLog, License.xml, the X11R5 misc README or intlfonts' Korean.X README. Web searches in English and Korean turned up no grant."
+   },
+   {
+    "claim": "2 533 glyphs, including 2 369 simplified hanzi, come from ISAS gb16fs. ISAS's notice must be reproduced. gb16st matches none.",
+    "status": "confirmed",
+    "note": "[M] CJK: 2 303 exact plus 66 translation-identical against both X.Org's gb16fs and intlfonts' gb16fs. The two files differ (sha256 4d35fb2c... vs 8cdab5ff...), but their hanzi rows are 6 768/6 768 identical and both carry the same COMMENT notice. gb16st: 0 of 14 655 CJK. My vcquote.py check shows the quoted notice matches font-isas-misc-1.0.4/COPYING line for line (24 lines). The total of 2 533 depends on method: about 35 box-drawing glyphs match on the inner 16x16, but Kuhn extended them into the border, so a whole-glyph test gives about 2 497."
+   },
+   {
+    "claim": "The JIS X 0208 kanji come from Yasuoka's jiskan16-1990 (= intlfonts j90-16), which is mostly identical to X11 jiskan16.",
+    "status": "confirmed",
+    "note": "[M] Re-fetched the Wayback file jiskan16-1990.bdf.Z (sha256 94b52acd...). Decompressed, it is sha256 3ddd9635..., the same as intlfonts j90-16. The header is as quoted, with COPYRIGHT \"Public Domain\". 18x18ja vs j90-16: 6 190 + 166. Vs jiskan16: 5 560 + 144. j90-16 vs jiskan16: kanji 5 703/6 353, with 337 of the rest differing by fewer than 10 px; non-kanji 524/524. The intlfonts README credit to ntakahas/takada is confirmed."
+   },
+   {
+    "claim": "The X Consortium deliberately dropped a 'public domain' label from jiskan16 in 1990 in favour of 'by permission to use', after advice from a Japanese contact. R5 note 6 sets out the 'JIS rules'.",
+    "status": "overstated",
+    "note": "[M] Both diffs re-fetched, with the same sha256s. 2a6673c7 (1990-07-05, 'add COMMENT and COPYRIGHT, giving origin') removed \"COMMENT 16x16 public domain jis font\" and added \"by permission\". ff792657 (1990-08-27, 'fix comment and copyright as Morisaki-san suggests') changed it to \"by permission to use\". The public-domain comment was therefore dropped seven weeks before the commit that cites Morisaki-san. The record does not tie that drop to his advice, and 'deliberately' is inference. The note 6 quote is exact, and the jis-misc COPYING is confirmed."
+   },
+   {
+    "claim": "Fedora Legal treats the JIS bitmap fonts as not copyrightable (fedora-license-data#327, closed 2023-09-06).",
+    "status": "confirmed",
+    "note": "[M] The quote is exact (rfontanaref, 2023-09-08T14:31:48Z), and so is spec line 74. The date is wrong: the API gives closed_at 2023-09-12T00:59:02Z, not 2023-09-06. This claim is not load-bearing."
+   },
+   {
+    "claim": "The JIS X 0212 glyphs are Yasuoka et al.'s jisksp16-1990 v0.983 (= intlfonts jksp16), labelled 'Public Domain', with all 6 067 present in 18x18ja.",
+    "status": "confirmed",
+    "note": "[M] Re-fetched the Wayback jisksp16-1990.bdf.Z (sha256 2571c173...). Decompressed, it is c05b62fd..., the same as intlfonts jksp16. Author header confirmed. My strict whole-glyph run credits 6 064 plus 2 found elsewhere, which is consistent. I did not re-check the NetBSD 0.981 comparison."
+   },
+   {
+    "claim": "Yasuoka et al.'s 'Public Domain' can cover only their own work; the JIS X 9051 base carries into both fonts.",
+    "status": "unverified",
+    "note": "[I] Plausible. For j90-16 it is backed by the 5 703/6 353 identity with jiskan16. For jisksp16 the share of reused JIS X 9051 material was not measured, by the investigator or by me."
+   },
+   {
+    "claim": "X.Org's License.xml states no terms for the Daewoo, JIS or ISAS fonts and tells readers to check each package.",
+    "status": "confirmed",
+    "note": "[M] Re-fetched xorg-docs-1.7.2.tar.gz (sha256 0c1e0188..., same). The quoted sentence is present, and a grep for daewoo, jis, academia, sinica and kuhn finds nothing. XFree86's LICENSE document does not mention these fonts either."
+   },
+   {
+    "claim": "About 506 glyphs match none of the four sources and are probably Kuhn's own additions.",
+    "status": "unverified",
+    "note": "[I] This is an inference from RCS revisions 1.14 and 1.15. The count depends on method: my strict whole-glyph test gives 553 'none' plus 5 blank, because border-extended glyphs fall out. I did not trace these glyphs."
+   },
+   {
+    "claim": "intlfonts-1.2.1's files can stand in for Kuhn's intlfonts-1.2 inputs, because the 1.2.1 ChangeLog records no edits to the relevant BDFs.",
+    "status": "confirmed",
+    "note": "[M] Better evidence than the ChangeLog: in the 1.2.1 tarball, j90-16 is dated 1999-05-12, jksp16 1999-04-09, and hanglg16 and gb16fs both 1997-09-24, all before 1.2's NEWS of 9 June 1999. The ChangeLog, however, is not a complete record. The same tarball holds 2003-dated Japanese.BIG files that it never mentions. Those are the replacement for a 32-dot font withdrawn as a copy of TYPEBANK Mincho (Debian #214401; debian-devel 2003-10 msg00223). The withdrawal does not touch 18x18ja's inputs."
+   }
+  ],
+  "counter_evidence": [
+   "Kuhn's own ucs-fonts page (licence-refs/upstream/kuhn-ucs-fonts.html, Copyright section) argues: \"It is very unlikely that such low-res pixel fonts could even be copyrighted ... In some others, any such protection would expire after 25 years or less.\" That is his reason for keeping the public-domain string. It is a legal opinion, not a grant from Daewoo.",
+   "X.Org's own note (whot, from keithp) also says distribution is \"probably legal in the US\". alanc: \"the historical assumption was that ... the license terms in the X11R5 Release Notes covered them.\" Those notes, however, only grant rights in \"this document\".",
+   "Fedora Legal's 2023 position on the JIS bitmap fonts was \"We should assume this is not copyrightable\" (#327). The same US reasoning would apply to Daewoo's bitmaps, but Fedora never revisited its 2021 daewoo drop.",
+   "Several distributors label daewoo-misc as free without citing any grant. Chimera cports template.py says license = \"MIT\" (sha256 07c41072...) and installs only the one-line COPYING. Adélie's package page says \"X11\". Gentoo's ebuild sets no LICENSE, so it inherits xorg-3.eclass's default ': \"${LICENSE:=MIT}\"' (eclass sha256 9122d68c...). FreeBSD's custom licence grants dist-sell and pkg-sell. Debian ships it in main (xfonts-base). GNU intlfonts' README calls its collection, which includes Korean.X/hanglg16, \"free X11 fonts\". All of these are distributor judgements or defaults, not Daewoo's terms.",
+   "Japanese Wikipedia's 'jiskan' article, read via a Weblio copy (secondary), says JIS X 9051's patterns were drafted by JEITA's predecessor and drawn by 小山壽久 of 写研. It says the JIS side would claim JEITA owns the copyright, and also that typefaces without notable features are not protected in Japan. That points to rights holders for the JIS part beyond JSA, which the investigator did not name.",
+   "Precedent, not counter-evidence to the Daewoo finding: intlfonts once shipped a 32-dot Japanese font later found to be copied from TYPEBANK Mincho, and it was replaced in 1.2.1 (Debian #214401). Bitmap fonts in 'free' collections have been unlicensed copies before. This does not affect 18x18ja's 16-dot inputs."
+  ],
+  "verdict_agrees": true,
+  "corrected_verdict": "problematic",
+  "corrected_obligations": "Daewoo part: no notice can make these glyphs usable, because there is no grant to comply with. OpenGPU must leave them out of its tables or get written permission from the rights holder; the holder is Daewoo Electronics Co., Ltd. or its corporate successor, which has not been established. The glyphs are the 3 086 tagged source \\\"hanglg16\\\" in C:\\Users\\astro\\Downloads\\opengpu-refs\\font-survey\\cjk-provenance\\k18x18ja\\_results\\attribution.tsv: all 2 350 Hangul syllables, 93 compatibility jamo, 58 in U+32xx, 80 in U+33xx, 268 in U+F900-FAFF, 128 unified hanja and the symbol tail. To be safe, also leave out U+00B9, U+2074, U+207F and U+2081-U+2084, which match hanglg16 after a vertical move of more than 2 px. They are tiny shapes, so the evidence is weak; both lists are in C:\\Users\\astro\\claude-tmp\\claude\\C--Users-astro-Downloads-OpenGPU\\170a14cc-5cc1-40e0-a7ec-6130b748eabf\\scratchpad\\cjkprov\\v-k18x18ja\\out\\daewoo_exclusive.txt and vcmp.out. Without them, 18x18ja has no Hangul. Relying on US non-copyrightability (X.Org: 'probably legal in the US') is a risk call for the owner, since the mod is distributed worldwide; it is not a clearance.\n\nISAS part, if kept (about 2 500-2 533 glyphs; source \\\"gb16fs\\\" in attribution.tsv): the ISAS copyright notice must appear in all copies. The copyright notice and the permission notice must both appear in supporting documentation. ISAS's name must not be used in advertising or publicity without written permission. The text to reproduce is font-isas-misc-1.0.4/COPYING, which the investigator quoted exactly.\n\nJIS part (j90-16 and jksp16, 'Public Domain' labels): no text is required beyond a courtesy credit. It remains open, not cleared: the JIS X 9051 base was labelled only \\\"by permission to use\\\" under unwritten 'JIS rules', and the rights holder may be JSA, JEITA or Shaken's designer.",
+  "summary": "I agree with the investigator: problematic. The load-bearing claims held up when I checked them myself. 18x18ja's own revision log names hanglg16 and gb16fs as sources, even though its comments credit Daewoo only with 'some Korean symbols' and never mention gb16fs. My own glyph reader confirms all 2 350 Hangul syllables are Daewoo Gothic hanglg16 bitmaps: 1 275 in place, and 1 075 moved 1 px left, exactly the ones whose ink touched the right edge. Daewoo Mincho, 18x18ko and Unifont match none of them, and in total about 3 086-3 093 glyphs are Daewoo's. The file has been unchanged since its 1990 X Consortium check-in, with no rights text but a bare copyright line, and the X11R5 notes grant rights only in the notes themselves; the X.Org issue (still open), Fedora's 2021 drop (also in CentOS Stream 9), Debian, FreeBSD and the ISAS notice all read as the investigator quoted them. The corrections are small: the public-domain label on jiskan16 was dropped seven weeks before the commit citing 'Morisaki-san'; Fedora #327 closed on 2023-09-12, not 09-06; and the ISAS and unmatched glyph counts shift a little with the comparison method. I found no Daewoo grant anywhere. Some distributors (Chimera, Adélie, Gentoo by default) label the package MIT or X11, and Kuhn and US-centred reviewers think such bitmaps are uncopyrightable, but none of that is permission from Daewoo, so OpenGPU should not ship 18x18ja's Hangul without one."
+ }
+}
