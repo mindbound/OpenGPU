@@ -1,6 +1,7 @@
 # Reviser's checks for note 28 (final): numbers and rules the revision adds or changes.
 # Run with: python -I rev_checks.py
 # 2026-10-15: TEXT carries a u8 font at offset 14 (29 F4): 17 + n B, UNKNOWN_FONT after the flags check.
+# 2026-10-15 (S6): BAD_UTF8 and CONTROL_CHAR come from one scan (28:648); before, a control ahead of bad UTF-8 gave BAD_UTF8.
 import math, struct
 
 ok_all = True
@@ -190,11 +191,13 @@ def validate(s, fmt='index8', W=320, H=200, live=None, frame_bytes=0, frame_cap=
             if not colour_ok(fg, fmt) or not colour_ok(bg, fmt): return ('BAD_COLOUR', p, nm)
             if s[p + 13] & 0xFE: return ('BAD_FLAGS_FIELD', p, nm)
             if s[p + 14] != 0: return ('UNKNOWN_FONT', p, nm)  # M0 defines font 0 only
+            raw, bad = s[p + 17:p + size], None
             try:
-                txt = s[p + 17:p + size].decode('utf-8')
-            except UnicodeDecodeError:
-                return ('BAD_UTF8', p, nm)
+                txt = raw.decode('utf-8')
+            except UnicodeDecodeError as e:  # one left-to-right scan (28:648): a control before the bad sequence decides
+                txt, bad = raw[:e.start].decode('utf-8'), e.start
             if any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F for ch in txt): return ('CONTROL_CHAR', p, nm)
+            if bad is not None: return ('BAD_UTF8', p, nm)
         p += size
 
 B = lua('int')
@@ -218,6 +221,10 @@ long_t = B['text'](0, 0, 1, 0, 0, 0, b'a' * 1025)
 check('TEXT n = 1025 -> TEXT_TOO_LONG', validate(HEADER + long_t + END, live=live) == ('TEXT_TOO_LONG', 8, 'TEXT'))
 check('TEXT U+000A -> CONTROL_CHAR', validate(HEADER + B['text'](0, 0, 1, 0, 0, 0, b'a\nb') + END, live=live)[0] == 'CONTROL_CHAR')
 check('TEXT overlong NUL -> BAD_UTF8', validate(HEADER + B['text'](0, 0, 1, 0, 0, 0, b'\xc0\x80') + END, live=live)[0] == 'BAD_UTF8')
+check('TEXT control then bad UTF-8 -> CONTROL_CHAR (one scan, the first decides)',
+      validate(HEADER + B['text'](0, 0, 1, 0, 0, 0, b'\n\xc0\x80') + END, live=live)[0] == 'CONTROL_CHAR')
+check('TEXT bad UTF-8 then control -> BAD_UTF8 (one scan, the first decides)',
+      validate(HEADER + B['text'](0, 0, 1, 0, 0, 0, b'\xc0\x80\n') + END, live=live)[0] == 'BAD_UTF8')
 for fo in (1, 255):
     check('TEXT font %d -> UNKNOWN_FONT' % fo, validate(HEADER + B['text'](0, 0, 1, 0, 0, fo, b'a') + END, live=live) == ('UNKNOWN_FONT', 8, 'TEXT'))
 check('TEXT bad flags and bad font -> BAD_FLAGS_FIELD first (layout order)',

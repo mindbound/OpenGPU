@@ -4,7 +4,7 @@ package io.github.mindbound.opengpu.core;
  * Resource handles as Lua sees them (docs/research/26-lessons-from-general-engines.md §1.2, G1; 24 §2.1):
  * {@code type(4) | slot(11) | generation(16)} in a positive int, below 2^31 because OpenComputers marshals it as an
  * Integer. Type 0 is reserved, so 0 is never a handle, and handles of different types never alias. The resource types
- * themselves are the command format's to assign (M0 step S5).
+ * are {@link io.github.mindbound.opengpu.core.cmd.HandleTypes}'s (28 §6.1).
  */
 public final class Handles {
 

@@ -25,6 +25,7 @@ class DevJarLayoutTest {
     private static final String MANIFEST = "META-INF/MANIFEST.MF";
     // RFG adds the generated Tags class to the plain jar only; its one constant is inlined wherever it is used
     private static final String TAGS = OPENGPU + "Tags.class";
+    private static final String CORE_FIXTURES = OPENGPU + "core/fixtures/";
 
     static Stream<Path> shippedJars() {
         return JarContents.shippedJars();
@@ -50,6 +51,20 @@ class DevJarLayoutTest {
         List<String> problems = new ArrayList<>();
         for (String name : JarContents.names(jar)) {
             if (name.startsWith(SHADOW + "io/")) {
+                problems.add(name);
+            }
+        }
+        assertNone(problems);
+    }
+
+    @ParameterizedTest
+    @MethodSource("shippedJars")
+    void noTestFixtureClassShips(Path jar) throws IOException {
+        // :core's test fixtures (the tier-E oracle, the synthetic glyphs, the test encoder) are test-only and ship
+        // in no jar (docs/research/28-command-stream-v1.md §5.7)
+        List<String> problems = new ArrayList<>();
+        for (String name : JarContents.names(jar)) {
+            if (name.startsWith(CORE_FIXTURES)) {
                 problems.add(name);
             }
         }
