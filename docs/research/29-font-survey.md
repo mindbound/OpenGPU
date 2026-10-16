@@ -490,3 +490,41 @@ On 2026-10-15 the owner chose the first of the options offered: "Sure, in that c
   - GNU intlfonts 1.2.1, and Yasuoka's FTP fonts and nmda.or.jp's 1995 FSP pages through the Wayback Machine;
   - Hanterm 1.7 to 3.1.6 and hanterm-font 3.1 (ftp.kaist.ac.kr, KLDP);
   - Debian bug #495729, unifoundry.com/hangul, xorg/font/daewoo-misc#1, RHBZ #1952723 and fedora-license-data#327.
+
+## Amendments after M0 step S8 (2026-10-16)
+
+M0 step S8 built font 0's build-time converter and ships its table (28's section "S8 implemented"; the owner scheduled the converter for S8 on 2026-10-15). Nothing above is edited; recorded here:
+
+- **The converter.** `core/src/fontgen` (`Bdf` and `BdfToGlyphTable`; own code, JDK only, in no jar), run by `:core`'s `generateFont0` task, a cacheable `JavaExec` on the Java 8 launcher that `processResources` depends on, on `core/src/fonts/misc-fixed/6x13.bdf`, the file of §7 and §9.1, vendored unchanged with its upstream `README` and `AUTHORS` beside it (sha256 d00cf1cb…23f0, 65da6e1e…5914 and 3ff879c6…104b); `.gitattributes` marks `core/src/fonts/**` `-text`, so git never rewrites their bytes. It reads BDF 2.1 strictly, failing on another `STARTFONT` version, an unknown keyword, a `BBX` over 32 wide and `ENCODING -1`, and checks the BDF's SHA-256, `FONTBOUNDINGBOX 6 13 0 -2` with ascent 11 and descent 2, `DWIDTH 6 0` and a box inside the cell for every glyph, no bit beyond a box's width, scalar and unique encodings, and U+FFFD present. `:core` reads the table with `GlyphTables.font0()` through the classpath, never through Minecraft's resource manager (28 §7.1).
+- **The table.** `font0-6x13.glyphs`, in the `core/font` package of `:core`'s jar and the mod's: 70 407 B, a 329-byte ASCII header, a 70 074-byte little-endian body (the count; 4 121 codepoints, ascending; 13 row bytes per glyph; the missing glyph's 13) and the body's CRC32. The header names the source, its digest, its `$Id`, its COPYRIGHT property byte for byte (two spaces kept) and the licence, as §5.4's jar layout asks, then one empty line:
+  ```text
+  OpenGPU glyph table 1
+  font 0
+  cell 6x13
+  glyphs 4121
+  missing U+FFFD
+  source 6x13.bdf
+  source-sha256 d00cf1cbaed055bb91d11c80e063d5d2d3b66552a7f2ead7161ee3780f9123f0
+  source-id $Id: 6x13.bdf,v 1.115 2009-04-06 18:50:15+01 mgk25 Rel $
+  copyright Public domain font.  Share and enjoy.
+  licence public domain; credited in OpenGPU's NOTICE
+  ```
+- **Digests.** The file's SHA-256 is deeabc5f93025ddf76d406423a840f6fbf475f4b2f3c608f6ce16cc402bfb27c; the body's is 665917a7d7972c825d76b467641f5cab4f8ed9731be420eeae93ef96dd87afeb, which `Font0Test` pins, and its CRC32 0xFED76908. `cmdstream-checks/font0_table.py`, written from 28 §7.1, §7 and §9.1 here and the BDF 2.1 format without reading the Java, derives the same body digest and CRC from `6x13.bdf`, and 1 500 random 6×13 BDFs gave identical bodies from both converters [M].
+- **Coverage, as §7 measured it** (`Font0Test`): 4 121 glyphs, each `BBX 6 13 0 -2`; OC351 351/351, box drawing 128/128, blocks 32/32, Greek 49/49 and Cyrillic U+0400–045F 96/96. U+0000 is the only control character with a glyph and stays in the table, though `TEXT` never draws it (28:647); U+FFFD stays too and is the missing glyph.
+- **The atlas.** One `GL_R8` atlas per GL host: 1 020×325 texels (331 500 B), 170 cells a row in 25 rows, holding the 4 121 glyphs and, in the cell after the last, the missing glyph. §7's 321 438 B is the glyphs' own area; the texture is that much plus the missing glyph and the unused cells of its last row.
+- **NOTICE (§5.4).** M0's credit is a section of the root `NOTICE`, whose copy `src/main/resources/NOTICE` is the one the jars pack; the root `jarTest` fails when a shipped copy differs from the root file byte for byte, so §5.4's "packed into the jar" holds through that copy, and a later section (musl, the OFL fonts and Baekmuk in M1) goes into the root file and is copied. The section reads:
+  ```text
+  ================================================================================
+  X11 misc-fixed 6x13 - https://www.cl.cam.ac.uk/~mgk25/ucs-fonts.html
+  License: public domain ("Public domain font.  Share and enjoy.")
+  Bundled in the OpenGPU jar as font 0's glyph table, converted at build time
+  from 6x13.bdf.
+  ================================================================================
+
+  By Markus Kuhn and contributors; see core/src/fonts/misc-fixed/AUTHORS and
+  core/src/fonts/misc-fixed/README in OpenGPU's source.
+
+  The font's own statement (the COPYRIGHT property of 6x13.bdf):
+
+  Public domain font.  Share and enjoy.
+  ```

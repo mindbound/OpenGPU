@@ -53,4 +53,6 @@ dependencies {
     // addon.gradle.kts). Not transitive, as Angelica shades glsm: each subproject is listed here, and so is every
     // library one of them needs shaded (ASM, with :jit). Test dependencies are in addon.gradle.kts, with the test tasks.
     shadowImplementation(project(":core")) { transitive = false }
+    // The render core from S8 (H51), so jarTest checks it from its first commit; nothing loads it on a server
+    shadowImplementation(project(":gl")) { transitive = false }
 }

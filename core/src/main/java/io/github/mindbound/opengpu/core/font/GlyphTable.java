@@ -5,7 +5,7 @@ package io.github.mindbound.opengpu.core.font;
  * atlas take the same object, so they cannot diverge. A glyph is one byte per row from the top, with column b
  * (0 = left) in bit 7 - b, MSB leftmost as BDF stores a row (28 §5.6), so the cell is at most 8 wide; M1's wider faces
  * get a wider constructor, and {@link #bit} is the accessor that stays. Font 0 is 6×13 (28 §7.3); CI and the oracle use
- * a synthetic table (28:633), and the real font 0 is loaded into this form later. Immutable.
+ * a synthetic table (28:633); the real font 0 comes from {@link GlyphTables#font0()}. Immutable.
  */
 public final class GlyphTable {
 

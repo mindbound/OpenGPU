@@ -42,3 +42,6 @@
 *.[pP][sS]1             text eol=crlf
 
 *[aA][uU][tT][oO][gG][eE][nN][eE][rR][aA][tT][eE][dD]* binary
+
+# Vendored font sources: byte for byte as upstream, so the build's SHA-256 check holds (S8, H49).
+core/src/fonts/** -text

@@ -8,6 +8,36 @@ plugins {
     `java-test-fixtures`
 }
 
+// Font 0's table (28:631; 29:302): the build-time converter (own code, JDK only) in src/fontgen, run on misc-fixed
+// 6x13's BDF; the table ships as a classpath resource of :core, the converter in no jar.
+val fontgen = sourceSets.create("fontgen")
+val generateFont0 = tasks.register<JavaExec>("generateFont0") {
+    group = "build"
+    description = "Converts misc-fixed 6x13.bdf into font 0's glyph table (28 §7.1)."
+    // Everything the task keeps is computed here as plain values: an argument provider reading a script-level val
+    // would capture the script object, which the configuration cache cannot store (S8 amendments F)
+    val bdf = layout.projectDirectory.file("src/fonts/misc-fixed/6x13.bdf")
+    val outDir = layout.buildDirectory.dir("generated/font0")
+    classpath = fontgen.runtimeClasspath
+    mainClass.set("io.github.mindbound.opengpu.core.fontgen.BdfToGlyphTable")
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(8)) })
+    inputs.file(bdf).withPathSensitivity(PathSensitivity.NONE).withPropertyName("bdf")
+    outputs.dir(outDir).withPropertyName("font0Dir")
+    args(
+        bdf.asFile.absolutePath,
+        outDir.get().file("io/github/mindbound/opengpu/core/font/font0-6x13.glyphs").asFile.absolutePath,
+        "d00cf1cbaed055bb91d11c80e063d5d2d3b66552a7f2ead7161ee3780f9123f0", // 29:381
+        "6x13.bdf",
+    )
+    // JavaExec is not cacheable by default; this one is a function of the BDF, the arguments and the converter's
+    // classes, and reads no clock or environment
+    outputs.cacheIf { true }
+}
+// The task as a resource directory: processResources depends on it
+sourceSets.main { resources.srcDir(generateFont0) }
+// BdfTest and BdfToGlyphTableTest test the converter; the table reaches every test through main's resources
+dependencies { testImplementation(fontgen.output) }
+
 tasks.withType<Test>().configureEach {
     // @Timeout runs its test on a thread of its own, so that it can fail a test whose thread is BLOCKED on a monitor
     // (a lock-order cycle, plan §3.10); the same-thread default only interrupts, which frees no BLOCKED thread

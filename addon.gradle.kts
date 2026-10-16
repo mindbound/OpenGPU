@@ -51,7 +51,7 @@ dependencies {
 
 val jarTest = tasks.register<Test>("jarTest") {
     group = "verification"
-    description = "Checks the jars that ship: bytecode references (24 §3.1) and the -dev jar's layout (05 OQ2)."
+    description = "Checks the shipped jars: bytecode references (24 §3.1), -dev jar layout (05 OQ2), NOTICE, LICENSE."
     testClassesDirs = jarTestSources.output.classesDirs
     classpath = jarTestSources.runtimeClasspath
     shouldRunAfter(tasks.named("test"))
@@ -67,6 +67,11 @@ val jarTest = tasks.register<Test>("jarTest") {
     inputs.files(devJar, obfJar, preshadowJar, apiJar).withPropertyName("jars").withPathSensitivity(PathSensitivity.NONE)
     inputs.files(projectJars).withPropertyName("shadedProjectJars").withPathSensitivity(PathSensitivity.NONE)
     inputs.files(libraryJars).withPropertyName("shadedLibraryJars").withPathSensitivity(PathSensitivity.NONE)
+    // The jars pack src/main/resources' NOTICE and LICENSE, copies of the root's, the source of truth (29:179)
+    val notice = layout.projectDirectory.file("NOTICE")
+    val license = layout.projectDirectory.file("LICENSE")
+    inputs.file(notice).withPropertyName("notice").withPathSensitivity(PathSensitivity.NONE)
+    inputs.file(license).withPropertyName("license").withPathSensitivity(PathSensitivity.NONE)
     jvmArgumentProviders.add(
         CommandLineArgumentProvider {
             listOf(
@@ -76,6 +81,8 @@ val jarTest = tasks.register<Test>("jarTest") {
                 "-Dopengpu.apiJar=" + apiJar.get().asFile.absolutePath,
                 "-Dopengpu.shadedProjectJars=" + projectJars.files.joinToString(File.pathSeparator),
                 "-Dopengpu.shadedLibraryJars=" + libraryJars.files.joinToString(File.pathSeparator),
+                "-Dopengpu.notice=" + notice.asFile.absolutePath,
+                "-Dopengpu.license=" + license.asFile.absolutePath,
             )
         },
     )

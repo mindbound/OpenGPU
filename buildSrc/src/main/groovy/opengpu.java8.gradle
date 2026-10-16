@@ -27,6 +27,14 @@ tasks.withType(JavaCompile).configureEach {
     options.release = 8
 }
 
+// javadoc reads the sources as compileJava does, not in the platform's encoding (cp1252 on Windows read
+// ConcurrencyScenario's 'é' as two characters), and writes UTF-8 pages that say so
+tasks.withType(Javadoc).configureEach {
+    options.encoding = 'UTF-8'
+    options.docEncoding = 'UTF-8'
+    options.charSet = 'UTF-8'
+}
+
 def jabel = "com.github.GTNewHorizons:jabel-javac-plugin:${OpenGpuVersions.JABEL}"
 sourceSets.configureEach { SourceSet sourceSet ->
     // Every source set, test fixtures included; GTNHGradle covers the root's main and test

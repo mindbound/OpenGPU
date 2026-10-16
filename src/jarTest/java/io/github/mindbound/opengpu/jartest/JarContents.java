@@ -1,5 +1,6 @@
 package io.github.mindbound.opengpu.jartest;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,6 +33,11 @@ final class JarContents {
     }
 
     static Path jar(String property) {
+        return file(property);
+    }
+
+    /** A file the jarTest task names in a system property: a jar under test, or a repository file such as NOTICE. */
+    static Path file(String property) {
         String path = System.getProperty(property);
         if (path == null || path.isEmpty()) {
             throw new IllegalStateException(property + " is not set: run these tests through Gradle's jarTest task");
@@ -63,6 +69,24 @@ final class JarContents {
             }
         }
         return names;
+    }
+
+    /** The bytes of the jar's entry {@code name}, or null when the jar has no such file entry. */
+    static byte[] entry(Path jar, String name) throws IOException {
+        try (ZipFile zip = new ZipFile(jar.toFile())) {
+            ZipEntry entry = zip.getEntry(name);
+            if (entry == null || entry.isDirectory()) {
+                return null;
+            }
+            try (InputStream in = zip.getInputStream(entry)) {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buffer = new byte[8192];
+                for (int n; (n = in.read(buffer)) != -1;) {
+                    out.write(buffer, 0, n);
+                }
+                return out.toByteArray();
+            }
+        }
     }
 
     /** Every class in the jar, read in full: code, frames and debug information. */

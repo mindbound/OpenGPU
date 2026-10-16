@@ -197,8 +197,17 @@ class DeviceConcurrencyTest {
                 }
                 assertNoFailures();
             } finally {
-                pool.shutdownNow();
+                // Not shutdownNow: its interrupt can reach a drain task the release has already let go (the latch sees
+                // the interrupt after the unpark), which then throws on its pool thread, a trace that fails no test. A
+                // pool that does not stop is a failure, and only then interrupted
+                pool.shutdown();
+                if (!pool.awaitTermination(JOIN_MILLIS, TimeUnit.MILLISECONDS)) {
+                    failures.add(new AssertionError("the fold pool did not stop within " + JOIN_MILLIS + " ms"));
+                    pool.shutdownNow();
+                }
             }
+            // Reached only when the checks passed: a failure above stays the test's own
+            assertNoFailures();
             StringBuilder b = new StringBuilder(
                 String.format(Locale.ROOT, "DeviceConcurrencyTest: %.2f s", (System.nanoTime() - started) / 1e9));
             for (Lane lane : lanes) {

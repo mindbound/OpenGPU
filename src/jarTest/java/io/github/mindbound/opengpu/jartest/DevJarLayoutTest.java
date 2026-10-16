@@ -1,8 +1,10 @@
 package io.github.mindbound.opengpu.jartest;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -26,6 +28,9 @@ class DevJarLayoutTest {
     // RFG adds the generated Tags class to the plain jar only; its one constant is inlined wherever it is used
     private static final String TAGS = OPENGPU + "Tags.class";
     private static final String CORE_FIXTURES = OPENGPU + "core/fixtures/";
+    // Font 0's build-time converter (S8): it runs in the build only
+    private static final String CORE_FONTGEN = OPENGPU + "core/fontgen/";
+    private static final String FONT0_TABLE = OPENGPU + "core/font/font0-6x13.glyphs";
 
     static Stream<Path> shippedJars() {
         return JarContents.shippedJars();
@@ -68,6 +73,40 @@ class DevJarLayoutTest {
                 problems.add(name);
             }
         }
+        assertNone(problems);
+    }
+
+    @ParameterizedTest
+    @MethodSource("shippedJars")
+    void noFontConverterClassShips(Path jar) throws IOException {
+        // :core's src/fontgen (Bdf, BdfToGlyphTable) converts 6x13.bdf at build time and ships in no jar (28:631)
+        List<String> problems = new ArrayList<>();
+        for (String name : JarContents.names(jar)) {
+            if (name.startsWith(CORE_FONTGEN)) {
+                problems.add(name);
+            }
+        }
+        assertNone(problems);
+    }
+
+    @ParameterizedTest
+    @MethodSource("shippedJars")
+    void fontZerosTableShips(Path jar) throws IOException {
+        // TEXT's font 0 (28:631) is a classpath resource of :core; without it every TEXT fails at its first use
+        Assertions.assertTrue(
+            JarContents.names(jar)
+                .contains(FONT0_TABLE),
+            () -> jar.getFileName() + " has no " + FONT0_TABLE);
+    }
+
+    @ParameterizedTest
+    @MethodSource("shippedJars")
+    void noticeAndLicenseAreTheRepositorysOwn(Path jar) throws IOException {
+        // The jars pack src/main/resources' NOTICE and LICENSE, copies of the root's, which are the source of truth;
+        // a credit added to the root NOTICE alone, such as font 0's (28:631, 29:178), would not ship (29:179)
+        List<String> problems = new ArrayList<>();
+        checkCopy(jar, "NOTICE", "opengpu.notice", problems);
+        checkCopy(jar, "LICENSE", "opengpu.license", problems);
         assertNone(problems);
     }
 
@@ -135,6 +174,34 @@ class DevJarLayoutTest {
         Assertions.assertEquals(
             JarContents.names(JarContents.jar("opengpu.devJar")),
             JarContents.names(JarContents.jar("opengpu.obfJar")));
+    }
+
+    /** Adds a problem unless the jar's entry {@code name} is byte for byte the repository file in {@code property}. */
+    private static void checkCopy(Path jar, String name, String property, List<String> problems) throws IOException {
+        Path repository = JarContents.file(property);
+        byte[] expected = Files.readAllBytes(repository);
+        byte[] shipped = JarContents.entry(jar, name);
+        if (shipped == null) {
+            problems.add(jar.getFileName() + " has no " + name);
+            return;
+        }
+        if (!Arrays.equals(shipped, expected)) {
+            int first = 0;
+            while (first < shipped.length && first < expected.length && shipped[first] == expected[first]) {
+                first++;
+            }
+            problems.add(
+                String.format(
+                    "%s!/%s (%d B) differs from %s (%d B) from byte %d: copy the root %s to src/main/resources/%s",
+                    jar.getFileName(),
+                    name,
+                    shipped.length,
+                    repository,
+                    expected.length,
+                    first,
+                    name,
+                    name));
+        }
     }
 
     private static void assertNone(List<String> problems) {

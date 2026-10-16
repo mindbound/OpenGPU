@@ -3,6 +3,9 @@ package io.github.mindbound.opengpu.gltestkit;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -17,15 +20,29 @@ import com.gtnewhorizons.angelica.glsm.redirect.GLSMRedirector;
  * through GLSMRedirector as Angelica's transformer runs every mod class in game, by the same steps: the core
  * exclusions, the constant-pool filter, ClassReader.accept(node, 0), transformClassNode with the dotted name and, only
  * when that changed something, a COMPUTE_MAXS ClassWriter (AngelicaRedirectorTransformer.java:22-47 at 2.2.8,
- * glsm/.../loading/ModRedirector.java:53-74 at 2.2.28). It owns one package, the probes', and defines those classes
- * itself from the parent's bytes, never asking the parent for them, so a probe's helpers are transformed with it.
- * Everything else, GLSM and LWJGL included, comes from the parent, so a redirected call reaches the GLStateManager that
- * GlsmExtension initialized. Loading needs no GL context; running a probe does.
+ * glsm/.../loading/ModRedirector.java:53-74 at 2.2.28). It owns the packages of {@link #OWNED}: the probes', :gl's
+ * render core and :gl-testkit's host fixtures and scenarios (S8, H30), and defines those classes itself from the
+ * parent's bytes, never asking the parent for them, so a probe's helpers and every :gl class a scenario reaches are
+ * transformed with it. Owned and unowned code meet only in :core and JDK types, so no class exists twice on one path.
+ * Everything else, GLSM, LWJGL, :core and its fixtures, JUnit and GlThread included, comes from the parent, so a
+ * redirected call reaches the GLStateManager that GlsmExtension initialized. Loading needs no GL context; running a
+ * probe does.
  */
 final class GlsmLoader extends ClassLoader {
 
-    /** The owned package. */
+    /** The probes' package. */
     static final String PROBES = "io.github.mindbound.opengpu.gltestkit.glsmprobe.";
+
+    /**
+     * The owned package prefixes (S8 plan §3.13): the probes, :gl (its gl.host package included), and :gl-testkit's
+     * host fixtures and scenarios. "io.github.mindbound.opengpu.gl." does not match the gltestkit packages.
+     */
+    static final List<String> OWNED = Collections.unmodifiableList(
+        Arrays.asList(
+            PROBES,
+            "io.github.mindbound.opengpu.gl.",
+            "io.github.mindbound.opengpu.gltestkit.host.",
+            "io.github.mindbound.opengpu.gltestkit.scenario."));
 
     /** What happened to one probe class on its way in. */
     static final class Transform {
@@ -68,9 +85,19 @@ final class GlsmLoader extends ClassLoader {
         return transforms.get(name);
     }
 
+    /** Whether this loader defines {@code name} itself. */
+    static boolean owns(String name) {
+        for (String prefix : OWNED) {
+            if (name.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-        if (!name.startsWith(PROBES)) {
+        if (!owns(name)) {
             return super.loadClass(name, resolve);
         }
         synchronized (getClassLoadingLock(name)) {

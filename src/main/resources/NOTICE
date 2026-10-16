@@ -39,3 +39,17 @@ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
 THE POSSIBILITY OF SUCH DAMAGE.
+
+================================================================================
+X11 misc-fixed 6x13 - https://www.cl.cam.ac.uk/~mgk25/ucs-fonts.html
+License: public domain ("Public domain font.  Share and enjoy.")
+Bundled in the OpenGPU jar as font 0's glyph table, converted at build time
+from 6x13.bdf.
+================================================================================
+
+By Markus Kuhn and contributors; see core/src/fonts/misc-fixed/AUTHORS and
+core/src/fonts/misc-fixed/README in OpenGPU's source.
+
+The font's own statement (the COPYRIGHT property of 6x13.bdf):
+
+Public domain font.  Share and enjoy.
