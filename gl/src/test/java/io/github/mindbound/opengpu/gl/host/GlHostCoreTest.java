@@ -1655,15 +1655,15 @@ class GlHostCoreTest {
      * with OC's retry), a render thread passing with random budgets, a server thread ticking each device
      * {@link #RACE_TICKS} times a turn and resetting each one at every {@link #RACE_RESET_EVERY}th callback of its
      * worker, and a two-thread fold pool (21:91). Every readback is checked by the shadow oracle as it arrives. On two
-     * cores (CI's runner) a worker would run its callbacks out, mostly "busy", before the fold pool or the server got a
-     * turn; so a worker parks after a busy present until its device moves ({@link #pace}) and at each reset mark until
-     * the server has started the reset ({@link #awaitReset}), the server parks between its turns, the render thread
-     * yields after each pass, and the race must confirm at least {@link #RACE_MIN_FRAMES} frames, check
-     * {@link #RACE_MIN_READBACKS} readbacks and start {@link #RACE_MIN_RESETS} resets while each worker runs. Then the
-     * workers end, the server stops, the render thread quiesces on itself (H57) and the pool drains, each within a
-     * bounded wait: no thread threw, the host never failed and saw no contract violation, every readback matched, and
-     * each device's tail is empty with K's pixels and masters equal to the oracle's and the GPU's textures its live and
-     * deferred ones (G10).
+     * cores (S8's pinned runs, stricter than CI's runner) a worker would run its callbacks out, mostly "busy", before
+     * the fold pool or the server got a turn; so a worker parks after a busy present until its device moves
+     * ({@link #pace}) and at each reset mark until the server has started the reset ({@link #awaitReset}), the server
+     * parks between its turns, the render thread yields after each pass, and the race must confirm at least
+     * {@link #RACE_MIN_FRAMES} frames, check {@link #RACE_MIN_READBACKS} readbacks and start {@link #RACE_MIN_RESETS}
+     * resets while each worker runs. Then the workers end, the server stops, the render thread quiesces on itself (H57)
+     * and the pool drains, each within a bounded wait: no thread threw, the host never failed and saw no contract
+     * violation, every readback matched, and each device's tail is empty with K's pixels and masters equal to the
+     * oracle's and the GPU's textures its live and deferred ones (G10).
      */
     @Test
     @Timeout(120)

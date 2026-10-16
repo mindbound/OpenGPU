@@ -117,10 +117,11 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    the confirmed gaps and re-ran the reviewers' mutants. The main session
    then let a fold that throws inside the executor's `execute` propagate
    rather than count as a refused hand-off, and made a status test wait for
-   a fold instead of spinning (it had failed on two CPUs, CI's count). It
-   recorded the points 28 left open in 28's section "S7 implemented", and
-   amended 24, the roadmap and this index; workflow run wf_62516a40-f86
-   checked those edits.
+   a fold instead of spinning (it had failed on two CPUs, which S7 took for
+   CI's count; S8's first CI run reports 4 Gradle worker leases, Gradle's
+   default of one per processor). It recorded the points 28 left open in
+   28's section "S7 implemented", and amended 24, the roadmap and this
+   index; workflow run wf_62516a40-f86 checked those edits.
 16. M0 step S8 (2026-10-16) built `:gl` (the render core and the GL host
    core), `:gl-testkit`'s GL host, hygiene assertion, scenarios and legs,
    and font 0's build-time converter from 28. Workflow run wf_8005b365-3a6
@@ -149,7 +150,14 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    recorded the points 28 left open in 28's section "S8 implemented",
    archived the llvmpipe reproducers in `driver-checks/`, and amended the
    roadmap, 24, 23, 25, 29, 20 and this index, each file checked by a
-   refuting checker and the confirmed points fixed.
+   refuting checker and the confirmed points fixed. The owner pushed the
+   step as 08ca13b, and its first CI run, 38899286849, was green, with a
+   "Tests" status of 2 096 passed, on llvmpipe from Mesa 25.2.8 with both
+   readback waits on. 28's section "S8 implemented" checks its times against
+   the plan's budgets: the legs, the model test and the font tests inside
+   theirs, but `:gl:test`'s tests took 21.4 s against 20 s, 8.30 s of it in
+   `GlLedgerTest`'s two-thread test, which a fix after 08ca13b then made
+   linear without losing a mutant kill.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on

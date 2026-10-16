@@ -181,13 +181,26 @@ class GlLedgerTest {
     }
 
     /**
-     * Two threads, each adding and removing 10 000 rows of its own and of one shared key, leave the ledger empty, and
-     * neither throws (plan §0's thread rules: bounded loops, latches released in finally, a timeout on every wait).
+     * Two threads race add, remove, bytes and rows on one ledger, leave it empty, and neither throws (plan §0's thread
+     * rules: bounded loops, latches released in finally, a timeout on every wait). Each adds 10 000 rows of its own,
+     * removing each 1 024 iterations after its add and the last 1 024 after the loop, and adds and removes one shared
+     * key in every iteration, so that row keeps going and coming back; it reads its device's bytes every 2nd iteration
+     * and every row every 16th. The ledger holds about 2 050 rows at most: each read is long enough to overlap the
+     * other thread's writes, and the test's cost stays linear in the rows.
      */
     @Test
     @Timeout(30)
     void twoThreadsLeaveItEmpty() throws InterruptedException {
         final int rows = 10_000;
+        final int lag = 1024;
+        // bytes() only sums the rows; rows() copies each one, so it runs less often
+        final int bytesEvery = 2;
+        final int rowsEvery = 16;
+        // Made before the race, so the threads run the ledger's calls alone
+        final String[] labels = new String[rows];
+        for (int i = 0; i < rows; i++) {
+            labels[i] = GlLedger.textureLabel(i);
+        }
         final CountDownLatch start = new CountDownLatch(1);
         final AtomicReference<Throwable> failure = new AtomicReference<>();
         Thread[] threads = new Thread[2];
@@ -199,14 +212,21 @@ class GlLedgerTest {
                         throw new AssertionError("the start latch was not released within 10 s");
                     }
                     for (int i = 0; i < rows; i++) {
-                        ledger.add(1, device, GlLedger.TEXTURE, GlLedger.textureLabel(i), i);
+                        ledger.add(1, device, GlLedger.TEXTURE, labels[i], i);
                         ledger.add(1, 99, GlLedger.QUERY, "shared", 2);
-                        ledger.bytes(1, device, GlLedger.TEXTURE);
-                        ledger.rows();
-                    }
-                    for (int i = 0; i < rows; i++) {
-                        ledger.remove(1, device, GlLedger.TEXTURE, GlLedger.textureLabel(i), i);
+                        if (i % bytesEvery == 0) {
+                            ledger.bytes(1, device, GlLedger.TEXTURE);
+                        }
+                        if (i % rowsEvery == 0) {
+                            ledger.rows();
+                        }
                         ledger.remove(1, 99, GlLedger.QUERY, "shared", 2);
+                        if (i >= lag) {
+                            ledger.remove(1, device, GlLedger.TEXTURE, labels[i - lag], i - lag);
+                        }
+                    }
+                    for (int i = rows - lag; i < rows; i++) {
+                        ledger.remove(1, device, GlLedger.TEXTURE, labels[i], i);
                     }
                 } catch (Throwable e) {
                     failure.compareAndSet(null, e);

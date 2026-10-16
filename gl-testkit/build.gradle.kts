@@ -58,8 +58,9 @@ tasks.test {
 
 // -Popengpu.gl.cases=N scales the count-driven GL scenarios; -Popengpu.gl.jvmArgs="..." adds JVM arguments to every GL
 // task. -XX:ActiveProcessorCount=2 there only sizes the JVM's own view (availableProcessors, its GC and JIT threads):
-// the OS still runs the test threads on every core. A real two-core run, as CI's runner, needs an affinity mask on a
-// Gradle process with no daemon, whose test JVMs inherit it: on Windows `./gradlew --stop`, then
+// the OS still runs the test threads on every core. A real two-core run, stricter than CI's runner (S8's first CI
+// run reports 4 Gradle worker leases, one per processor), needs an affinity mask on a Gradle process with no daemon,
+// whose test JVMs inherit it: on Windows `./gradlew --stop`, then
 // `cmd /c start "" /affinity 3 /wait cmd /c gradlew.bat --no-daemon ...`; on Linux
 // `taskset -c 0,1 ./gradlew --no-daemon ...`
 val glCases: Provider<String> = providers.gradleProperty("opengpu.gl.cases")
