@@ -159,9 +159,10 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    `GlLedgerTest`'s two-thread test, which a fix after 08ca13b then made
    linear without losing a mutant kill. The fix's own CI run, 38922626582
    of 2c4528e, was green with the same status; it restored `:core:test`
-   from Gradle's build cache, put `:gl:test`'s tests at 8.6 s and that test
-   at 0.42 s, and took the three main GL legs and the model test to 0.51
-   to 0.89 of their first-run sums, for a cause not measured.
+   from Gradle's build cache, put `:gl:test`'s tests at 8.6 s (the low
+   case, step 18) and that test at 0.42 s, and took the three main GL legs
+   and the model test to 0.51 to 0.89 of their first-run sums, for a cause
+   not measured.
 17. On 2026-10-24 a doc pass recorded that run in 28's section "S8
    implemented" (closing its open item on `:gl:test`'s time on CI) and
    §11.4, the roadmap, 23, 20 and this index. The same day the owner
@@ -183,6 +184,25 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    plugin's `git status --porcelain` is never empty. `.gitignore` now
    ignores both paths; a replay of CI's steps in a fresh clone kept the
    tree clean and the jars' names without "-dirty".
+18. Later on 2026-10-24 a second doc pass recorded S8's third CI run,
+   40073138862 of 0761bc4, in 28's section "S8 implemented" and §11.4, the
+   roadmap, 23, 20 and this index. Its first attempt failed in "Setup the
+   workspace": GitHub had evicted the Gradle cache, unused since
+   2026-10-16, and the download of Forge's Scala 2.11 libraries from
+   GTNH's Maven mirror, the only one of the four repositories the build
+   tried that has them, timed out. The owner's re-run was green, with a
+   "Tests" status of 2 096 passed and five jars without "-dirty", so the
+   `.gitignore` fix holds. With `:core:test` running again, `:gl:test`'s
+   tests took 20.02 s, just over the plan's 20 s, and the GL legs about
+   their first-run sums, so the second run's 8.6 s was the low case. Of
+   three options the main session laid out (a cheaper race test in
+   `GlHostCoreTest`, with a mutant check; a re-scoped budget; a record
+   only), the owner chose the re-scope ("I think re-scoping the budget is
+   the less intrusive option here, let's go with that."), and the main
+   session set `:gl:test`'s CI budget at 30 s, still the sum of its test
+   durations in CI's report of the full build; the model test's, the
+   legs' and the font tests' budgets stay. Run wf_ea450e4b-a4d wrote the
+   pass, with a refuting checker and its confirmed points applied.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
