@@ -28,6 +28,12 @@ public final class OpenGpuVersions {
     public static final String ANGELICA_PACK = "2.2.28";
 
     /**
+     * 25 §6's CI-only jar, the owner's release during the research: only the linkage and FAIL runs (S9), gl-testkit's
+     * glsmLinkageTest.
+     */
+    public static final String ANGELICA_CI_ONLY = "2.2.21";
+
+    /**
      * GTNHLib for the GLSM legs: the version the root's dev runs load, from GTNHGradle 2.0.33's constraint
      * (UpdateableConstants.NEWEST_GTNH_LIB; the S3 runClient ran it with Angelica 2.2.8). Angelica declares 0.11.36.
      */

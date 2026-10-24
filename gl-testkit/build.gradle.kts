@@ -206,14 +206,18 @@ dependencies {
 val glsmEnableDsa: Provider<String> = providers.gradleProperty("opengpu.glsm.enableDSA")
 
 /**
- * One GLSM leg: glsmTest's classes with GLSM from Angelica [angelica]'s dev jar, in its own JVM; with [releaseConfig]
- * only the glsm-release tests, under a GTNH release client's configuration.
+ * One Angelica release's dev jar, alone, as the resolvable configuration "[name]AngelicaClasspath" over the dependency
+ * scope "[name]Angelica". [version] is read only when the configuration resolves, so the latest linkage leg's
+ * NexusRelease runs only in builds whose task graph needs that jar.
  */
-fun glsmTestTask(taskName: String, angelica: String, releaseConfig: Boolean = false): TaskProvider<Test> {
-    val jar = configurations.dependencyScope("${taskName}Angelica")
-    dependencies.add(jar.name, "com.github.GTNewHorizons:Angelica:$angelica:dev") { isTransitive = false }
+fun angelicaDevJar(name: String, version: Provider<String>): NamedDomainObjectProvider<ResolvableConfiguration> {
+    val jar = configurations.dependencyScope("${name}Angelica")
+    dependencies.addProvider<String, ExternalModuleDependency>(
+        jar.name,
+        version.map { "com.github.GTNewHorizons:Angelica:$it:dev" },
+    ) { isTransitive = false }
     // Resolved as glsmTest's runtime classpath is, the attributes spelled out
-    val jarClasspath = configurations.resolvable("${taskName}AngelicaClasspath") {
+    return configurations.resolvable("${name}AngelicaClasspath") {
         extendsFrom(jar.get())
         attributes {
             attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage::class.java, Usage.JAVA_RUNTIME))
@@ -223,6 +227,14 @@ fun glsmTestTask(taskName: String, angelica: String, releaseConfig: Boolean = fa
             attribute(rfgObfuscation, "mcp")
         }
     }
+}
+
+/**
+ * One GLSM leg: glsmTest's classes with GLSM from Angelica [angelica]'s dev jar, in its own JVM; with [releaseConfig]
+ * only the glsm-release tests, under a GTNH release client's configuration.
+ */
+fun glsmTestTask(taskName: String, angelica: String, releaseConfig: Boolean = false): TaskProvider<Test> {
+    val jarClasspath = angelicaDevJar(taskName, provider { angelica })
     return glTestTask(taskName, "CORE_33", glsmTest, files(jarClasspath), releaseConfig = releaseConfig) {
         description = "Runs the GLSM spike's tests on a CORE_33 context with GLSM from Angelica $angelica, in its own Java 8 JVM."
         systemProperty("opengpu.glsm.angelica", angelica)
@@ -251,3 +263,73 @@ val glsmReleaseConfigTest = glsmTestTask("glsmReleaseConfigTest", OpenGpuVersion
 glsmReleaseConfigTest.configure { mustRunAfter(glsmPackTest) }
 val glsmPackReleaseConfigTest = glsmTestTask("glsmPackReleaseConfigTest", OpenGpuVersions.ANGELICA_PACK, releaseConfig = true)
 glsmPackReleaseConfigTest.configure { mustRunAfter(glsmReleaseConfigTest) }
+
+// M0 step S9: 25 §4's per-jar linkage (step 3) and its no-pass-through check (step 4), as 24:248's unmappedGL=FAIL
+// redirector run over :gl's shipped classes, on four Angelica jars: the floor, 25 §6's CI-only 2.2.21, the pack's,
+// and the latest release, Nexus's <release> read at build time (24:199, 25:534) and logged by every run. One Java 8
+// JVM with no GL context, whose classpath holds no Angelica jar: GlsmLinkageTest gives each jar a class loader of its
+// own (S9 plan P3.1).
+val glsmLinkageTag = "glsm-linkage" // GlsmLinkageTest's @Tag
+// -Popengpu.angelica.latest=<v> sets the latest leg's release, with --offline or without, and fails on CI; --offline
+// otherwise takes the release the last online run of glsmLinkageTest remembered (Q-S9-1)
+val angelicaMetadata = "https://nexus.gtnewhorizons.com/repository/public/com/github/GTNewHorizons/Angelica/maven-metadata.xml"
+val angelicaRemembered = File(gradle.gradleUserHomeDir, "opengpu/angelica-release.properties")
+val angelicaLatest: Provider<String> = providers.of(NexusRelease::class.java) {
+    parameters {
+        metadataUrl.set(angelicaMetadata)
+        offline.set(gradle.startParameter.isOffline)
+        forced.set(providers.gradleProperty("opengpu.angelica.latest"))
+        ci.set(providers.environmentVariable("GITHUB_ACTIONS").map { it == "true" }.orElse(false))
+        remembered.set(angelicaRemembered)
+    }
+}
+// Each leg's "<version> <source>", in the order GlsmLinkageTest checks them
+val linkageLegs: Map<String, Provider<String>> = linkedMapOf(
+    "floor" to provider { "${OpenGpuVersions.ANGELICA_FLOOR} pinned" },
+    "ci-only" to provider { "${OpenGpuVersions.ANGELICA_CI_ONLY} pinned" },
+    "pack" to provider { "${OpenGpuVersions.ANGELICA_PACK} pinned" },
+    "latest" to angelicaLatest,
+)
+// glsmLinkageFloorAngelicaClasspath, glsmLinkageCiOnlyAngelicaClasspath, ...
+val linkageJars = linkageLegs.mapValues { (leg, spec) ->
+    val name = "glsmLinkage" + leg.split('-').joinToString("") { part -> part.replaceFirstChar { it.uppercaseChar() } }
+    angelicaDevJar(name, spec.map { it.substringBefore(' ') })
+}
+
+val glsmLinkageTest = tasks.register<Test>("glsmLinkageTest") {
+    group = "verification"
+    description = "Runs 25 §4's per-jar linkage and the unmappedGL=FAIL redirector run over :gl's classes on " +
+        "Angelica ${OpenGpuVersions.ANGELICA_FLOOR}, ${OpenGpuVersions.ANGELICA_CI_ONLY}, " +
+        "${OpenGpuVersions.ANGELICA_PACK} and Nexus's <release>, each jar in its own class loader; no GL context."
+    testClassesDirs = glsmTest.output.classesDirs
+    // No Angelica jar: the floor's is glsmTest's compile-only dependency, and each leg's is passed by its path
+    classpath = glsmTest.runtimeClasspath
+    // Only GlsmLinkageTest reaches JUnit, whose discovery reflects on every class it is given before the tag filter
+    // applies: the other glsmTest classes are compiled against the floor's jar, which this JVM lacks
+    include("**/GlsmLinkageTest*.class")
+    useJUnitPlatform { includeTags(glsmLinkageTag) }
+    // Every leg's SystemProperties reads it once, as its loader initializes it
+    systemProperty("angelica.unmappedGL", "FAIL")
+    // GLSM's INFO lines in the test log, as on the GLSM legs
+    systemProperty("org.apache.logging.log4j.level", "INFO")
+    systemProperty("opengpu.linkage.legs", linkageLegs.keys.joinToString(","))
+    systemProperty("opengpu.gl.reportDir", layout.buildDirectory.dir("reports/opengpu-gl/glsmLinkageTest").get().asFile.absolutePath)
+    linkageLegs.forEach { (leg, spec) ->
+        jvmArgumentProviders.add(
+            objects.newInstance(LinkageLeg::class.java).also {
+                it.leg.set(leg)
+                it.spec.set(spec)
+                it.jar.from(linkageJars.getValue(leg))
+            },
+        )
+    }
+    // A release read online is remembered for --offline builds only now, with its jar fetched as a task input
+    doFirst(NexusRelease.Remember(angelicaLatest, angelicaRemembered, angelicaMetadata))
+    testLogging { showStandardStreams = true }
+    timeout = Duration.ofMinutes(5)
+    mustRunAfter(tasks.test)
+    // Each run logs the release it resolved, and Nexus is no task input
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
+}
+VerifyTestsRan.register(project, glsmLinkageTest, false)

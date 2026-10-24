@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -32,6 +33,7 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.InvokeDynamicInsnNode;
@@ -52,9 +54,10 @@ import org.objectweb.asm.tree.VarInsnNode;
  * no string constant naming {@code org.lwjgl.} or {@code org/lwjgl/} (24:90; the root jarTest's check); no
  * {@code glVertexAttrib*} constant setter (V1), no {@code glClearBuffer*} (A09), no {@code ShortBuffer} overload (A11)
  * and no {@code IntBuffer} one except R01's scissor-box query; and no class literal of LWJGL's, the way past
- * GLSMRedirector, but a driver-direct row's run-time lookup: its class literal and its method's name in one method (D01
- * {@code GL11.glGetError}, PassState's, S8 review HY-1). Three test-source classes are reported, so the check is not
- * blind. S9 adds the per-jar linkage of steps 3-4.
+ * GLSMRedirector, but a driver-direct row's run-time lookup in D01's form: its class literal right before its method's
+ * name, in a method with no other LWJGL literal or GL name and one findStatic as its only reflective call (D01
+ * {@code GL11.glGetError}, PassState's, S8 review HY-1; S9 review F1). Three test-source classes are reported, so the
+ * check is not blind. Steps 3-4, the per-jar linkage, are gl-testkit's GlsmLinkageTest (glsmLinkageTest, S9).
  */
 class CallSetTest {
 
@@ -66,6 +69,10 @@ class CallSetTest {
         Arrays.asList(3008, 3042, 2929, 2884, 2896, 3553, 2912, 32826, 3089));
     private static final String R01 = OPENGL + "GL11.glGetInteger(ILjava/nio/IntBuffer;)V";
     private static final String D01 = OPENGL + "GL11.glGetError()I";
+    /** D01's one reflective call, as owner.name (PassState.lookUpDriverGetError). */
+    private static final String FIND_STATIC = "java/lang/invoke/MethodHandles$Lookup.findStatic";
+    /** A string constant that names a GL entry point: glGetError, or LWJGL's native form nglGetError. */
+    private static final Pattern GL_NAME = Pattern.compile("n?gl[A-Z][A-Za-z0-9_]*");
 
     private static final CallSet CALL_SET = CallSet.load();
 
@@ -254,17 +261,24 @@ class CallSetTest {
             util.toString()
                 .contains("only GL11-GL33"),
             util.toString());
-        Report lookup = check(lookup(OPENGL + "GL11", "glGetError"));
+        Report lookup = check(lookup(OPENGL + "GL11", false, "glGetError"));
         Assertions.assertEquals(Collections.emptyList(), lookup.problems);
         Assertions.assertEquals(Collections.singleton("D01"), lookup.ids);
         Assertions.assertTrue(
-            check(lookup(OPENGL + "GL11", "glFlush")).problems.toString()
+            check(lookup(OPENGL + "GL11", false, "glFlush")).problems.toString()
                 .contains("class literal"));
         Assertions.assertTrue(
-            check(lookup(OPENGL + "GL11")).problems.toString()
+            check(lookup(OPENGL + "GL11", false)).problems.toString()
                 .contains("class literal"));
         Assertions.assertTrue(
-            check(lookup("org/lwjgl/opengl/Util", "checkGLError")).problems.toString()
+            check(lookup("org/lwjgl/opengl/Util", false, "checkGLError")).problems.toString()
+                .contains("class literal"));
+        // S9 review F1, TS1: a second lookup in D01's method, with a second literal or with D01's kept in a local
+        Assertions.assertTrue(
+            check(lookup(OPENGL + "GL11", false, "glGetError", "glFinish")).problems.toString()
+                .contains("class literal"));
+        Assertions.assertTrue(
+            check(lookup(OPENGL + "GL11", true, "glFinish", "glGetError")).problems.toString()
                 .contains("class literal"));
     }
 
@@ -282,26 +296,37 @@ class CallSetTest {
         Report report = new Report();
         boolean lambdas = false;
         for (MethodNode method : node.methods) {
-            List<String> literals = new ArrayList<>();
-            Set<String> strings = new HashSet<>();
+            List<LdcInsnNode> literals = new ArrayList<>();
+            List<String> glNames = new ArrayList<>();
+            List<String> reflection = new ArrayList<>();
             for (AbstractInsnNode insn : method.instructions.toArray()) {
                 if (insn instanceof InvokeDynamicInsnNode) {
                     lambdas = true;
                     checkIndy(node, (InvokeDynamicInsnNode) insn, report);
                 } else if (insn instanceof MethodInsnNode) {
-                    checkCall(node, method, (MethodInsnNode) insn, report);
+                    MethodInsnNode call = (MethodInsnNode) insn;
+                    checkCall(node, method, call, report);
+                    if (call.owner.equals("java/lang/invoke/MethodHandles$Lookup")
+                        || call.owner.equals("java/lang/Class")
+                        || call.owner.startsWith("java/lang/reflect/")) {
+                        reflection.add(call.owner + "." + call.name);
+                    }
                 } else if (insn instanceof LdcInsnNode && ((LdcInsnNode) insn).cst instanceof String) {
-                    strings.add((String) ((LdcInsnNode) insn).cst);
-                    checkString(node, (String) ((LdcInsnNode) insn).cst, report);
+                    String string = (String) ((LdcInsnNode) insn).cst;
+                    if (GL_NAME.matcher(string)
+                        .matches()) {
+                        glNames.add(string);
+                    }
+                    checkString(node, string, report);
                 } else if (insn instanceof LdcInsnNode && ((LdcInsnNode) insn).cst instanceof Type
                     && ((Type) ((LdcInsnNode) insn).cst).getSort() == Type.OBJECT
                     && ((Type) ((LdcInsnNode) insn).cst).getInternalName()
                         .startsWith("org/lwjgl/")) {
-                            literals.add(((Type) ((LdcInsnNode) insn).cst).getInternalName());
+                            literals.add((LdcInsnNode) insn);
                         }
             }
-            for (String literal : literals) {
-                checkLookup(node, method, literal, strings, report);
+            for (LdcInsnNode literal : literals) {
+                checkLookup(node, method, literal, literals.size(), glNames, reflection, report);
             }
         }
         for (FieldNode field : node.fields) {
@@ -381,17 +406,30 @@ class CallSetTest {
     }
 
     /**
-     * An LWJGL class literal in a method: allowed only as a driver-direct row's lookup, the row's owner with its
-     * method's name as a string constant of the same method; it counts as a GL call.
+     * An LWJGL class literal in a method: allowed only as a driver-direct row's lookup in D01's form, that of
+     * PassState.lookUpDriverGetError: the row's owner as the method's only LWJGL class literal, right before the row's
+     * method name as a string constant, the only GL entry point the method names, in a method whose only reflective
+     * call is one MethodHandles.Lookup.findStatic. A second lookup in that method is reported, whether it reuses the
+     * literal from a local, takes its name from elsewhere or goes through a helper (S9 review F1, TS1). It counts as a
+     * GL call.
      */
-    private static void checkLookup(ClassNode node, MethodNode method, String literal, Set<String> strings,
-        Report report) {
+    private static void checkLookup(ClassNode node, MethodNode method, LdcInsnNode literal, int literals,
+        List<String> glNames, List<String> reflection, Report report) {
         report.glCalls++;
+        String type = ((Type) literal.cst).getInternalName();
+        AbstractInsnNode next = literal.getNext();
+        while (next != null && next.getOpcode() < 0) {
+            next = next.getNext();
+        }
+        Object looked = next instanceof LdcInsnNode ? ((LdcInsnNode) next).cst : null;
         for (Map.Entry<String, String> row : CALL_SET.direct.entrySet()) {
             String call = row.getKey();
             String owner = call.substring(0, call.indexOf('.'));
             String name = call.substring(call.indexOf('.') + 1, call.indexOf('('));
-            if (owner.equals(literal) && strings.contains(name)) {
+            if (owner.equals(type) && name.equals(looked)
+                && literals == 1
+                && glNames.equals(Collections.singletonList(name))
+                && reflection.equals(Collections.singletonList(FIND_STATIC))) {
                 report.ids.add(row.getValue());
                 return;
             }
@@ -400,8 +438,8 @@ class CallSetTest {
             node.name + "."
                 + method.name
                 + ": the class literal "
-                + literal
-                + " outside a driver-direct row's lookup, a way past GLSMRedirector (HY-1)");
+                + type
+                + " outside a driver-direct row's lookup in D01's form, a way past GLSMRedirector (HY-1)");
     }
 
     private static void checkIndy(ClassNode node, InvokeDynamicInsnNode indy, Report report) {
@@ -509,14 +547,48 @@ class CallSetTest {
         return new Synthetic(new MethodInsnNode(opcode, owner, name, descriptor, false), constant);
     }
 
-    /** A class whose one method holds the class literal of owner and the string constants. */
-    private static ClassNode lookup(String owner, String... strings) {
+    /**
+     * A class whose one method looks each name up on owner in D01's form,
+     * MethodHandles.publicLookup().findStatic(Owner.class, name, MethodType.methodType(int.class)): with a class
+     * literal each, or with {@code shared} one literal kept in a local; with no name, the class literal alone.
+     */
+    private static ClassNode lookup(String owner, boolean shared, String... names) {
         ClassNode node = new ClassNode();
         node.name = "synthetic/Lookup";
         MethodNode method = new MethodNode(Opcodes.ACC_STATIC, "m", "()V", null, null);
-        method.instructions.add(new LdcInsnNode(Type.getObjectType(owner)));
-        for (String s : strings) {
-            method.instructions.add(new LdcInsnNode(s));
+        if (shared || names.length == 0) {
+            method.instructions.add(new LdcInsnNode(Type.getObjectType(owner)));
+        }
+        if (shared) {
+            method.instructions.add(new VarInsnNode(Opcodes.ASTORE, 0));
+        }
+        for (String name : names) {
+            method.instructions.add(
+                new MethodInsnNode(
+                    Opcodes.INVOKESTATIC,
+                    "java/lang/invoke/MethodHandles",
+                    "publicLookup",
+                    "()Ljava/lang/invoke/MethodHandles$Lookup;",
+                    false));
+            method.instructions
+                .add(shared ? new VarInsnNode(Opcodes.ALOAD, 0) : new LdcInsnNode(Type.getObjectType(owner)));
+            method.instructions.add(new LdcInsnNode(name));
+            method.instructions
+                .add(new FieldInsnNode(Opcodes.GETSTATIC, "java/lang/Integer", "TYPE", "Ljava/lang/Class;"));
+            method.instructions.add(
+                new MethodInsnNode(
+                    Opcodes.INVOKESTATIC,
+                    "java/lang/invoke/MethodType",
+                    "methodType",
+                    "(Ljava/lang/Class;)Ljava/lang/invoke/MethodType;",
+                    false));
+            method.instructions.add(
+                new MethodInsnNode(
+                    Opcodes.INVOKEVIRTUAL,
+                    "java/lang/invoke/MethodHandles$Lookup",
+                    "findStatic",
+                    "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;",
+                    false));
         }
         node.methods.add(method);
         return node;

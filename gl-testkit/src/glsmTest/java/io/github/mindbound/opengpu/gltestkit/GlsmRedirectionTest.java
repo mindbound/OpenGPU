@@ -1,21 +1,16 @@
 package io.github.mindbound.opengpu.gltestkit;
 
 import java.io.File;
-import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.net.JarURLConnection;
-import java.net.URISyntaxException;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Enumeration;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -25,10 +20,8 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldNode;
-import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.InvokeDynamicInsnNode;
 import org.objectweb.asm.tree.LdcInsnNode;
-import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 
 import com.gtnewhorizons.angelica.glsm.GLStateManager;
@@ -44,10 +37,12 @@ import com.gtnewhorizons.angelica.glsm.redirect.GLSMRedirector;
  * call no GL are defined by the loader but left as they are. No class holds a method handle owned by LWJGL (R-5) or a
  * string constant naming LWJGL's packages (plan §0; the root jarTest's check (3)). And no class holds a class literal
  * of LWJGL's, the way past the redirector, but for the one deliberate call GLSM must not see: PassState's run-time
- * lookup of {@code GL11.glGetError} ({@link #DRIVER_DIRECT}, callset.txt's D01), which reads the driver's error state
- * for R-3's drain and H63's check (20:240), because GLSM's own {@code glGetError} answers 0 under Angelica's release
- * default and the redirector maps {@code Util.checkGLError} to it from 2.2.16 (S8 review HY-1). The transform must
- * leave that literal as it is.
+ * lookup of {@code GL11.glGetError} ({@link GlBytecode#DRIVER_DIRECT}, callset.txt's D01), which reads the driver's
+ * error state for R-3's drain and H63's check (20:240), because GLSM's own {@code glGetError} answers 0 under
+ * Angelica's release default and the redirector maps {@code Util.checkGLError} to it from 2.2.16 (S8 review HY-1). The
+ * transform must leave that literal as it is. This is the WARN legs' check, of what the render-core legs run, test
+ * fixtures included; 25 §4's gating one is GlsmLinkageTest (glsmLinkageTest, S9), over :gl's shipped classes under
+ * unmappedGL=FAIL on four jars, whose link check overlaps this one for :gl on the floor's and the pack's (S9 plan P12).
  */
 @GlsmTest
 class GlsmRedirectionTest {
@@ -57,19 +52,16 @@ class GlsmRedirectionTest {
         { "io/github/mindbound/opengpu/gltestkit/host/", "io/github/mindbound/opengpu/gltestkit/host/GlHygiene.class" },
         { "io/github/mindbound/opengpu/gltestkit/scenario/",
             "io/github/mindbound/opengpu/gltestkit/scenario/Scenarios.class" } };
-    private static final String GL_OWNER = "org/lwjgl/opengl/";
+    private static final String GL_OWNER = GlBytecode.GL_OWNER;
     /** Built from pieces, so this class holds no such constant either. */
     private static final String LWJGL_DOTTED = "org" + ".lwjgl.";
     private static final String LWJGL_SLASHED = "org" + "/lwjgl/";
-    /** D01: the class, the class literal and the method name of the one lookup GLSM must not redirect (HY-1). */
-    static final String[] DRIVER_DIRECT = { "io.github.mindbound.opengpu.gl.PassState", GL_OWNER + "GL11",
-        "glGetError" };
 
     @Test
     void everyOwnedClassLoadsThroughGlsmLoader() throws Exception {
         GlsmLoader loader = new GlsmLoader();
         for (String[] p : PACKAGES) {
-            List<String> names = classes(p[0], p[1]);
+            List<String> names = GlBytecode.classes(p[0], p[1]);
             Assertions.assertFalse(names.isEmpty(), "no class found under " + p[0]);
             for (String name : names) {
                 Assertions.assertTrue(GlsmLoader.owns(name), name + " is not owned");
@@ -90,21 +82,21 @@ class GlsmRedirectionTest {
         int folded = 0;
         int direct = 0;
         for (String[] p : PACKAGES) {
-            for (String name : classes(p[0], p[1])) {
+            for (String name : GlBytecode.classes(p[0], p[1])) {
                 GlsmLoader.Transform t = loader.transform(name);
-                List<String> literals = literals(t.defined);
-                if (!literals.equals(literals(t.original))) {
+                List<GlBytecode.Literal> literals = GlBytecode.literals(t.defined);
+                if (!literals.equals(GlBytecode.literals(t.original))) {
                     problems.add(name + ": the transform changed its LWJGL class literals to " + literals);
                 }
-                for (String literal : literals) {
-                    String problem = literalProblem(name, literal);
+                for (GlBytecode.Literal literal : literals) {
+                    String problem = GlBytecode.literalProblem(name, literal);
                     if (problem != null) {
                         problems.add(problem);
                     } else {
                         direct++;
                     }
                 }
-                List<String> before = calls(t.original, glsm);
+                List<String> before = GlBytecode.calls(t.original, glsm);
                 if (before.isEmpty()) {
                     plainClasses++;
                     if (t.changed || !Arrays.equals(t.original, t.defined)) {
@@ -126,7 +118,7 @@ class GlsmRedirectionTest {
                 List<String> expected = new ArrayList<>();
                 for (String call : before) {
                     String member = call.substring(call.indexOf('.') + 1);
-                    Integer cap = capability(member);
+                    Integer cap = GlBytecode.capability(member);
                     if (cap != null && folds.containsKey(cap)) {
                         expected.add(
                             glsm + "."
@@ -143,7 +135,7 @@ class GlsmRedirectionTest {
                         }
                     }
                 }
-                List<String> after = calls(t.defined, glsm);
+                List<String> after = GlBytecode.calls(t.defined, glsm);
                 if (!expected.equals(after)) {
                     problems.add(name + ": expected " + expected + "\n  got " + after);
                 }
@@ -162,7 +154,10 @@ class GlsmRedirectionTest {
         Assertions.assertEquals(new ArrayList<String>(), problems, problems.size() + " problem(s)");
         Assertions.assertTrue(glClasses >= 10 && plainClasses >= 10, glClasses + " GL classes, " + plainClasses);
         Assertions.assertTrue(folded > 0, "no glEnable or glDisable was folded");
-        Assertions.assertEquals(1, direct, "lookups of " + Arrays.toString(DRIVER_DIRECT) + " left by the redirector");
+        Assertions.assertEquals(
+            1,
+            direct,
+            "lookups of " + Arrays.toString(GlBytecode.DRIVER_DIRECT) + " left by the redirector");
         System.out.println(
             "[opengpu-glsm] redirection: " + glClasses
                 + " GL-calling classes redirected, "
@@ -174,63 +169,51 @@ class GlsmRedirectionTest {
                 + " driver-direct lookup left as it is");
     }
 
+    /** D01's form, and each way out of it (S9 review F1, TS1). */
     @Test
     void onlyTheDriverDirectLookupMayHoldAnLwjglClassLiteral() {
-        String passState = DRIVER_DIRECT[0];
-        Assertions.assertNull(literalProblem(passState, "m: " + DRIVER_DIRECT[1] + " [glGetError]"));
-        Assertions.assertNotNull(literalProblem(passState, "m: " + DRIVER_DIRECT[1] + " []"));
-        Assertions.assertNotNull(literalProblem(passState, "m: " + DRIVER_DIRECT[1] + " [glFlush]"));
-        Assertions.assertNotNull(literalProblem(passState, "m: " + GL_OWNER + "Util [checkGLError]"));
+        String passState = GlBytecode.DRIVER_DIRECT[0];
+        String gl11 = GlBytecode.DRIVER_DIRECT[1];
+        String d01 = GlBytecode.DRIVER_DIRECT[2];
+        List<String> one = Collections.singletonList(GlBytecode.FIND_STATIC);
+        List<String> d01Name = Collections.singletonList(d01);
+        Assertions.assertNull(GlBytecode.literalProblem(passState, literal(gl11, d01, 1, d01Name, one)));
+        // No name right after the literal, another name, another owner, another class
         Assertions.assertNotNull(
-            literalProblem("io.github.mindbound.opengpu.gl.GlBackend", "m: " + DRIVER_DIRECT[1] + " [glGetError]"));
+            GlBytecode.literalProblem(passState, literal(gl11, null, 1, Collections.<String>emptyList(), one)));
+        Assertions.assertNotNull(
+            GlBytecode
+                .literalProblem(passState, literal(gl11, "glFlush", 1, Collections.singletonList("glFlush"), one)));
+        Assertions.assertNotNull(
+            GlBytecode.literalProblem(
+                passState,
+                literal(GL_OWNER + "Util", "checkGLError", 1, Collections.<String>emptyList(), one)));
+        Assertions.assertNotNull(
+            GlBytecode.literalProblem("io.github.mindbound.opengpu.gl.GlBackend", literal(gl11, d01, 1, d01Name, one)));
+        // A second GL name, a second lookup, a lookup through a helper, a second literal in D01's method
+        Assertions.assertNotNull(
+            GlBytecode.literalProblem(passState, literal(gl11, d01, 1, Arrays.asList(d01, "glFinish"), one)));
+        Assertions.assertNotNull(
+            GlBytecode.literalProblem(
+                passState,
+                literal(gl11, d01, 1, d01Name, Arrays.asList(GlBytecode.FIND_STATIC, GlBytecode.FIND_STATIC))));
+        Assertions.assertNotNull(
+            GlBytecode.literalProblem(passState, literal(gl11, d01, 1, d01Name, Collections.<String>emptyList())));
+        Assertions.assertNotNull(GlBytecode.literalProblem(passState, literal(gl11, d01, 2, d01Name, one)));
     }
 
-    /**
-     * Null for D01's lookup in PassState, else why an LWJGL class literal is a problem: it can reach GL past the
-     * redirector.
-     */
-    static String literalProblem(String className, String literal) {
-        String strings = literal.substring(literal.indexOf('[') + 1, literal.lastIndexOf(']'));
-        String type = literal.substring(literal.indexOf(": ") + 2, literal.indexOf(" ["));
-        boolean lookup = className.equals(DRIVER_DIRECT[0]) && type.equals(DRIVER_DIRECT[1])
-            && Arrays.asList(strings.split(", "))
-                .contains(DRIVER_DIRECT[2]);
-        return lookup ? null
-            : className + ": the class literal " + literal + " is a way past the redirector; only D01's lookup may";
-    }
-
-    /** Each LWJGL class literal as "method: internal name [the method's string constants]", in order. */
-    private static List<String> literals(byte[] classFile) {
-        ClassNode node = new ClassNode();
-        new ClassReader(classFile).accept(node, 0);
-        List<String> out = new ArrayList<>();
-        for (MethodNode method : node.methods) {
-            List<String> strings = new ArrayList<>();
-            List<String> types = new ArrayList<>();
-            for (AbstractInsnNode insn : method.instructions.toArray()) {
-                if (insn instanceof LdcInsnNode && ((LdcInsnNode) insn).cst instanceof String) {
-                    strings.add((String) ((LdcInsnNode) insn).cst);
-                } else if (insn instanceof LdcInsnNode && ((LdcInsnNode) insn).cst instanceof Type
-                    && ((Type) ((LdcInsnNode) insn).cst).getSort() == Type.OBJECT
-                    && ((Type) ((LdcInsnNode) insn).cst).getInternalName()
-                        .startsWith(LWJGL_SLASHED)) {
-                            types.add(((Type) ((LdcInsnNode) insn).cst).getInternalName());
-                        }
-            }
-            for (String type : types) {
-                out.add(method.name + ": " + type + " " + strings);
-            }
-        }
-        return out;
+    private static GlBytecode.Literal literal(String type, String name, int literals, List<String> glNames,
+        List<String> reflection) {
+        return new GlBytecode.Literal("m", type, name, literals, glNames, reflection);
     }
 
     @Test
     void noLwjglHandleOrStringConstant() throws Exception {
         List<String> problems = new ArrayList<>();
         for (String[] p : PACKAGES) {
-            for (String name : classes(p[0], p[1])) {
+            for (String name : GlBytecode.classes(p[0], p[1])) {
                 ClassNode node = new ClassNode();
-                new ClassReader(GlsmLoader.bytes(GlsmRedirectionTest.class.getClassLoader(), name)).accept(node, 0);
+                new ClassReader(GlBytecode.bytes(GlsmRedirectionTest.class.getClassLoader(), name)).accept(node, 0);
                 for (FieldNode field : node.fields) {
                     if (field.value instanceof String && (((String) field.value).contains(LWJGL_DOTTED)
                         || ((String) field.value).contains(LWJGL_SLASHED))) {
@@ -261,107 +244,55 @@ class GlsmRedirectionTest {
         Assertions.assertEquals(new ArrayList<String>(), problems, problems.size() + " problem(s)");
     }
 
+    /**
+     * GlBytecode's reader against this JVM (S9 plan P12): the public static methods it reads from the leg's own jar,
+     * the one GLStateManager came from, are those the JVM gives GLStateManager. getMethods resolves the public methods'
+     * types only, as links() relies on; getDeclaredMethods would also resolve the private ones', which this JVM may
+     * lack (S9 critic A8).
+     */
+    @Test
+    void theBytecodeMethodListMatchesTheJvm() throws Exception {
+        File jar = new File(
+            GLStateManager.class.getProtectionDomain()
+                .getCodeSource()
+                .getLocation()
+                .toURI());
+        Set<String> jvm = new TreeSet<>();
+        for (Method method : GLStateManager.class.getMethods()) {
+            if (Modifier.isStatic(method.getModifiers()) && method.getDeclaringClass() == GLStateManager.class) {
+                jvm.add(method.getName() + Type.getMethodDescriptor(method));
+            }
+        }
+        Set<String> bytecode = GlBytecode.publicStatics(jar, GLSMRedirector.getTargetClassName());
+        List<String> differences = new ArrayList<>();
+        for (String method : jvm) {
+            if (!bytecode.contains(method)) {
+                differences.add("only the JVM has " + method);
+            }
+        }
+        for (String method : bytecode) {
+            if (!jvm.contains(method)) {
+                differences.add("only the bytecode has " + method);
+            }
+        }
+        Assertions.assertFalse(jvm.isEmpty(), "GLStateManager has no public static method");
+        Assertions.assertEquals(
+            new ArrayList<String>(),
+            differences,
+            jar.getName() + ": " + differences.size() + " difference(s)");
+        System.out.println(
+            "[opengpu-glsm] redirection: " + jvm.size()
+                + " public static GLStateManager methods in "
+                + jar.getName()
+                + ", the same from its bytecode and from the JVM");
+    }
+
     /** The redirector's fold table: capability to the suffix of GLStateManager's enable/disable methods. */
     @SuppressWarnings("unchecked")
     private static Map<Integer, String> folds() throws ReflectiveOperationException {
         Field field = GLSMRedirector.class.getDeclaredField("glCapRedirects");
         field.setAccessible(true);
         return (Map<Integer, String>) field.get(null);
-    }
-
-    /** The class names under the prefix, from the directory or jar the anchor class file is in. */
-    static List<String> classes(String prefix, String anchor) throws IOException, URISyntaxException {
-        URL url = GlsmRedirectionTest.class.getClassLoader()
-            .getResource(anchor);
-        Assertions.assertNotNull(url, anchor);
-        TreeSet<String> names = new TreeSet<>();
-        if ("jar".equals(url.getProtocol())) {
-            JarURLConnection connection = (JarURLConnection) url.openConnection();
-            connection.setUseCaches(false);
-            try (JarFile jar = connection.getJarFile()) {
-                Enumeration<JarEntry> entries = jar.entries();
-                while (entries.hasMoreElements()) {
-                    String entry = entries.nextElement()
-                        .getName();
-                    if (entry.startsWith(prefix) && entry.endsWith(".class")) {
-                        names.add(className(entry));
-                    }
-                }
-            }
-        } else {
-            File file = new File(url.toURI());
-            File root = file;
-            for (int i = 0; i < anchor.split("/").length; i++) {
-                root = root.getParentFile();
-            }
-            walk(new File(root, prefix), prefix, names);
-        }
-        return new ArrayList<>(names);
-    }
-
-    private static void walk(File dir, String path, TreeSet<String> names) {
-        File[] files = dir.listFiles();
-        if (files == null) {
-            return;
-        }
-        for (File f : files) {
-            if (f.isDirectory()) {
-                walk(f, path + f.getName() + "/", names);
-            } else if (f.getName()
-                .endsWith(".class")) {
-                    names.add(className(path + f.getName()));
-                }
-        }
-    }
-
-    private static String className(String entry) {
-        return entry.substring(0, entry.length() - ".class".length())
-            .replace('/', '.');
-    }
-
-    /** The calls on LWJGL's GL classes and on GLStateManager, in order, as owner.name+descriptor. */
-    private static List<String> calls(byte[] classFile, String glsm) {
-        ClassNode node = new ClassNode();
-        new ClassReader(classFile).accept(node, 0);
-        List<String> calls = new ArrayList<>();
-        for (MethodNode method : node.methods) {
-            for (AbstractInsnNode insn : method.instructions.toArray()) {
-                if (!(insn instanceof MethodInsnNode)) {
-                    continue;
-                }
-                MethodInsnNode call = (MethodInsnNode) insn;
-                if (!call.owner.startsWith(GL_OWNER) && !call.owner.equals(glsm)) {
-                    continue;
-                }
-                String text = call.owner + "." + call.name + call.desc;
-                if (call.name.equals("glEnable") || call.name.equals("glDisable")) {
-                    Integer constant = constantBefore(call);
-                    text += " [" + constant + "]";
-                }
-                calls.add(text);
-            }
-        }
-        return calls;
-    }
-
-    /** The capability of a {@code glEnable}/{@code glDisable} entry, or null for another call or no constant. */
-    private static Integer capability(String member) {
-        if (!member.startsWith("glEnable(I)V [") && !member.startsWith("glDisable(I)V [")) {
-            return null;
-        }
-        String value = member.substring(member.indexOf('[') + 1, member.indexOf(']'));
-        return "null".equals(value) ? null : Integer.valueOf(value);
-    }
-
-    private static Integer constantBefore(AbstractInsnNode insn) {
-        AbstractInsnNode previous = insn.getPrevious();
-        if (previous instanceof IntInsnNode) {
-            return ((IntInsnNode) previous).operand;
-        }
-        if (previous instanceof LdcInsnNode && ((LdcInsnNode) previous).cst instanceof Integer) {
-            return (Integer) ((LdcInsnNode) previous).cst;
-        }
-        return null;
     }
 
     /** Null when the GLStateManager call links: a public static method of that name and descriptor (25 §4 step 3). */

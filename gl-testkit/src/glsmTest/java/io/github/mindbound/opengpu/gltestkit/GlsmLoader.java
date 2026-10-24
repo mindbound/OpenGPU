@@ -1,16 +1,12 @@
 package io.github.mindbound.opengpu.gltestkit;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.tree.ClassNode;
 
 import com.gtnewhorizons.angelica.glsm.redirect.GLSMRedirector;
@@ -19,8 +15,8 @@ import com.gtnewhorizons.angelica.glsm.redirect.GLSMRedirector;
  * The GLSM spike's class loader (roadmap M0; docs/research/23-gl-testing-strategy.md §2.3): it runs the probe classes
  * through GLSMRedirector as Angelica's transformer runs every mod class in game, by the same steps: the core
  * exclusions, the constant-pool filter, ClassReader.accept(node, 0), transformClassNode with the dotted name and, only
- * when that changed something, a COMPUTE_MAXS ClassWriter (AngelicaRedirectorTransformer.java:22-47 at 2.2.8,
- * glsm/.../loading/ModRedirector.java:53-74 at 2.2.28). It owns the packages of {@link #OWNED}: the probes', :gl's
+ * when that changed something, a COMPUTE_MAXS ClassWriter ({@link GlBytecode#redirect}, which glsmLinkageTest runs on
+ * each jar's redirector as well, S9). It owns the packages of {@link #OWNED}: the probes', :gl's
  * render core and :gl-testkit's host fixtures and scenarios (S8, H30), and defines those classes itself from the
  * parent's bytes, never asking the parent for them, so a probe's helpers and every :gl class a scenario reaches are
  * transformed with it. Owned and unowned code meet only in :core and JDK types, so no class exists twice on one path.
@@ -44,7 +40,10 @@ final class GlsmLoader extends ClassLoader {
             "io.github.mindbound.opengpu.gltestkit.host.",
             "io.github.mindbound.opengpu.gltestkit.scenario."));
 
-    /** What happened to one probe class on its way in. */
+    /**
+     * What happened to one probe class on its way in. It names no Angelica type, so GlBytecode, which makes it, loads
+     * where no Angelica jar is (glsmLinkageTest).
+     */
     static final class Transform {
 
         final byte[] original;
@@ -65,7 +64,7 @@ final class GlsmLoader extends ClassLoader {
         }
     }
 
-    private final GLSMRedirector redirector = new GLSMRedirector();
+    private final GlBytecode.Redirector redirector = new Direct(new GLSMRedirector());
     private final Map<String, Transform> transforms = new ConcurrentHashMap<>();
 
     GlsmLoader() {
@@ -120,40 +119,38 @@ final class GlsmLoader extends ClassLoader {
         } catch (IOException e) {
             throw new ClassNotFoundException(name, e);
         }
-        boolean excluded = false;
-        for (String exclusion : redirector.getCoreExclusions()) {
-            excluded |= name.startsWith(exclusion);
-        }
-        boolean filtered = !excluded && redirector.shouldTransform(original);
-        boolean changed = false;
-        byte[] defined = original;
-        if (filtered) {
-            ClassNode node = new ClassNode();
-            new ClassReader(original).accept(node, 0);
-            changed = redirector.transformClassNode(name, node);
-            if (changed) {
-                ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
-                node.accept(writer);
-                defined = writer.toByteArray();
-            }
-        }
-        transforms.put(name, new Transform(original, defined, excluded, filtered, changed));
-        return defineClass(name, defined, 0, defined.length);
+        Transform transform = GlBytecode.redirect(redirector, name, original);
+        transforms.put(name, transform);
+        return defineClass(name, transform.defined, 0, transform.defined.length);
     }
 
     /** The class file of {@code name} as {@code loader} has it. */
     static byte[] bytes(ClassLoader loader, String name) throws IOException {
-        String resource = name.replace('.', '/') + ".class";
-        try (InputStream in = loader.getResourceAsStream(resource)) {
-            if (in == null) {
-                throw new IOException("no " + resource);
-            }
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] chunk = new byte[8192];
-            for (int n = in.read(chunk); n >= 0; n = in.read(chunk)) {
-                out.write(chunk, 0, n);
-            }
-            return out.toByteArray();
+        return GlBytecode.bytes(loader, name);
+    }
+
+    /** The leg's own GLSMRedirector as GlBytecode calls it, directly. */
+    private static final class Direct implements GlBytecode.Redirector {
+
+        private final GLSMRedirector redirector;
+
+        Direct(GLSMRedirector redirector) {
+            this.redirector = redirector;
+        }
+
+        @Override
+        public String[] coreExclusions() {
+            return redirector.getCoreExclusions();
+        }
+
+        @Override
+        public boolean shouldTransform(byte[] classFile) {
+            return redirector.shouldTransform(classFile);
+        }
+
+        @Override
+        public boolean transformClassNode(String name, ClassNode node) {
+            return redirector.transformClassNode(name, node);
         }
     }
 }

@@ -180,8 +180,8 @@ k12x13ja/x11r5-manifest/RELNOTES.TXT	87026	f17ef2de41ef98c435896ceeba4f43265d780
 k12x13ja/xorg-font-misc-misc-1.1.3/font-misc-misc-1.1.3.tar.xz	1563776	79abe361f58bb21ade9f565898e486300ce1cc621d5285bec26e14b6a8618fed	https://www.x.org/releases/individual/font/font-misc-misc-1.1.3.tar.xz	
 k12x13ja/xorg-font-misc-misc-1.1.3/x/font-misc-misc-1.1.3/10x20.bdf	974688	3480bcb4a20b67fe7fb88e01f179caf781954e642c3a7a77f325de1a435c1208		
 k12x13ja/xorg-font-misc-misc-1.1.3/x/font-misc-misc-1.1.3/12x13ja.bdf	2938521	29f1edcfe319996a7c228bcb28f7445153fe16bcbcecd83fef8e8b946e2ee5ee	(member of font-misc-misc-1.1.3.tar.xz)	
-k12x13ja/xorg-font-misc-misc-1.1.3/x/font-misc-misc-1.1.3/18x18ja.bdf	4120894	e3fb85cec927d47a1210837176eb4086bbce46d5acb79826443aedbafd606955		
-k12x13ja/xorg-font-misc-misc-1.1.3/x/font-misc-misc-1.1.3/18x18ko.bdf	6017878	928767d3c3b38c361e5c4e50c1dc95d408a086d3b12b5ce2bc594eb0021fa9b2		
+k12x13ja/xorg-font-misc-misc-1.1.3/x/font-misc-misc-1.1.3/18x18ja.bdf	4120894	e3fb85cec927d47a1210837176eb4086bbce46d5acb79826443aedbafd606955		deleted 2026-10-24
+k12x13ja/xorg-font-misc-misc-1.1.3/x/font-misc-misc-1.1.3/18x18ko.bdf	6017878	928767d3c3b38c361e5c4e50c1dc95d408a086d3b12b5ce2bc594eb0021fa9b2		deleted 2026-10-24
 k12x13ja/xorg-font-misc-misc-1.1.3/x/font-misc-misc-1.1.3/4x6.bdf	94340	dab0fc40105137bae55cd60c8f061c942787a4da21e44df28deca1525851a9c0		
 k12x13ja/xorg-font-misc-misc-1.1.3/x/font-misc-misc-1.1.3/5x7.bdf	194754	57197fb80351bd95d00110eb710158706cca883f517bdf3c4db373332ef894ca		
 k12x13ja/xorg-font-misc-misc-1.1.3/x/font-misc-misc-1.1.3/5x8.bdf	154926	72dbfa5359a1f327ce87b9db6371bdc98c057619605532c0010550ac76b08a35		
@@ -712,7 +712,7 @@ k18x18ko/debian-xfonts-base-1.0.5nmu1/xfonts-base.install	18781	ee992e17ec94f6fc
 k18x18ko/debian-xfonts-base-font-daewoo-misc/COPYING	55	294f786aa8f0ad8f92979d153e18f5cf7cc95d872cace25338f9c95e7b348ed9		
 k18x18ko/debian-xfonts-base-font-daewoo-misc/hanglg16.bdf	1365269	89e2af1a0c4ae544ee598fbfbb32d85d28bacc967dfc79dd1c6a6209b2829ac8	https://sources.debian.org/data/main/x/xfonts-base/1:1.0.5+nmu1/font-daewoo-misc/hanglg16.bdf	deleted 2026-10-15
 k18x18ko/debian-xfonts-base-font-daewoo-misc/hanglm16.bdf	1365269	49c25478e31e68f1389ce311399707031823eb2d8d70002a9606270d79dbaa6a	https://sources.debian.org/data/main/x/xfonts-base/1:1.0.5+nmu1/font-daewoo-misc/hanglm16.bdf	deleted 2026-10-15
-k18x18ko/debian-xfonts-base-font-misc-misc/18x18ko.bdf	6017878	928767d3c3b38c361e5c4e50c1dc95d408a086d3b12b5ce2bc594eb0021fa9b2	https://sources.debian.org/data/main/x/xfonts-base/1:1.0.5+nmu1/font-misc-misc/18x18ko.bdf	
+k18x18ko/debian-xfonts-base-font-misc-misc/18x18ko.bdf	6017878	928767d3c3b38c361e5c4e50c1dc95d408a086d3b12b5ce2bc594eb0021fa9b2	https://sources.debian.org/data/main/x/xfonts-base/1:1.0.5+nmu1/font-misc-misc/18x18ko.bdf	deleted 2026-10-24
 k18x18ko/debian-xfonts-base-font-misc-misc/AUTHORS	2405	3ff879c6b8a8dc604eebef286ff140db1c4f662005f6979efe9f7b78ec73104b		
 k18x18ko/debian-xfonts-base-font-misc-misc/COPYING	40	1711d038bca0efb51b5114e902412019d1c21531882866b1a6908c6386268cfb	https://sources.debian.org/data/main/x/xfonts-base/1:1.0.5+nmu1/font-misc-misc/COPYING	
 k18x18ko/debian-xfonts-base-font-misc-misc/ChangeLog	10788	d3b0317136b8c998ebacce20a22d056568d37c072340d8b05b6ed136f0f1e83d		
@@ -2015,7 +2015,7 @@ v-k18x18ko/debian-bug-247872/bug.mbox	327844	4c9377d2d31ad6203c6f3b77cf23eba7c01
 v-k18x18ko/debian-bug-495729/bug.mbox	14062	240df51d936e19b7ed875749f6a017fe75d6130262cf61ebf6020b9a550ab1a4		
 v-k18x18ko/debian-font-daewoo-misc/COPYING	55	294f786aa8f0ad8f92979d153e18f5cf7cc95d872cace25338f9c95e7b348ed9		
 v-k18x18ko/debian-font-daewoo-misc/hanglg16.bdf	1365269	89e2af1a0c4ae544ee598fbfbb32d85d28bacc967dfc79dd1c6a6209b2829ac8		deleted 2026-10-15
-v-k18x18ko/debian-font-misc-misc/18x18ko.bdf	6017878	928767d3c3b38c361e5c4e50c1dc95d408a086d3b12b5ce2bc594eb0021fa9b2		
+v-k18x18ko/debian-font-misc-misc/18x18ko.bdf	6017878	928767d3c3b38c361e5c4e50c1dc95d408a086d3b12b5ce2bc594eb0021fa9b2		deleted 2026-10-24
 v-k18x18ko/debian-font-misc-misc/COPYING	40	1711d038bca0efb51b5114e902412019d1c21531882866b1a6908c6386268cfb		
 v-k18x18ko/hanterm-1.7/hanterm.1.7.tar.Z	142594	cefda50bc22605977680b234539bb52fcc968eb0cb75dc4267647135a5a6c19d		deleted 2026-10-15
 v-k18x18ko/hanterm-1.7/x/hanterm/INSTALL	1446	9be79c6235fa6e274189844933e800854f28a3ca24e2483dfd7452354e22c0e8		

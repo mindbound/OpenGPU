@@ -1,7 +1,7 @@
 # :gl's GL call set (S8 plan §3.13; 25 §4.1, §4.2), read by CallSetTest. One row per line: the 25 §4.1 id, the call
 # as owner.name(descriptor) and, for a glEnable or glDisable that GLSMRedirector folds, its constant. Rows whose id
 # starts with A are 25 §4.2's deny-list; rows whose id starts with D are driver-direct, looked up at run time and never
-# called as an instruction (below). A new GL call in :gl needs a row here and, under S9, a fresh linkage run.
+# called as an instruction (below). A new GL call in :gl needs a row here and a green run of glsmLinkageTest (S9).
 
 # State saves and restores (20 §1; 24:197)
 C01 org/lwjgl/opengl/GL11.glGetInteger(I)I

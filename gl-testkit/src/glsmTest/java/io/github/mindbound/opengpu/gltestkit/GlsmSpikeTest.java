@@ -231,7 +231,7 @@ class GlsmSpikeTest {
     /**
      * A second GLSMRedirector and SystemProperties, from the same Angelica jar, set up under angelica.unmappedGL=FAIL:
      * GLSM reads the mode once, into a static final (SystemProperties.java:26 at 2.2.8 and 2.2.28), so the leg's WARN
-     * copy cannot change. Loading a jar's own redirector apart is also how 25 §4's linkage test can check each jar.
+     * copy cannot change. GlsmLinkageTest (S9) loads each jar's own redirector apart too, there with the whole jar.
      */
     private static final class FailModeLoader extends URLClassLoader {
 

@@ -203,6 +203,49 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    durations in CI's report of the full build; the model test's, the
    legs' and the font tests' budgets stay. Run wf_ea450e4b-a4d wrote the
    pass, with a refuting checker and its confirmed points applied.
+19. Still on 2026-10-24, before S9, a preliminary pass recorded what S8
+   left. S8's fourth CI run, 40088584846 of 932f81b, was green on its
+   first attempt and saved a full Gradle cache. A third party had reported
+   the llvmpipe bug's cause to Mesa on 2026-10-02 (mesa/mesa issue
+   #16477), and the owner chose to leave it there ("Let's just leave it").
+   On D01 the owner asked for the main session's recommendation, which
+   was to keep it, and it is kept. 28's section "S8 implemented" now
+   gives the state of every item it left open, and records as known and
+   not fixed three slow tests that the ledger fix's workflow
+   (wf_8000e800-140) had found. For S10 the owner chose to download
+   ocelot-brain at build time, verified by e98a5b2, and to run OC-LuaJIT
+   locally through a Gradle property naming their build outputs. The pass
+   also recorded the owner's instance on Angelica 2.2.36, the agreed
+   upstream fix for the "-dirty" jars (open on 2026-10-24 as
+   GTNH-Actions-Workflows PR #75), GTNHGradle kept at 2.0.33, the pins
+   below, and the deletion of 18x18ja's and 18x18ko's unpacked copies
+   (29 §10.6). Run wf_1660bb42-c27 wrote the pass, with a refuting
+   checker and its confirmed points applied.
+20. M0 step S9 (2026-10-24) built 25 §4's per-jar linkage test and the
+   `unmappedGL=FAIL` redirector run as `:gl-testkit:glsmLinkageTest`, on
+   four Angelica dev jars (2.2.8, 2.2.21, 2.2.28 and the latest release,
+   Nexus's `<release>` read at build time, 2.2.36 that day), each in its
+   own class loader in one Java 8 JVM with no GL context, over `:gl`'s 44
+   shipped classes: 38 tests, and 2 136 in `check`. The owner allowed one
+   online run per Gradle home to fetch 2.2.36 (Q-S9-1), later that day
+   online runs as needed, each announced first, and chose to fail the
+   whole build when Nexus cannot be read (Q-S9-2). Run
+   wf_be3b82c7-8dc built it in three units (the build and the resolver;
+   the shared bytecode helpers and the test; the verification on Intel,
+   NVIDIA and WSL's llvmpipe, with mutants run in WSL copies of the tree),
+   then three reviews (fidelity, test strength, build) made 12 findings,
+   which a fixer fixed and re-checked with mutants. The owner approved the
+   two additions the reviews brought: `-Popengpu.angelica.latest` fails
+   on CI, and a release read online is remembered only once its jar is
+   fetched. The main session then ran its own `spotlessApply build
+   --rerun-tasks --offline` on Intel, green with 2 136 tests in `check`.
+   A doc pass recorded the step in 25's S9 amendments, the roadmap, 20,
+   23, 24, 28, 05 and this index, with the two small items the owner asked to
+   close in it (a remembered release whose jar has left the Gradle cache,
+   and the noise a real `:gl` break adds to two negative cases), 2.2.36's
+   deferred texture release (25 R-10) and its batched-TESR scope (25 §6).
+   Run wf_9fa94fb2-3ed wrote the doc pass, with two refuting checkers and their
+   confirmed points applied.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
@@ -236,15 +279,15 @@ Java 17-21 + lwjgl3ify (GTNH packs), OC-LuaJIT commit a4994e6.
 | `22-shader-and-compute-languages.md` | GLSL ES 1.00 graphics subset and its emitter, GLSL 4.30-syntax compute with CPU semantics, determinism rules, rack scheduling, the HBM RBMK check; section 1 superseded by 27 where they conflict |
 | `23-gl-testing-strategy.md` | Headless GL in the GTNH shared CI, tolerance tiers for golden images, the ocelot GL test host, in-game and dedicated-server tests |
 | `24-architecture-gl-first.md` | Current decision document: owner decisions, architecture, phased plan M0-M4 with M1.5 display block, questions, risks |
-| `25-angelica-version-floor.md` | Angelica version floor: 2.2.8 supported, older gated off at runtime (the 2.1.14-2.2.7 best-effort band was dropped on 2026-10-13); linkage matrix over all 2.x releases to 2.2.30, the M0 GL call set and deny-list, code rules, test matrix, GTNH pack coverage |
+| `25-angelica-version-floor.md` | Angelica version floor: 2.2.8 supported, older gated off at runtime (the 2.1.14-2.2.7 best-effort band was dropped on 2026-10-13); linkage matrix over all 2.x releases to 2.2.30, the M0 GL call set and deny-list, code rules, test matrix, GTNH pack coverage; M0 step S9's per-jar linkage and `unmappedGL=FAIL` record on 2.2.8, 2.2.21, 2.2.28 and the latest release (2.2.36 on 2026-10-24), with its mutants |
 | `26-lessons-from-general-engines.md` | Lessons from Godot, OpenSceneGraph, O3DE, small-program shader languages and PS1/N64/Dreamcast/Quake/Doom techniques: typed handles, GL state hygiene, a GL allocation ledger, crash guard, API dump, semantic attributes, palette ops, quantize and dither, a retro shader variant family; considered items and owner questions |
 | `27-graphics-language-es300.md` | Graphics shader language as an ES 3.00-based subset: input form, accepted subset, built-ins against GLSL 3.30, integer guards matching compute, ANGLE driver workarounds re-checked, flat and noperspective, interface conventions, shared frontend, effort, an index8 example |
 | `28-command-stream-v1.md` | Command stream v1 for M0, accepted by the owner on 2026-10-14, with its glyph-source question (Q1) answered the same day (font 0 is misc-fixed 6x13) and `TEXT`'s font byte added on 2026-10-15 (29 F4): framing, error codes, versioning and the opcode map; the four M0 ops with per-format pixel results and the tier-E oracle; the minimal texture path and its ordering; the lifecycle and the `RenderHost` SPI; caps, charges and the Lua encoder with a worked frame; S6's test plan; owner questions; what S6 and S7 (2026-10-15) and S8 (2026-10-16) settled, with S8's owner decisions Q-S8-1 to Q-S8-3 and the readback bugs it found in Intel's Windows driver and in Mesa's llvmpipe |
 | `29-font-survey.md` | Font survey for `TEXT` (2026-10-14), answering the follow-up to 28 Q1, revised the same day after the owner decided F1 (font 0 is misc-fixed 6x13), and on 2026-10-15 after F3, F4, F7 and F8 (decided), F6 (proportional fonts in M1, starting with Tiny5, Tiny5 Duo and ANAKRON), F5 (deferred to M1, then decided for M1 at the owner's request) and F9 (done, the ROM files deleted), and after a CJK provenance check (§10) that narrowed F7 to 12x13ja: why one size cannot serve a pixel GPU's labels, body text and headings; bitmap candidates by role (body text, small, display, wide coverage) measured for coverage, licence and provenance; a recommended M1 family by use, mostly misc-fixed; the licence obligations and atlas and jar cost; a font operand, advance and fill rules for `TEXT`; F1's decision record; owner questions F1-F9; the provenance check of misc-fixed's CJK faces |
 | `callbench/` | The ocelot-brain call-overhead harness (`src/Bench.scala`, `src/bench.lua`, run scripts) and every log of the 2026-10-08 campaign. The scripts hard-code the research-phase scratchpad in `S=` (`run.sh:6`, `matrix.sh:3`, `run-extra.sh:3`) and read `$S/lib/*.jar`, 17 public jars (35 MB) that nothing rebuilds; fetch them as OC-LuaJIT's `test/native/smoke-test.sh:353-378` does. No M0 item re-runs callbench; whoever does makes `S` script-relative first |
 | `cmdstream-checks/` | 28's check scripts (2026-10-14; `example.py`, `luabuilders.py` and `rev_checks.py` updated on 2026-10-15 for `TEXT`'s font byte): `q565.py` (quantize, expand and the `GL_R8` index recovery), `example.py` (the worked frame's bytes, handles, charges and caps), `luabuilders.py` (the Lua record builders against the layouts) and `rev_checks.py` (the revision's checks, among them a naive validator over the negative cases; on 2026-10-15 its `TEXT` string check became one scan, as 28:648 says), plus Q1's `q1_font0.py` (font 0's cell, coverage with Greek and Cyrillic, and atlas, and the synthetic table at 6×13 and 8×13; it takes the BDFs under `opengpu-refs\font-survey\misc-fixed\x\` as arguments), and S6's `oracle_goldens.py` (2026-10-15: an independent model of 28 §3, §5, §6.1–§6.4 and §7, with §2.2's reset, that re-derives every grid and total of `:core`'s `oracle-goldens.txt`; `--emit <case>` prints a case's grid; it takes the goldens file as its argument), and S8's `font0_table.py` (2026-10-16: font 0's glyph table re-derived from `6x13.bdf` without the Java converter's code, through a strict BDF 2.1 reading with the converter's checks; it prints the body's SHA-256, which `Font0Test` pins, and its CRC32, the coverage counts and `q1_font0.py`'s checks, then ALL PASS; `--self-test` runs a hand-made two-glyph BDF through the same code and each rule against a file that breaks it; it takes `core/src/fonts/misc-fixed/6x13.bdf` as its argument). Own code, MIT with the repo; Python 3 standard library only: run each with `python -I X.py` |
-| `driver-checks/` | GL driver checks S8 left (2026-10-16), for 28's section "S8 implemented": `lp_stale_gettex.c`, a standalone C program (EGL surfaceless, no GL headers, no OpenGPU code) that shows Mesa llvmpipe's `glGetTexImage` into a PBO returning a texture as it was before a draw into it issued earlier (Mesa 26.0.8; the same code in CI's 25.2.8 and on main), and `lp_order_check.c`, which runs the same two scenes in either slot order (`lowread`, `highread`) and, as a control, with the lower scene sampling another texture (`noread`). Build each on Linux with Mesa's EGL: `gcc -O1 -o <name> <name>.c /usr/lib/x86_64-linux-gnu/libEGL.so.1`. Run with `EGL_PLATFORM=surfaceless LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe ./lp_stale_gettex [c\|f] [iterations]` (no argument: the bug; `c`, the last draw samples another texture, and `f`, a `glFinish` before the copy: controls) or `./lp_order_check lowread\|highread\|noread [iterations]`, 200 iterations by default. Mesa 26.0.8 gives 185–190 of 200 readbacks wholly stale by default, the controls 0, and `lowread` 199 of 200, `highread` and `noread` 0. A Mesa without the bug prints 0 wholly and 0 partly stale in every mode, and `lp_stale_gettex` then exits 0 (1 when any readback was stale, 2 when setup fails); it must show that before `GlBackend.finishesBeforeCopy` may leave out a later Mesa. Not yet reported to Mesa. Own code, MIT with the repo; each file declares only the EGL and GL prototypes and enums it uses |
-| `font-survey-checks/` | 29's scripts and small outputs (2026-10-14), by survey role: `shared/fontmeasure.py` (BDF, `.hex` and PSF coverage and previews), `terminal/`, `small/`, `measure-cd/` (display and wide, with `ttfgrid.py` for pixel-grid outlines), `critic/` (ink and glyph-identity checks; the ROM transcriptions they compared against were deleted on 2026-10-15, 29 F9), `report/` (atlas cost with `setcost.py`'s per-set sums, `.hex` and BDF packing (`hexpack.py`, `bdfpack.py`), glyph boxes against the line (`boxcheck.py`), characters per line (`linefit.py`), the CJK companions (`f7_cjk.py`), OC's character widths against musl's (`f5_widths.py`), inked coverage of the misc-fixed faces (`ink.py`), tier mock-ups and their specs, the revision's `*-f1.out` outputs, and `29-font-survey-files.tsv`, the sha256 of all 327 downloaded files), `pixelfonts/` (the PixelFonts coverage check), `cjk/` (29 §10's CJK provenance check: the investigators' and verifiers' scripts and outputs, the workflow's results in `results/`, and `cjk-provenance-files.tsv`, the sha256 and status of its 2 349 downloaded files, 557 of them deleted on 2026-10-15). Own code, MIT with the repo; Python 3 standard library only. The fonts are not here: they are untrusted downloads under `opengpu-refs\font-survey\`, passed as arguments |
+| `driver-checks/` | GL driver checks S8 left (2026-10-16), for 28's section "S8 implemented": `lp_stale_gettex.c`, a standalone C program (EGL surfaceless, no GL headers, no OpenGPU code) that shows Mesa llvmpipe's `glGetTexImage` into a PBO returning a texture as it was before a draw into it issued earlier (Mesa 26.0.8; the same code in CI's 25.2.8 and on main), and `lp_order_check.c`, which runs the same two scenes in either slot order (`lowread`, `highread`) and, as a control, with the lower scene sampling another texture (`noread`). Build each on Linux with Mesa's EGL: `gcc -O1 -o <name> <name>.c /usr/lib/x86_64-linux-gnu/libEGL.so.1`. Run with `EGL_PLATFORM=surfaceless LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe ./lp_stale_gettex [c\|f] [iterations]` (no argument: the bug; `c`, the last draw samples another texture, and `f`, a `glFinish` before the copy: controls) or `./lp_order_check lowread\|highread\|noread [iterations]`, 200 iterations by default. Mesa 26.0.8 gives 185–190 of 200 readbacks wholly stale by default, the controls 0, and `lowread` 199 of 200, `highread` and `noread` 0. A Mesa without the bug prints 0 wholly and 0 partly stale in every mode, and `lp_stale_gettex` then exits 0 (1 when any readback was stale, 2 when setup fails); it must show that before `GlBackend.finishesBeforeCopy` may leave out a later Mesa. Not reported to Mesa by OpenGPU: a third party filed the same cause as mesa/mesa issue #16477 on 2026-10-02 (open, with no notes, on 2026-10-24), and the owner left it there. Own code, MIT with the repo; each file declares only the EGL and GL prototypes and enums it uses |
+| `font-survey-checks/` | 29's scripts and small outputs (2026-10-14), by survey role: `shared/fontmeasure.py` (BDF, `.hex` and PSF coverage and previews), `terminal/`, `small/`, `measure-cd/` (display and wide, with `ttfgrid.py` for pixel-grid outlines), `critic/` (ink and glyph-identity checks; the ROM transcriptions they compared against were deleted on 2026-10-15, 29 F9), `report/` (atlas cost with `setcost.py`'s per-set sums, `.hex` and BDF packing (`hexpack.py`, `bdfpack.py`), glyph boxes against the line (`boxcheck.py`), characters per line (`linefit.py`), the CJK companions (`f7_cjk.py`), OC's character widths against musl's (`f5_widths.py`), inked coverage of the misc-fixed faces (`ink.py`), tier mock-ups and their specs, the revision's `*-f1.out` outputs, and `29-font-survey-files.tsv`, the sha256 of all 327 downloaded files), `pixelfonts/` (the PixelFonts coverage check), `cjk/` (29 §10's CJK provenance check: the investigators' and verifiers' scripts and outputs, the workflow's results in `results/`, and `cjk-provenance-files.tsv`, the sha256 and status of its 2 349 downloaded files, 557 of them deleted on 2026-10-15 and four copies of 18x18ja and 18x18ko on 2026-10-24, 29 §10.6). Own code, MIT with the repo; Python 3 standard library only. The fonts are not here: they are untrusted downloads under `opengpu-refs\font-survey\`, passed as arguments |
 | `inflatebench/` | 12's CRC32 and deflate benches, archived 2026-10-14: `src/CrcInflateBench.java` (12 section 5) and `src/InflateMid.java` (12 section 1). Own code, MIT with the repo; each is one default-package file at Java 8 source level with no dependencies: run it in `src/` with `javac --release 8 X.java && java X` |
 | `rasterbench/` | 06's software-rasterizer benches, archived 2026-10-14: `src/RasterBench.java` and `src/ShaderBench.java` (06 section 3.6), and the verifiers' re-run logs `logs/verify-bench.log` and `logs/verify6.log` (normalized to LF). Own code, MIT with the repo; each source is one default-package file at Java 8 source level with no dependencies: run it in `src/` with `javac --release 8 X.java && java X`. `RasterBench` takes `[W H [maxThreads]]`, `ShaderBench` takes `mono` or `mega` |
 
@@ -290,26 +333,36 @@ Clones:
 | Name | Repo | Pin |
 |---|---|---|
 | `ocgtnh-master` | https://github.com/GTNewHorizons/OpenComputers | tag 1.12.64-GTNH = 1e4559f (shallow) |
-| `angelica-git` | https://github.com/GTNewHorizons/Angelica | full history; HEAD 78abc05 (master, 2026-10-07, one commit after 2.2.30); tags fetched to 2.2.32 on 2026-10-14. The working tree is not checked out: read it with `git show <rev>:<path>`, as 25 does |
+| `angelica-git` | https://github.com/GTNewHorizons/Angelica | full history; HEAD 78abc05 (master, 2026-10-07, one commit after 2.2.30); tags fetched to 2.2.32 on 2026-10-14. The working tree is not checked out: read it with `git show <rev>:<path>`, as 25 does. Tags 2.2.33 to 2.2.36 are not fetched there; S9's doc pass read 2.2.36's `GLStateManager.java` and `GLSMRedirector.java` on GitHub at the tag and saved nothing |
 | `Angelica-2.2.21` | same repo | tag 2.2.21 = a8c29fa (shallow); its index, cleared during the research, was restored in the copy |
 | `GTNHLib` | https://github.com/GTNewHorizons/GTNHLib | tag 0.11.52 = 343a327 |
 | `lwjgl3ify` | https://github.com/GTNewHorizons/lwjgl3ify | tag 3.0.37 = c87172b |
 | `rfb` | https://github.com/GTNewHorizons/RetroFuturaBootstrap | tag 1.1.2 = 78b6871 |
 | `lwjgl2-src` | https://github.com/LWJGL/lwjgl | master 2df01dd (2016-12-08) |
-| `gtnh-actions` | https://github.com/GTNewHorizons/GTNH-Actions-Workflows | be3d291 (2026-10-04; master is now 042346f) |
+| `gtnh-actions` | https://github.com/GTNewHorizons/GTNH-Actions-Workflows | be3d291 (2026-10-04; master was 042346f on 2026-10-14 and is a2969fd, 2026-10-17, on 2026-10-24, which adds the opt-in `java-distribution` and `cache-rfg` inputs and changes no default) |
 | `horizon-qa` | https://github.com/GTNewHorizons/Horizon-QA | tag 0.15.0 = e05abc0 |
 | `ocglasses-gtnh\src` | https://github.com/GTNewHorizons/OCGlasses | tag 1.6.9-GTNH = bb1a1bb (source tree only) |
-| `ocelot-harness-renno231\repo` | https://github.com/Renno231/ocelot-harness | `main` HEAD e5f81e1 (2026-10-03, version 0.1.1), cloned straight into `opengpu-refs` on 2026-10-14; its `lib/ocelot-brain` submodule (bec1cc6) is not checked out. Evaluated, not adopted: [05's amendments](05-dev-stack-and-testing.md#amendments-after-the-ocelot-harness-evaluation-2026-10-14), cited there and in 23 as `RH:` |
+| `ocelot-harness-renno231\repo` | https://github.com/Renno231/ocelot-harness | `main` HEAD e5f81e1 (2026-10-03, version 0.1.1), cloned straight into `opengpu-refs` on 2026-10-14; its `lib/ocelot-brain` submodule (bec1cc6) is not checked out. Evaluated, not adopted: [05's amendments](05-dev-stack-and-testing.md#amendments-after-the-ocelot-harness-evaluation-2026-10-14), cited there and in 23 as `RH:`. On 2026-10-24 `main` is cb4fff6: the branch was force-pushed, GitHub's compare of e5f81e1 with cb4fff6 reports them diverged (3 commits each way from tag v0.1.1, 9e79996), and no branch or tag holds e5f81e1, so the `RH:` citations rest on this clone |
 
 Jars and extractions:
 
 | Name | Contents | Cited by |
 |---|---|---|
-| `angelica-jars\{2.2.8, 2.2.21, 2.2.28, 2.2.30, 2.2.32}` | `Angelica-<v>.jar` and `-sources.jar` from `https://nexus.gtnewhorizons.com/repository/public/com/github/GTNewHorizons/Angelica/<v>/`; 2.2.32 was fetched on 2026-10-14 and its SHA-1 verified against Nexus, and the owner's installed jar is identical | 25 |
+| `angelica-jars\{2.2.8, 2.2.21, 2.2.28, 2.2.30, 2.2.32}` | `Angelica-<v>.jar` and `-sources.jar` from `https://nexus.gtnewhorizons.com/repository/public/com/github/GTNewHorizons/Angelica/<v>/`; 2.2.32 was fetched on 2026-10-14 and its SHA-1 verified against Nexus, and the owner's installed jar was identical (on 2026-10-24 the instance runs 2.2.36, which is not in this folder) | 25 |
 | `lwjgl3jar` | `lwjgl-opengl-3.3.6.jar` plus an extraction | 14 |
 | `lwjgl2jar` | classes extracted from the instance's LWJGL 2.9.4 nightly jar | 14 |
 | `oc-jar-1.12.64` | an extraction of `OpenComputers-1.12.64-GTNH.jar` | 19 |
 | `glcaps-diff` | the capability lists `l2.txt`, `lx.txt`, `l3.txt` and `l3new.txt`, and `l343\lwjgl-opengl-3.4.3.jar` from Maven Central | 14 |
+
+Angelica's dev jars are not in `opengpu-refs`: the build resolves each
+`Angelica-<v>-dev.jar` from GTNH's Nexus into the machine's Gradle cache,
+and the GLSM legs and S9's linkage test read them there. They are 2.2.8 =
+6d8cbf9 (the floor), 2.2.21 = a8c29fa (10 703 886 B, CI only), 2.2.28 =
+0a4d489 (the pack's) and the latest release, Nexus's `<release>` at build
+time: on 2026-10-24 Angelica 2.2.36 = e84c8c8 (released 2026-10-22,
+12 160 050 B). Between 2.2.32 and it came 2.2.33 = 49db8e1 (2026-10-14),
+2.2.34 = ab3bf17 (2026-10-17) and 2.2.35 = 32f8eef (2026-10-19), which no
+leg checks.
 
 Research evidence, made or downloaded by the research agents; it exists only
 in `opengpu-refs` and in the session transcripts:
@@ -378,8 +431,11 @@ Clones not copied, by citing report:
 | 26 | `retro\shaders\ultimate-retro-shader-collection` | https://github.com/Zorochase/ultimate-retro-shader-collection | tag 1.5 = 8cd971d |
 | 27 | `angle27` | https://github.com/google/angle | 16a0aa0 (sparse) |
 
-The owner's own checkouts under `C:\Users\astro\Downloads\` are unchanged:
+The owner's own checkouts under `C:\Users\astro\Downloads\`, as of 2026-10-24:
 OpenComputers-GTNH is a shallow 1.12.55-GTNH (f83bd95), which is why
 `ocgtnh-master` is the 1.12.64 reference; Angelica is a shallow 2.2.8
-(6d8cbf9), the floor; and OC-LuaJIT (62970a0, 2026-10-13), ocelot-brain
-(e98a5b2) and OC-JNLua (da3d4d4) are full clones.
+(6d8cbf9), the floor; and OC-LuaJIT, ocelot-brain (e98a5b2, also the HEAD
+of its upstream, https://gitlab.com/cc-ru/ocelot/ocelot-brain, on
+2026-10-24) and OC-JNLua (da3d4d4) are full clones. OC-LuaJIT is at
+a98787b (2026-10-23); it was at 62970a0 (2026-10-13) when this list was
+written, the commit that 28's `OCLJ/` citations use.
