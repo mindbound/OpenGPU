@@ -157,7 +157,32 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    the plan's budgets: the legs, the model test and the font tests inside
    theirs, but `:gl:test`'s tests took 21.4 s against 20 s, 8.30 s of it in
    `GlLedgerTest`'s two-thread test, which a fix after 08ca13b then made
-   linear without losing a mutant kill.
+   linear without losing a mutant kill. The fix's own CI run, 38922626582
+   of 2c4528e, was green with the same status; it restored `:core:test`
+   from Gradle's build cache, put `:gl:test`'s tests at 8.6 s and that test
+   at 0.42 s, and took the three main GL legs and the model test to 0.51
+   to 0.89 of their first-run sums, for a cause not measured.
+17. On 2026-10-24 a doc pass recorded that run in 28's section "S8
+   implemented" (closing its open item on `:gl:test`'s time on CI) and
+   §11.4, the roadmap, 23, 20 and this index. The same day the owner
+   reported that OC-LuaJIT's `string.pack`, `string.unpack` and
+   `string.packsize` have Lua 5.3.6's whole format language and that Lua
+   5.3's bitwise operators with 64-bit results are in, both built on
+   2026-10-17. The pass recorded that in 28 §9.3, §9.5, §11.1 and §13 (on
+   OC-LuaJIT the 2D records keep the `char` path until M0 measures `pack`
+   faster there), in 24, in the roadmap's measurements, M2, M3 and Track
+   L, and in 04's runtime table, with amendments at the end of 24, 04 and
+   the roadmap; 24 and Track L also record that
+   OC-LuaJIT's LuaJIT has been built without the FFI since 2026-10-16,
+   which closes two of Track L's suggestions; the operators' documented
+   semantics close a third. Run wf_c9c0c5c9-2d3 did both, with a refuting
+   checker and its confirmed points applied. It also found why every CI
+   jar's version ends in "-dirty": GTNH's shared build-and-test workflow
+   checks itself out into the workspace as `.gtnh-workflows/` and tees
+   runServer's output to `server.log`, both untracked, so the version
+   plugin's `git status --porcelain` is never empty. `.gitignore` now
+   ignores both paths; a replay of CI's steps in a fresh clone kept the
+   tree clean and the jars' names without "-dirty".
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on

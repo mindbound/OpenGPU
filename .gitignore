@@ -40,3 +40,7 @@ layout.json
 # Claude Code: per-user settings, and session scratchpads mirrored here by a user-level Stop hook
 .claude/settings.local.json
 .claude/scratch/
+
+# GTNH-Actions-Workflows' build-and-test checks itself out here and tees runServer's output to server.log
+/.gtnh-workflows/
+/server.log
