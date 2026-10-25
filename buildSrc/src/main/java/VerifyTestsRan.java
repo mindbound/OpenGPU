@@ -24,6 +24,16 @@ public abstract class VerifyTestsRan extends DefaultTask {
     /** Registers verify&lt;Task&gt;Ran for {@code test} and puts both into check. */
     public static TaskProvider<VerifyTestsRan> register(Project project, TaskProvider<Test> test,
         boolean allowSkipped) {
+        return register(project, test, allowSkipped, true);
+    }
+
+    /**
+     * Registers verify&lt;Task&gt;Ran for {@code test}: with {@code intoCheck} both go into check; without, the verify
+     * task finalizes {@code test}, so a task that runs only when started by name (:ocelot-harness's OC-LuaJIT and LuaJ
+     * legs, S10 amendments I5) is still checked and check never pulls it in.
+     */
+    public static TaskProvider<VerifyTestsRan> register(Project project, TaskProvider<Test> test, boolean allowSkipped,
+        boolean intoCheck) {
         String name = test.getName();
         TaskProvider<VerifyTestsRan> verify = project.getTasks()
             .register(
@@ -48,9 +58,13 @@ public abstract class VerifyTestsRan extends DefaultTask {
                     task.getAllowSkipped()
                         .set(allowSkipped);
                 });
-        project.getTasks()
-            .named("check")
-            .configure(check -> check.dependsOn(test, verify));
+        if (intoCheck) {
+            project.getTasks()
+                .named("check")
+                .configure(check -> check.dependsOn(test, verify));
+        } else {
+            test.configure(task -> task.finalizedBy(verify));
+        }
         return verify;
     }
 

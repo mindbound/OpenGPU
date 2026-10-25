@@ -21,9 +21,10 @@ plugins {
 }
 
 // Subprojects (24 §3.1) on buildSrc's opengpu.java8 convention; GTNHGradle configures the root only. :gl joined with
-// M0 step S8; :lang, :jit and :stream join with their steps, :ocelot-harness with S10. Keep the names flat, each with a
-// build file whose plugins {} block is not empty: that request is what brings the repositories for GTNHGradle's
+// M0 step S8 and :ocelot-harness with S10; :lang, :jit and :stream join with their steps. Keep the names flat, each with
+// a build file whose plugins {} block is not empty: that request is what brings the repositories for GTNHGradle's
 // per-project Spotless.
 include("core")
 include("gl")
 include("gl-testkit")
+include("ocelot-harness")

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ocelot-brain's own log in the test output [proposal; S10 plan P9.6]: its logger, Ocelot, at INFO (the brain.conf
+     it loaded, the natives it copied, a native that failed to load), everything else at WARN. Without a configuration
+     log4j 2.26.1 prints errors only -->
+<Configuration status="WARN">
+  <Appenders>
+    <Console name="out" target="SYSTEM_OUT">
+      <PatternLayout pattern="%d{HH:mm:ss.SSS} %-5level [%t] %logger: %msg%n"/>
+    </Console>
+  </Appenders>
+  <Loggers>
+    <Logger name="Ocelot" level="info"/>
+    <Root level="warn">
+      <AppenderRef ref="out"/>
+    </Root>
+  </Loggers>
+</Configuration>

@@ -245,7 +245,43 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    and the noise a real `:gl` break adds to two negative cases), 2.2.36's
    deferred texture release (25 R-10) and its batched-TESR scope (25 §6).
    Run wf_9fa94fb2-3ed wrote the doc pass, with two refuting checkers and their
-   confirmed points applied.
+   confirmed points applied. The main session then recorded S9's first CI
+   run, 40114221360 of 1d143c4 (green, 2 136 tests, `<release>` read
+   online), in 23's and 25's S9 amendments and the roadmap.
+21. M0 step S10 (2026-10-24 and 2026-10-25) built `:ocelot-harness`:
+   ocelot-brain e98a5b2, fetched at build time from the owner's import of
+   the repository (or else gitlab.com) and checked against the commit on
+   every build, compiled with Scala 2.13.11 on Java 8 and booted in Java 8
+   test JVMs; Lua bytes == FBO bytes on 5.3 and 5.2 (`ocelotGlTest`) and on
+   5.4 (`ocelotInstanceTest`), the `NoRenderHost` contract through Lua, a
+   LuaJ correctness task and a local OC-LuaJIT leg; 2 298 tests in `check`.
+   Planning run wf_3e2ea40b-7dd (scouts, a feasibility spike in WSL, the
+   planner and two critics) made the plan, and the owner answered its
+   questions: the download stands, from their import first; the asie.pl
+   jars are downloaded too; the main session may run the OC-LuaJIT leg on
+   their machine; 5.4 gates in CI; the leg patches brain's kernel; and LuaJ
+   was left to the main session. Implementation run wf_d4e99b30-619 built
+   it in six units (the build and the fetch; the runtime and the
+   components; the Lua and the non-GL tests; the GL legs; the OC-LuaJIT
+   leg; the verification), with mutants run in WSL copies of the tree;
+   then three reviews (fidelity, test strength, build) made 12 findings,
+   which a fixer fixed and re-checked with mutants. The main session then
+   ran the OC-LuaJIT leg itself on the fixed tree, on Intel, NVIDIA and
+   WSL's llvmpipe, 48 of 48 each, after the owner had rebuilt OC-LuaJIT's
+   natives; and once the owner had read the code, it made the
+   `pumpsPerTick` change it had proposed and the owner approved (the
+   property now fails the build on CI), with `check` green again on Intel.
+   The online runs were one announced `:ocelot-harness:check` on Windows;
+   under WSL, a negative case of the fetch against an unroutable address,
+   which downloaded nothing and which the main session reported to the
+   owner afterwards; and one read-only `git ls-remote` of the import.
+   Every other run was `--offline`. A doc pass ran again, in WSL copies
+   of the final tree and beside its writer, every mutant not yet run there;
+   all failed as before but M22, whose dry-run listing review B2 had
+   removed, while `ClassVersionTest` still fails that build. Its writer
+   recorded the step in the roadmap, 23, 05, 24, 28 (its section "S10
+   implemented"), 19 and this index, with the pins below and the owner's
+   ocelot-brain clone, now cloned from their import. Run wf_cec18ace-bd0 wrote the doc pass, with two refuting checkers and their confirmed points applied.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
@@ -260,7 +296,7 @@ Java 17-21 + lwjgl3ify (GTNH packs), OC-LuaJIT commit a4994e6.
 | `02-angelica-compat.md` | GLSM redirector, core-profile context, Iris and Celeritas rules, the certified `glTexSubImage2D` + quad baseline |
 | `03-minecraft-1710-rendering-and-networking.md` | Vanilla texture path, `ScreenRenderer` template, Forge 1.7.10 networking and caps, bandwidth envelope |
 | `04-lua-boundary-and-runtimes.md` | Marshalling across Lua 5.2/5.3/5.4, LuaJ and OC-LuaJIT; limits; portable encoder and handle strategy |
-| `05-dev-stack-and-testing.md` | GTNHGradle setup, dependency coordinates, runtime bytecode generation, dev runs, ocelot-brain adapter design, licensing |
+| `05-dev-stack-and-testing.md` | GTNHGradle setup, dependency coordinates, runtime bytecode generation, dev runs, ocelot-brain adapter design, licensing; M0 step S10's harness rules as applied, and its fetch, build and online runs (2026-10-25) |
 | `06-graphics-engine-architecture-best-practices.md` | API shape, software rasterizer design with measured JVM throughput, shader language and compiler plan, compute model, determinism |
 | `07-feasibility-and-performance-envelope.md` | Cost model, call-rate wall, threading policy, risk register, tier proposal, M0 definition |
 | `08-proposal-A-server-software.md` | Server-authoritative software renderer with streamed framebuffers |
@@ -273,16 +309,16 @@ Java 17-21 + lwjgl3ify (GTNH packs), OC-LuaJIT commit a4994e6.
 | `13-gap-off-thread-packet-sending.md` | Forge 1.7.10 send-path thread safety; pool-thread sending via `scheduleOutboundPacket` |
 | `14-gap-lwjgl3ify-glcaps-shim.md` | Capability probing under lwjgl3ify; the GlCaps question closed |
 | `15-gap-keyboard-attachment-and-input-topology.md` | Keyboard attachment rule, display block input topology, host scope, touch projection |
-| `19-gap-ocelot-brain-gtnh-parity.md` | ocelot-brain vs OC 1.12.64-GTNH machine model diff; which tests are trustworthy headless |
+| `19-gap-ocelot-brain-gtnh-parity.md` | ocelot-brain vs OC 1.12.64-GTNH machine model diff; which tests are trustworthy headless; the harness rules as M0 step S10 applied them (2026-10-25) |
 | `20-gl-first-client-rendering.md` | Client GL path with and without Angelica: GL 3.3 floor, offscreen integer surfaces, PBO readback, timestamp fences, the GLSM descriptor trap, GPU-hang safety |
 | `21-integrated-server-render-handoff.md` | Server-to-host handoff in one JVM (RenderHost SPI), persistence with an in-flight tail, LAN guest streaming with measured bandwidth, dedicated-server options |
 | `22-shader-and-compute-languages.md` | GLSL ES 1.00 graphics subset and its emitter, GLSL 4.30-syntax compute with CPU semantics, determinism rules, rack scheduling, the HBM RBMK check; section 1 superseded by 27 where they conflict |
-| `23-gl-testing-strategy.md` | Headless GL in the GTNH shared CI, tolerance tiers for golden images, the ocelot GL test host, in-game and dedicated-server tests |
+| `23-gl-testing-strategy.md` | Headless GL in the GTNH shared CI, tolerance tiers for golden images, the ocelot GL test host, in-game and dedicated-server tests; M0 step S10's ocelot tasks, counts, times, budgets and reviews (2026-10-25) |
 | `24-architecture-gl-first.md` | Current decision document: owner decisions, architecture, phased plan M0-M4 with M1.5 display block, questions, risks |
 | `25-angelica-version-floor.md` | Angelica version floor: 2.2.8 supported, older gated off at runtime (the 2.1.14-2.2.7 best-effort band was dropped on 2026-10-13); linkage matrix over all 2.x releases to 2.2.30, the M0 GL call set and deny-list, code rules, test matrix, GTNH pack coverage; M0 step S9's per-jar linkage and `unmappedGL=FAIL` record on 2.2.8, 2.2.21, 2.2.28 and the latest release (2.2.36 on 2026-10-24), with its mutants |
 | `26-lessons-from-general-engines.md` | Lessons from Godot, OpenSceneGraph, O3DE, small-program shader languages and PS1/N64/Dreamcast/Quake/Doom techniques: typed handles, GL state hygiene, a GL allocation ledger, crash guard, API dump, semantic attributes, palette ops, quantize and dither, a retro shader variant family; considered items and owner questions |
 | `27-graphics-language-es300.md` | Graphics shader language as an ES 3.00-based subset: input form, accepted subset, built-ins against GLSL 3.30, integer guards matching compute, ANGLE driver workarounds re-checked, flat and noperspective, interface conventions, shared frontend, effort, an index8 example |
-| `28-command-stream-v1.md` | Command stream v1 for M0, accepted by the owner on 2026-10-14, with its glyph-source question (Q1) answered the same day (font 0 is misc-fixed 6x13) and `TEXT`'s font byte added on 2026-10-15 (29 F4): framing, error codes, versioning and the opcode map; the four M0 ops with per-format pixel results and the tier-E oracle; the minimal texture path and its ordering; the lifecycle and the `RenderHost` SPI; caps, charges and the Lua encoder with a worked frame; S6's test plan; owner questions; what S6 and S7 (2026-10-15) and S8 (2026-10-16) settled, with S8's owner decisions Q-S8-1 to Q-S8-3 and the readback bugs it found in Intel's Windows driver and in Mesa's llvmpipe |
+| `28-command-stream-v1.md` | Command stream v1 for M0, accepted by the owner on 2026-10-14, with its glyph-source question (Q1) answered the same day (font 0 is misc-fixed 6x13) and `TEXT`'s font byte added on 2026-10-15 (29 F4): framing, error codes, versioning and the opcode map; the four M0 ops with per-format pixel results and the tier-E oracle; the minimal texture path and its ordering; the lifecycle and the `RenderHost` SPI; caps, charges and the Lua encoder with a worked frame; S6's test plan; owner questions; what S6 and S7 (2026-10-15), S8 (2026-10-16) and S10 (2026-10-25) settled, with S8's owner decisions Q-S8-1 to Q-S8-3 and the readback bugs it found in Intel's Windows driver and in Mesa's llvmpipe |
 | `29-font-survey.md` | Font survey for `TEXT` (2026-10-14), answering the follow-up to 28 Q1, revised the same day after the owner decided F1 (font 0 is misc-fixed 6x13), and on 2026-10-15 after F3, F4, F7 and F8 (decided), F6 (proportional fonts in M1, starting with Tiny5, Tiny5 Duo and ANAKRON), F5 (deferred to M1, then decided for M1 at the owner's request) and F9 (done, the ROM files deleted), and after a CJK provenance check (§10) that narrowed F7 to 12x13ja: why one size cannot serve a pixel GPU's labels, body text and headings; bitmap candidates by role (body text, small, display, wide coverage) measured for coverage, licence and provenance; a recommended M1 family by use, mostly misc-fixed; the licence obligations and atlas and jar cost; a font operand, advance and fill rules for `TEXT`; F1's decision record; owner questions F1-F9; the provenance check of misc-fixed's CJK faces |
 | `callbench/` | The ocelot-brain call-overhead harness (`src/Bench.scala`, `src/bench.lua`, run scripts) and every log of the 2026-10-08 campaign. The scripts hard-code the research-phase scratchpad in `S=` (`run.sh:6`, `matrix.sh:3`, `run-extra.sh:3`) and read `$S/lib/*.jar`, 17 public jars (35 MB) that nothing rebuilds; fetch them as OC-LuaJIT's `test/native/smoke-test.sh:353-378` does. No M0 item re-runs callbench; whoever does makes `S` script-relative first |
 | `cmdstream-checks/` | 28's check scripts (2026-10-14; `example.py`, `luabuilders.py` and `rev_checks.py` updated on 2026-10-15 for `TEXT`'s font byte): `q565.py` (quantize, expand and the `GL_R8` index recovery), `example.py` (the worked frame's bytes, handles, charges and caps), `luabuilders.py` (the Lua record builders against the layouts) and `rev_checks.py` (the revision's checks, among them a naive validator over the negative cases; on 2026-10-15 its `TEXT` string check became one scan, as 28:648 says), plus Q1's `q1_font0.py` (font 0's cell, coverage with Greek and Cyrillic, and atlas, and the synthetic table at 6×13 and 8×13; it takes the BDFs under `opengpu-refs\font-survey\misc-fixed\x\` as arguments), and S6's `oracle_goldens.py` (2026-10-15: an independent model of 28 §3, §5, §6.1–§6.4 and §7, with §2.2's reset, that re-derives every grid and total of `:core`'s `oracle-goldens.txt`; `--emit <case>` prints a case's grid; it takes the goldens file as its argument), and S8's `font0_table.py` (2026-10-16: font 0's glyph table re-derived from `6x13.bdf` without the Java converter's code, through a strict BDF 2.1 reading with the converter's checks; it prints the body's SHA-256, which `Font0Test` pins, and its CRC32, the coverage counts and `q1_font0.py`'s checks, then ALL PASS; `--self-test` runs a hand-made two-glyph BDF through the same code and each rule against a file that breaks it; it takes `core/src/fonts/misc-fixed/6x13.bdf` as its argument). Own code, MIT with the repo; Python 3 standard library only: run each with `python -I X.py` |
@@ -364,6 +400,36 @@ time: on 2026-10-24 Angelica 2.2.36 = e84c8c8 (released 2026-10-22,
 2.2.34 = ab3bf17 (2026-10-17) and 2.2.35 = 32f8eef (2026-10-19), which no
 leg checks.
 
+ocelot-brain and its URL-only jars are not in `opengpu-refs` either: since
+M0 step S10 (2026-10-25) the build fetches them into the machine's Gradle
+user home. ocelot-brain is pinned at e98a5b2 =
+e98a5b2cd74a8372e23d8a953e3f4da252f71082 (version 0.24.2), tree 5f21314e =
+5f21314ee10a3aebf81876193e4ffd0c8c973493, 605 files. `fetchOcelotBrain`
+fetches it with git from the owner's import,
+https://github.com/mindbound/ocelot-brain.git, or else from upstream,
+https://gitlab.com/cc-ru/ocelot/ocelot-brain.git, into
+`<Gradle user home>/caches/opengpu/ocelot-brain/<commit>`, and checks the
+commit, the tree and every file on every build. Software Heritage holds no
+copy of the commit or its tree. Brain compiles with Scala 2.13.11 (its
+`build.sbt:6`) and Zinc 1.12.0. Its three jars come from
+https://asie.pl/javadeps/, each checked by its whole sha256:
+
+| Jar | sha256 |
+|---|---|
+| `OC-LuaJ-20220907.1.jar` | d80ce740d71953c917b168b822932c33aafef8ab737b193623f9c87254c1149f |
+| `OC-JNLua-20230530.0.jar` | 41abce30160a8014abd34e885f0f073fb35c8d9e2f78d230b7b9e64a79ccedbb |
+| `OC-JNLua-Natives-20220928.1.jar` | 43979d288fe06a8323fdf89e05bfec0448c64f026762b43ea1fa65bda3768a17 |
+
+The local OC-LuaJIT leg reads the owner's OC-LuaJIT checkout in place, at
+its floor a98787b = a98787b91d53f3b43374f8a8ba673f15135cd819 (committed
+2026-10-23 18:56:42 +0300) or a descendant: the adapter
+`test/native/OcljArch.scala`, `LuaStateLuaJIT.java` and
+`native/kernel/patch-machine-lua.lua` must have a98787b's blobs, and the
+additive native and `luajit` must be no older than a98787b's commit time.
+Each run records every input's blob, size, mtime and sha256 in its
+`ocelot.txt`; the natives that passed were the owner's build of
+2026-10-25, 03:17-03:18 +0300.
+
 Research evidence, made or downloaded by the research agents; it exists only
 in `opengpu-refs` and in the session transcripts:
 
@@ -431,11 +497,16 @@ Clones not copied, by citing report:
 | 26 | `retro\shaders\ultimate-retro-shader-collection` | https://github.com/Zorochase/ultimate-retro-shader-collection | tag 1.5 = 8cd971d |
 | 27 | `angle27` | https://github.com/google/angle | 16a0aa0 (sparse) |
 
-The owner's own checkouts under `C:\Users\astro\Downloads\`, as of 2026-10-24:
+The owner's own checkouts under `C:\Users\astro\Downloads\`, as of 2026-10-25:
 OpenComputers-GTNH is a shallow 1.12.55-GTNH (f83bd95), which is why
 `ocgtnh-master` is the 1.12.64 reference; Angelica is a shallow 2.2.8
-(6d8cbf9), the floor; and OC-LuaJIT, ocelot-brain (e98a5b2, also the HEAD
-of its upstream, https://gitlab.com/cc-ru/ocelot/ocelot-brain, on
-2026-10-24) and OC-JNLua (da3d4d4) are full clones. OC-LuaJIT is at
-a98787b (2026-10-23); it was at 62970a0 (2026-10-13) when this list was
-written, the commit that 28's `OCLJ/` citations use.
+(6d8cbf9), the floor; and OC-LuaJIT, ocelot-brain and OC-JNLua (da3d4d4)
+are full clones. OC-LuaJIT is at a98787b (2026-10-23); it was at 62970a0
+(2026-10-13) when this list was written, the commit that 28's `OCLJ/`
+citations use. ocelot-brain was a clone at e98a5b2, also the HEAD of its
+upstream, https://gitlab.com/cc-ru/ocelot/ocelot-brain, on 2026-10-24.
+The owner deleted it that day, and on 2026-10-25 it is back as a clone of
+the owner's import (origin https://github.com/mindbound/ocelot-brain,
+HEAD e98a5b2), with CRLF on disk from Git for Windows' system
+`core.autocrlf=true`. The build never reads it: it fetches and checks a
+store of its own (above), and S10 read brain's sources in place there.
