@@ -282,6 +282,26 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    recorded the step in the roadmap, 23, 05, 24, 28 (its section "S10
    implemented"), 19 and this index, with the pins below and the owner's
    ocelot-brain clone, now cloned from their import. Run wf_cec18ace-bd0 wrote the doc pass, with two refuting checkers and their confirmed points applied.
+22. The owner pushed S10 as f3f1635 and, on 2026-10-25, reported its CI
+   run green. The main session read CI run 40170802943 with gh, read-only:
+   the run, its "Tests" status, its caches, its test report, and the log,
+   grepped and not kept. The run was green on its first attempt; its job
+   took 5 min 32 s, 72 s more than S9's run 40114221360, and its "Tests"
+   status showed 2 298 passed. Brain was fetched from the owner's import
+   (fetch attempt 1) and verified, and the GL tasks ran on llvmpipe of
+   Mesa 25.2.8. Whether CI's cache keeps the brain store shows only in the
+   run of the owner's next push. This pass recorded the run in the
+   roadmap, 23, 24, 28 and this index as dated updates.
+   Run wf_90efed02-560 recorded the run, with two refuting checkers and their confirmed points applied.
+23. At the owner's word ("Let's fix the M22"), the main session settled
+   M22 in the docs, with no code change: the plan's guard 3, the dry-run
+   listing, now checks that `assemble` and the release workflow's dry
+   runs reach no brain task, which review B2 gives while no shipped
+   project depends on `:ocelot-harness`, and M22 is held to
+   `ClassVersionTest`'s failure in `check`, which the doc pass's re-run
+   had seen. Dated notes went into the roadmap, 23 and 28, and this step
+   into this index.
+   Run wf_31fa9c4f-919 read them as a refuting checker, and its confirmed points were applied.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
