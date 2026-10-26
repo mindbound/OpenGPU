@@ -26,8 +26,10 @@ import totoro.ocelot.brain.network.{Component, Message, Network, Node, Visibilit
   * The `opengpu` component over `:core`'s Device (S10's part of 28 §2.1; S10 plan P7): the M0 callbacks but `bind`,
   * whose messages belong to the display block (28:95), each direct (28:84), reading its arguments only through
   * ocelot's `checkInteger`, `checkByteArray` and `optString` and returning `CallResult.toLua()`. A second `@Callback`
-  * layer beside the root's future one, on ocelot's API: the two cannot share code, and the in-game self-test is the
-  * later cross-check (S10 plan P23).
+  * layer beside the root's card, on ocelot's API: the two cannot share code, so they share a spec, `:core`'s
+  * M0Callbacks, whose names, flags and doc strings CallbackSpecTest holds this class to, and a model, M0Replay, which
+  * CallReplay checks these callbacks against (S11 plan P15.4); the in-game self-test is the later cross-check (S10
+  * plan P23).
   *
   * The host is injected by constructor, which settles 05:101's open choice; there is no static registry, no DeviceInfo
   * and no no-arg constructor, since S10 never saves a workspace, and [[save]] throws so an accidental save fails loudly
@@ -86,10 +88,10 @@ final class OpenGpuEntity(
   // ---- The M0 callbacks (28 §2.1)
 
   // `renderer` and `hostRenderer` are the harness's [proposal; S10 plan P7.2], beside 24:125's names: "host-gl"
-  // whenever the host is available, so also on FakeRenderHost, which has no GL, and "none" otherwise; the root's
-  // getCaps decides its own
-  @Callback(direct = true, doc = "function():table -- the device's caps (28 §8.1), with renderer and, on a GL host, " +
-    "hostRenderer (24:125)")
+  // whenever the host is available, so also on FakeRenderHost, which has no GL, and "none" otherwise. The root's card
+  // adds readback and graphics, so the doc is M0Callbacks' generic one, and parity is the 15 keys plus renderer
+  // (S11 amendments F-1)
+  @Callback(direct = true, doc = "function():table -- the device's caps (28 §8.1) plus the host keys of 24:125")
   def getCaps(context: Context, args: Arguments): Array[AnyRef] = {
     touch(context)
     val caps = new java.util.LinkedHashMap[String, AnyRef](device.getCaps())

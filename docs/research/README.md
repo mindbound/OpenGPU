@@ -302,6 +302,59 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    had seen. Dated notes went into the roadmap, 23 and 28, and this step
    into this index.
    Run wf_31fa9c4f-919 read them as a refuting checker, and its confirmed points were applied.
+24. The owner committed steps 22 and 23 as dcd8acd and, on 2026-10-25,
+   reported its CI run green. The main session read CI run 40174393829
+   with gh, read-only, as in step 22. Of the fetch task's lines, its log
+   held only brain's "verified at" line, naming the first run's fetch,
+   and no "fetched" line or asie.pl download, so CI's cache keeps the
+   brain store; on that warm cache the job took 4 min 9 s, 11 s less
+   than S9's run 40114221360. The main session recorded the run in the
+   roadmap, 23, 28 and this index as dated updates.
+   Run wf_e40ce731-c51 read them as a refuting checker, and its confirmed points were applied.
+25. M0 step S11 (2026-10-25 and 2026-10-26) built the root mod's server
+   side, with no client code: the card with `opengpu_frame`, the
+   display's server half with binding and the screen-surface helper,
+   input's server half on the `"OpenGPU"` channel, a tick queue that
+   signals every frame status on the server thread, callback parity
+   shared through `:core`'s test fixtures, `jarTest`'s checks 7, 8 and 9,
+   G2's invariants as text and the `runServer` audit's two properties;
+   2 496 tests in `check`. On 2026-10-25 the owner accepted the main
+   session's order for the rest of M0 (S11 to S15). Planning run
+   wf_ff700749-4fd (scouts, a spike, the planner and two critics) made
+   the plan, and the owner took the main session's recommendation on
+   each of its questions, (c) for Q-S11-1 where the plan had
+   recommended (a):
+   "Thank you! Actually, this time all the recommendations and defaults
+   look good to me, I can't find anything I'd want to correct or change
+   here." So no frame goes from the server to clients in M0. Answers run
+   wf_b64661bf-b03 (a designer, a critic and a fold) designed the new U5,
+   input's server half, and the audit's fresh worlds through `--world`.
+   The main session accepted in writing the residual risk to the owner's
+   world, with four safeguards; the owner: "that's totally fine". Build
+   run wf_9c9ce5a0-d81 built units U1 to U6, with the audit's baseline V0
+   at HEAD dcd8acd and its series V3, then three reviews (fidelity, tests
+   and mutants, threads and the split) found 13 points, and a fixer fixed
+   11 and ran series V3b; the mutants ran in WSL copies of the tree. The
+   owner chose (a) on Q-S11-16 and Q-S11-17, and follow-up run
+   wf_8f3c84af-f9c built both, D15 (the display remembers its binder) and
+   D16 (the tick queue), then a verification with series V3c, two reviews
+   that found 7 points, and a fixer with series V3d. On 2026-10-26 the
+   owner kept D16 as built (Q-S11-18) and took D15's unload window as a
+   known limit (Q-S11-19), and invited a look at Wireless Redstone CBE's
+   source, which the main session read on GitHub, saving nothing: that
+   mod wakes a computer only from the server thread. After the build
+   run and the follow-up run the main session checked the tree itself
+   (a build, the agents' commands against the shell rules, a scan for
+   third-party text) and deleted the audit's worlds; the owner's
+   `run/server/world` was never opened, and every Gradle run was
+   `--offline`. The doc pass recorded the step in the roadmap, 23, 24,
+   28 (its section "S11 implemented"), 21, 09, 13, 15, 00, 12, 19 and
+   this index, with the pins below. Run wf_b27132c2-d5c wrote the doc
+   pass, with two refuting checkers and their confirmed points applied.
+   On 2026-10-26 the owner also reported GTNH-Actions-Workflows PR #75
+   merged (ad9092e, 2026-10-25); the main session recorded it at RM:465
+   and in 23 §1.1, and `.gitignore`'s two entries stay, the owner's
+   choice. S11's push is OpenGPU's first CI run with the new step.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
@@ -328,17 +381,17 @@ Java 17-21 + lwjgl3ify (GTNH packs), OC-LuaJIT commit a4994e6.
 | `12-gap-client-mirror-feasibility.md` | Client-side mirror cost, memory, class loading, single-player bypass, cross-ISA determinism, Context lifecycle; mirror deferred to M3 |
 | `13-gap-off-thread-packet-sending.md` | Forge 1.7.10 send-path thread safety; pool-thread sending via `scheduleOutboundPacket` |
 | `14-gap-lwjgl3ify-glcaps-shim.md` | Capability probing under lwjgl3ify; the GlCaps question closed |
-| `15-gap-keyboard-attachment-and-input-topology.md` | Keyboard attachment rule, display block input topology, host scope, touch projection |
+| `15-gap-keyboard-attachment-and-input-topology.md` | Keyboard attachment rule, display block input topology, host scope, touch projection; dated notes on input's server half as M0 step S11 built it (2026-10-26) |
 | `19-gap-ocelot-brain-gtnh-parity.md` | ocelot-brain vs OC 1.12.64-GTNH machine model diff; which tests are trustworthy headless; the harness rules as M0 step S10 applied them (2026-10-25) |
 | `20-gl-first-client-rendering.md` | Client GL path with and without Angelica: GL 3.3 floor, offscreen integer surfaces, PBO readback, timestamp fences, the GLSM descriptor trap, GPU-hang safety |
 | `21-integrated-server-render-handoff.md` | Server-to-host handoff in one JVM (RenderHost SPI), persistence with an in-flight tail, LAN guest streaming with measured bandwidth, dedicated-server options |
 | `22-shader-and-compute-languages.md` | GLSL ES 1.00 graphics subset and its emitter, GLSL 4.30-syntax compute with CPU semantics, determinism rules, rack scheduling, the HBM RBMK check; section 1 superseded by 27 where they conflict |
-| `23-gl-testing-strategy.md` | Headless GL in the GTNH shared CI, tolerance tiers for golden images, the ocelot GL test host, in-game and dedicated-server tests; M0 step S10's ocelot tasks, counts, times, budgets and reviews (2026-10-25) |
+| `23-gl-testing-strategy.md` | Headless GL in the GTNH shared CI, tolerance tiers for golden images, the ocelot GL test host, in-game and dedicated-server tests; M0 step S10's ocelot tasks, counts, times, budgets and reviews (2026-10-25); M0 step S11's root `test` and its budget, `jarTest`'s checks 7-9, the mutants and the local `runServer` audit (2026-10-26) |
 | `24-architecture-gl-first.md` | Current decision document: owner decisions, architecture, phased plan M0-M4 with M1.5 display block, questions, risks |
 | `25-angelica-version-floor.md` | Angelica version floor: 2.2.8 supported, older gated off at runtime (the 2.1.14-2.2.7 best-effort band was dropped on 2026-10-13); linkage matrix over all 2.x releases to 2.2.30, the M0 GL call set and deny-list, code rules, test matrix, GTNH pack coverage; M0 step S9's per-jar linkage and `unmappedGL=FAIL` record on 2.2.8, 2.2.21, 2.2.28 and the latest release (2.2.36 on 2026-10-24), with its mutants |
 | `26-lessons-from-general-engines.md` | Lessons from Godot, OpenSceneGraph, O3DE, small-program shader languages and PS1/N64/Dreamcast/Quake/Doom techniques: typed handles, GL state hygiene, a GL allocation ledger, crash guard, API dump, semantic attributes, palette ops, quantize and dither, a retro shader variant family; considered items and owner questions |
 | `27-graphics-language-es300.md` | Graphics shader language as an ES 3.00-based subset: input form, accepted subset, built-ins against GLSL 3.30, integer guards matching compute, ANGLE driver workarounds re-checked, flat and noperspective, interface conventions, shared frontend, effort, an index8 example |
-| `28-command-stream-v1.md` | Command stream v1 for M0, accepted by the owner on 2026-10-14, with its glyph-source question (Q1) answered the same day (font 0 is misc-fixed 6x13) and `TEXT`'s font byte added on 2026-10-15 (29 F4): framing, error codes, versioning and the opcode map; the four M0 ops with per-format pixel results and the tier-E oracle; the minimal texture path and its ordering; the lifecycle and the `RenderHost` SPI; caps, charges and the Lua encoder with a worked frame; S6's test plan; owner questions; what S6 and S7 (2026-10-15), S8 (2026-10-16) and S10 (2026-10-25) settled, with S8's owner decisions Q-S8-1 to Q-S8-3 and the readback bugs it found in Intel's Windows driver and in Mesa's llvmpipe |
+| `28-command-stream-v1.md` | Command stream v1 for M0, accepted by the owner on 2026-10-14, with its glyph-source question (Q1) answered the same day (font 0 is misc-fixed 6x13) and `TEXT`'s font byte added on 2026-10-15 (29 F4): framing, error codes, versioning and the opcode map; the four M0 ops with per-format pixel results and the tier-E oracle; the minimal texture path and its ordering; the lifecycle and the `RenderHost` SPI; caps, charges and the Lua encoder with a worked frame; S6's test plan; owner questions; what S6 and S7 (2026-10-15), S8 (2026-10-16), S10 (2026-10-25) and S11 (2026-10-26) settled, with S8's owner decisions Q-S8-1 to Q-S8-3 and the readback bugs it found in Intel's Windows driver and in Mesa's llvmpipe, and S11's root server side with its decisions D12-D19 and the owner's answers on Q-S11-16 to Q-S11-19 |
 | `29-font-survey.md` | Font survey for `TEXT` (2026-10-14), answering the follow-up to 28 Q1, revised the same day after the owner decided F1 (font 0 is misc-fixed 6x13), and on 2026-10-15 after F3, F4, F7 and F8 (decided), F6 (proportional fonts in M1, starting with Tiny5, Tiny5 Duo and ANAKRON), F5 (deferred to M1, then decided for M1 at the owner's request) and F9 (done, the ROM files deleted), and after a CJK provenance check (§10) that narrowed F7 to 12x13ja: why one size cannot serve a pixel GPU's labels, body text and headings; bitmap candidates by role (body text, small, display, wide coverage) measured for coverage, licence and provenance; a recommended M1 family by use, mostly misc-fixed; the licence obligations and atlas and jar cost; a font operand, advance and fill rules for `TEXT`; F1's decision record; owner questions F1-F9; the provenance check of misc-fixed's CJK faces |
 | `callbench/` | The ocelot-brain call-overhead harness (`src/Bench.scala`, `src/bench.lua`, run scripts) and every log of the 2026-10-08 campaign. The scripts hard-code the research-phase scratchpad in `S=` (`run.sh:6`, `matrix.sh:3`, `run-extra.sh:3`) and read `$S/lib/*.jar`, 17 public jars (35 MB) that nothing rebuilds; fetch them as OC-LuaJIT's `test/native/smoke-test.sh:353-378` does. No M0 item re-runs callbench; whoever does makes `S` script-relative first |
 | `cmdstream-checks/` | 28's check scripts (2026-10-14; `example.py`, `luabuilders.py` and `rev_checks.py` updated on 2026-10-15 for `TEXT`'s font byte): `q565.py` (quantize, expand and the `GL_R8` index recovery), `example.py` (the worked frame's bytes, handles, charges and caps), `luabuilders.py` (the Lua record builders against the layouts) and `rev_checks.py` (the revision's checks, among them a naive validator over the negative cases; on 2026-10-15 its `TEXT` string check became one scan, as 28:648 says), plus Q1's `q1_font0.py` (font 0's cell, coverage with Greek and Cyrillic, and atlas, and the synthetic table at 6×13 and 8×13; it takes the BDFs under `opengpu-refs\font-survey\misc-fixed\x\` as arguments), and S6's `oracle_goldens.py` (2026-10-15: an independent model of 28 §3, §5, §6.1–§6.4 and §7, with §2.2's reset, that re-derives every grid and total of `:core`'s `oracle-goldens.txt`; `--emit <case>` prints a case's grid; it takes the goldens file as its argument), and S8's `font0_table.py` (2026-10-16: font 0's glyph table re-derived from `6x13.bdf` without the Java converter's code, through a strict BDF 2.1 reading with the converter's checks; it prints the body's SHA-256, which `Font0Test` pins, and its CRC32, the coverage counts and `q1_font0.py`'s checks, then ALL PASS; `--self-test` runs a hand-made two-glyph BDF through the same code and each rule against a file that breaks it; it takes `core/src/fonts/misc-fixed/6x13.bdf` as its argument). Own code, MIT with the repo; Python 3 standard library only: run each with `python -I X.py` |
@@ -370,7 +423,9 @@ roadmap cover all of them:
   F7 and §10, 2026-10-15); its proportional fonts start with Tiny5, Tiny5 Duo and ANAKRON (29 F6).
 - GTNH registration conventions: roadmap tasks, with lang, textures,
   creative tab, OC manual pages and `DeviceInfo` in M1, and recipes and
-  pack integration by v1 (M4).
+  pack integration by v1 (M4). Since M0 step S11 (2026-10-26) the lang
+  file and OC's creative tab are in M0 (Q-S11-5), and textures come with
+  S12.
 - OC Lua program conventions (chug-library): design input at the start of
   M1, for the simple-2D callbacks, `opengpu.lua` and the OpenOS-style
   terminal.
@@ -395,7 +450,7 @@ Clones:
 | `lwjgl3ify` | https://github.com/GTNewHorizons/lwjgl3ify | tag 3.0.37 = c87172b |
 | `rfb` | https://github.com/GTNewHorizons/RetroFuturaBootstrap | tag 1.1.2 = 78b6871 |
 | `lwjgl2-src` | https://github.com/LWJGL/lwjgl | master 2df01dd (2016-12-08) |
-| `gtnh-actions` | https://github.com/GTNewHorizons/GTNH-Actions-Workflows | be3d291 (2026-10-04; master was 042346f on 2026-10-14 and is a2969fd, 2026-10-17, on 2026-10-24, which adds the opt-in `java-distribution` and `cache-rfg` inputs and changes no default) |
+| `gtnh-actions` | https://github.com/GTNewHorizons/GTNH-Actions-Workflows | be3d291 (2026-10-04; master was 042346f on 2026-10-14 and a2969fd, 2026-10-17, on 2026-10-24, which adds the opt-in `java-distribution` and `cache-rfg` inputs and changes no default, and is ad9092e, 2026-10-25, on 2026-10-26, which adds PR #75's step keeping `/.gtnh-workflows/` and `/server.log` out of git status) |
 | `horizon-qa` | https://github.com/GTNewHorizons/Horizon-QA | tag 0.15.0 = e05abc0 |
 | `ocglasses-gtnh\src` | https://github.com/GTNewHorizons/OCGlasses | tag 1.6.9-GTNH = bb1a1bb (source tree only) |
 | `ocelot-harness-renno231\repo` | https://github.com/Renno231/ocelot-harness | `main` HEAD e5f81e1 (2026-10-03, version 0.1.1), cloned straight into `opengpu-refs` on 2026-10-14; its `lib/ocelot-brain` submodule (bec1cc6) is not checked out. Evaluated, not adopted: [05's amendments](05-dev-stack-and-testing.md#amendments-after-the-ocelot-harness-evaluation-2026-10-14), cited there and in 23 as `RH:`. On 2026-10-24 `main` is cb4fff6: the branch was force-pushed, GitHub's compare of e5f81e1 with cb4fff6 reports them diverged (3 commits each way from tag v0.1.1, 9e79996), and no branch or tag holds e5f81e1, so the `RH:` citations rest on this clone |
@@ -449,6 +504,19 @@ additive native and `luajit` must be no older than a98787b's commit time.
 Each run records every input's blob, size, mtime and sha256 in its
 `ocelot.txt`; the natives that passed were the owner's build of
 2026-10-25, 03:17-03:18 +0300.
+
+M0 step S11 (2026-10-25 and 2026-10-26) read OC's sources in place at
+`ocgtnh-master` (tag 1.12.64-GTNH = 1e4559f, above), and Minecraft's,
+FML's and Forge's decompiled sources where RFG writes them, under
+`build/rfg/minecraft-src/java/`. On 2026-10-26 the main session read
+Wireless Redstone CBE at tag 1.7.12, its latest release (2026-08-11;
+https://github.com/GTNewHorizons/WirelessRedstone-CBE), and
+CodeChickenLib's `PacketCustom`
+(https://github.com/GTNewHorizons/CodeChickenLib, master at release
+1.3.0) on GitHub through gh, read-only, printing to the console and
+saving nothing. The `runServer` audit's baseline is series V0, run at
+HEAD dcd8acd before any S11 edit; its class lists, and those of the
+later series, are kept outside the repository (23's S11 amendments).
 
 Research evidence, made or downloaded by the research agents; it exists only
 in `opengpu-refs` and in the session transcripts:

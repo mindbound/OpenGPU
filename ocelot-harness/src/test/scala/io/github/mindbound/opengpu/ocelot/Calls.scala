@@ -7,7 +7,7 @@ import scala.collection.mutable
 
 import io.github.mindbound.opengpu.core.cmd.ErrorCode
 import io.github.mindbound.opengpu.core.device.CallResult
-import io.github.mindbound.opengpu.core.fixtures.device.{DeviceRig, OcArgs}
+import io.github.mindbound.opengpu.core.fixtures.device.{DeviceRig, M0Replay}
 
 /** What a call must give on the Java side, beyond being equal to what Lua got (S10 plan P14.4 (e)). */
 sealed trait Expect
@@ -87,8 +87,9 @@ final class CallScript {
 
 /**
   * The Java side of calls.lua: each call replayed on a DeviceRig with the arguments as OC converted them, which Lua
-  * put beside the call, through `:core`'s OcArgs, the model of OC's `checkInteger` (OcArgs.java:31, :83), and the
-  * entity's other argument reads, in the entity's order (OpenGpuEntity); then both results described alike.
+  * put beside the call, through `:core`'s M0Replay, the callback layer's model that the root's parity tests share
+  * (S11 plan P15.4): its argument reads in the callbacks' order (M0Callbacks), integers through OcArgs, the model of
+  * OC's `checkInteger` (OcArgs.java:31, :83); then both results described alike.
   */
 object CallReplay {
   /** One call with what Lua got, what Java computed, and Java's result itself. */
@@ -160,56 +161,10 @@ object CallReplay {
 
   def text(s: String): String = text(s.getBytes(StandardCharsets.UTF_8))
 
-  private def run(rig: DeviceRig, name: String, args: Array[AnyRef]): Either[String, CallResult] = {
-    val d = rig.device
-    try Right(name match {
-      case "submit" =>
-        val s = byteArray(args, 0)
-        rig.call(b => d.submit(b, s))
-      case "present" => rig.call(b => d.present(b))
-      case "readPixels" =>
-        val x = OcArgs.checkInteger(args, 0)
-        val y = OcArgs.checkInteger(args, 1)
-        val w = OcArgs.checkInteger(args, 2)
-        val h = OcArgs.checkInteger(args, 3)
-        rig.call(b => d.readPixels(b, x, y, w, h))
-      case "createTexture" =>
-        val w = OcArgs.checkInteger(args, 0)
-        val h = OcArgs.checkInteger(args, 1)
-        val format = optString(args, 2)
-        rig.call(b => d.createTexture(b, w, h, format))
-      case "updateTexture" =>
-        val tex = OcArgs.checkInteger(args, 0)
-        val x = OcArgs.checkInteger(args, 1)
-        val y = OcArgs.checkInteger(args, 2)
-        val w = OcArgs.checkInteger(args, 3)
-        val h = OcArgs.checkInteger(args, 4)
-        val data = byteArray(args, 5)
-        rig.call(b => d.updateTexture(b, tex, x, y, w, h, data))
-      case "free" => d.free(OcArgs.checkInteger(args, 0))
-      case other => throw new IllegalStateException(s"calls.lua has no Java replay of $other")
-    })
+  /** M0Replay's call, its argument error as the message; calls.lua calls neither `getCaps` nor `bind`. */
+  private def run(rig: DeviceRig, name: String, args: Array[AnyRef]): Either[String, CallResult] =
+    try Right(M0Replay.call(rig, name, args))
     catch {
       case e: IllegalArgumentException => Left(e.getMessage)
-    }
-  }
-
-  /** ocelot's `checkByteArray` (Arguments.scala:236-243): a string's bytes, else its argument errors. */
-  private def byteArray(args: Array[AnyRef], i: Int): Array[Byte] = {
-    if (i >= args.length) throw new IllegalArgumentException(s"bad arguments #${i + 1} (string expected, got no value)")
-    args(i) match {
-      case b: Array[Byte] => b
-      case s: String => s.getBytes(StandardCharsets.UTF_8)
-      case v => throw new IllegalArgumentException(s"bad argument #${i + 1} (string expected, got ${OcArgs.typeName(v)})")
-    }
-  }
-
-  /** ocelot's `optString` (Arguments.scala:361-364): null when absent or nil, else `checkString`. */
-  private def optString(args: Array[AnyRef], i: Int): String =
-    if (i >= args.length || args(i) == null) null
-    else args(i) match {
-      case b: Array[Byte] => new String(b, StandardCharsets.UTF_8)
-      case s: String => s
-      case v => throw new IllegalArgumentException(s"bad argument #${i + 1} (string expected, got ${OcArgs.typeName(v)})")
     }
 }

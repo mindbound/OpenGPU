@@ -7,6 +7,9 @@ import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.SidedProxy;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
+import cpw.mods.fml.common.event.FMLServerStartingEvent;
+import cpw.mods.fml.common.event.FMLServerStoppedEvent;
+import io.github.mindbound.opengpu.server.ServerSession;
 
 // OpenComputers 1.12.64-GTNH is the floor (decision 14, docs/research/24-architecture-gl-first.md).
 @Mod(
@@ -33,5 +36,16 @@ public class OpenGPU {
     @Mod.EventHandler
     public void init(FMLInitializationEvent event) {
         proxy.init(event);
+    }
+
+    // A server posts both on its own thread, an integrated one too (21:111), so a session is found by its thread
+    @Mod.EventHandler
+    public void serverStarting(FMLServerStartingEvent event) {
+        ServerSession.start(event.getServer());
+    }
+
+    @Mod.EventHandler
+    public void serverStopped(FMLServerStoppedEvent event) {
+        ServerSession.stop();
     }
 }

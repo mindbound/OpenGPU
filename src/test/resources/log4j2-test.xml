@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The root tests' log4j configuration, console only. log4j 2.0-beta9 prefers log4j2-test.xml to log4j2.xml on the
+  classpath (ConfigurationFactory.TEST_PREFIX), so a test that logs through OpenGPU.LOG does not take Forge's
+  log4j2.xml from the recompiled Minecraft jar, whose file appenders would write logs/latest.log and logs/fml-*.log
+  into the project directory.
+-->
+<Configuration status="WARN">
+    <Appenders>
+        <Console name="SysOut" target="SYSTEM_OUT">
+            <PatternLayout pattern="[%d{HH:mm:ss}] [%t/%level] [%logger]: %msg%n"/>
+        </Console>
+    </Appenders>
+    <Loggers>
+        <Root level="info">
+            <AppenderRef ref="SysOut"/>
+        </Root>
+    </Loggers>
+</Configuration>
