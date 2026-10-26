@@ -10,17 +10,18 @@ import io.github.mindbound.opengpu.core.render.RenderHost;
  * reason {@code getCaps().graphics} gives while that host is not available, and the host's cached {@code GL_RENDERER}
  * for {@code getCaps().hostRenderer} (24:125). The card answers both keys from this server-side state, since the SPI
  * returns no host data (28:200; 24:133 (a)). Immutable.
+ * <p>
+ * The reason is fixed per installation, so a client's {@code GlRenderHost} carries the one Lua sees if that host later
+ * fails closed (H63), and a client without graphics carries its GL reason with {@code NoRenderHost}; every client
+ * installation carries the probed {@code GL_RENDERER}, {@code NoRenderHost}'s included, and none only when the probe
+ * threw ({@link #none}; S12 plan P6.4; Q-S12-7 (a)).
+ * S11's interim reason for an integrated server with nothing installed is gone (Q-S11-8; Q-S12-5 (a)): such a server
+ * refuses to start ({@link RenderHosts#forServer(boolean)}).
  */
 public final class Installation {
 
     /** {@code graphics} on a dedicated server (24:125). */
     public static final String DEDICATED_SERVER = "dedicated server";
-
-    /**
-     * {@code graphics} on an integrated server while no client host is installed: every integrated server until S12's
-     * {@code ClientProxy.init} installs {@code GlRenderHost} or one of 24:125's GL reasons. S12 removes it (Q-S11-8).
-     */
-    public static final String NOT_INSTALLED = "host renderer not installed";
 
     private static final Installation DEDICATED = new Installation(NoRenderHost.INSTANCE, DEDICATED_SERVER, null);
 
@@ -45,7 +46,10 @@ public final class Installation {
         return new Installation(host, unavailableReason, hostRenderer);
     }
 
-    /** {@link NoRenderHost} with the given reason and no {@code hostRenderer}. */
+    /**
+     * {@link NoRenderHost} with the given reason and no {@code hostRenderer}: a client whose GL probe threw, so it has
+     * no {@code GL_RENDERER} (S12 amendments I11).
+     */
     public static Installation none(String reason) {
         return of(NoRenderHost.INSTANCE, reason, null);
     }
@@ -89,10 +93,20 @@ public final class Installation {
             + Objects.hashCode(hostRenderer);
     }
 
-    /** For example "Installation[NoRenderHost, dedicated server, hostRenderer null]". */
+    /**
+     * The installation as the session's log line gives it, with the reason labelled, so a healthy host's start does not
+     * read as a failure (S12 amendments F14): on a client with graphics, for example, "Installation[GlRenderHost,
+     * graphics when unavailable: host renderer failed, hostRenderer Intel(R) UHD Graphics 770]", and on a dedicated
+     * server "Installation[NoRenderHost, graphics when unavailable: dedicated server, hostRenderer null]".
+     */
     @Override
     public String toString() {
         return "Installation[" + host.getClass()
-            .getSimpleName() + ", " + unavailableReason + ", hostRenderer " + hostRenderer + "]";
+            .getSimpleName()
+            + ", graphics when unavailable: "
+            + unavailableReason
+            + ", hostRenderer "
+            + hostRenderer
+            + "]";
     }
 }

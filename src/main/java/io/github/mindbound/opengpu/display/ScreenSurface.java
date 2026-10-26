@@ -23,10 +23,27 @@ import net.minecraftforge.common.util.ForgeDirection;
  * <li>pixel (0, 0) is the top-left corner, x grows to the right and y down (0-based pixels, 15:184; 24:140), so
  * {@link #point} at (x / W, y / H) is where pixel (x, y) of a W × H picture starts.</li>
  * </ul>
- * The bezel and the letterbox of 15 §4.2 are inside this quad and S12's. Tilt is 0 in M0, the only tilt
- * {@link DisplayShape} has; M1.5's tilted plane (RM:110-111) extends this class. Immutable.
+ * <b>The picture</b> (15 §4.2; S12 plan P8.3 with amendment I2): {@link #picture} places a W × H picture inside
+ * this quad, the face shrunk by {@link #BEZEL} on each side, its aspect kept and centred, so M0's 16:10 surfaces get a
+ * band above and below (the letterbox), and moved {@link #OFFSET} along the normal. The bezel and the bands are the
+ * chassis's front icon, so the TESR draws one quad, and M1.5's in-world touch shares the constant (15:175). Tilt is 0
+ * in M0, the only tilt {@link DisplayShape} has; M1.5's tilted plane (RM:110-111) extends this class. Immutable.
  */
 public final class ScreenSurface {
+
+    /**
+     * The bezel's width on each side of the face, in blocks: OC's 2.25/16 (ScreenRenderer.scala:157-162), which 15:175
+     * keeps "so the hit-test and the TESR share one constant" [proposal there, taken by S12 plan P8.3]. Exact in
+     * binary, as is the inner square's side 11.5/16.
+     */
+    public static final double BEZEL = 2.25 / 16;
+
+    /**
+     * How far the picture lies in front of the face along its normal, in blocks: OC's 0.01 (ScreenRenderer.scala:185).
+     * At thickness 16 the face is the chassis's front face, so the offset keeps the picture off it with no
+     * {@code glPolygonOffset}, which R-4 leaves out (25:436-445; S12 plan P8.3) [proposal].
+     */
+    public static final double OFFSET = 0.01;
 
     /**
      * Corner indices, in the order top-left, top-right, bottom-right, bottom-left, as the picture's viewer sees them.
@@ -130,6 +147,38 @@ public final class ScreenSurface {
             default:
                 throw new IndexOutOfBoundsException("corner " + index);
         }
+    }
+
+    /**
+     * The four corners of a {@code width} × {@code height} picture on the face, each a new {x, y, z}, indexed
+     * {@link #TOP_LEFT} to {@link #BOTTOM_LEFT} as {@link #corner} is (S12 plan P8.3): the inner square, the face less
+     * {@link #BEZEL} on each side, holds the picture at its own aspect, as wide as the square for a picture at least
+     * as wide as it is high and as high as the square otherwise, centred, so the rest of the square is a band on two
+     * sides; then each corner moves {@link #OFFSET} along the normal. Pixel (0, 0) of the picture is at the top-left
+     * corner, as for the face. A square picture, such as the "no graphics" bitmap, fills the inner square.
+     * <p>
+     * The order is the viewer's clockwise one; the TESR emits the corners counter-clockwise from the front, as the
+     * world pass's {@code GL_CULL_FACE} with GL's default back face and front face keeps them (S12 amendments I2).
+     *
+     * @throws IllegalArgumentException unless both sides are at least 1
+     */
+    public double[][] picture(int width, int height) {
+        if (width < 1 || height < 1) {
+            throw new IllegalArgumentException("a picture of " + width + " x " + height + " pixels");
+        }
+        double inner = 1 - 2 * BEZEL;
+        double w = width >= height ? inner : inner * width / height;
+        double h = width >= height ? inner * height / width : inner;
+        double u0 = (1 - w) / 2;
+        double v0 = (1 - h) / 2;
+        double[][] corners = { point(u0, v0), point(u0 + w, v0), point(u0 + w, v0 + h), point(u0, v0 + h) };
+        ForgeDirection normal = normal();
+        for (double[] corner : corners) {
+            for (int i = 0; i < 3; i++) {
+                corner[i] += OFFSET * offset(normal, i);
+            }
+        }
+        return corners;
     }
 
     @Override

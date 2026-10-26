@@ -20,8 +20,9 @@ import net.minecraft.world.storage.ISaveHandler;
  * without a constructor, since World is abstract (World.java:73) and its constructor reaches the save handler and the
  * world provider. Its fields stay at their defaults, so only what is modelled here works: {@code isRemote} as given,
  * {@link #getTileEntity} from the tile entities a test puts, and {@link #markBlockForUpdate} and
- * {@link #markTileEntityChunkModified}, which record the block; any other world access would meet a null. Not
- * thread-safe: the server thread's.
+ * {@link #markTileEntityChunkModified}, which record the block, and {@link #func_147479_m}, the render update a
+ * client's description asks for, which records it too (S12 amendments I9); any other world access would meet a null.
+ * Not thread-safe: the server thread's, or the client thread's for a remote world.
  */
 public final class BareWorld extends World {
 
@@ -29,6 +30,7 @@ public final class BareWorld extends World {
     private Map<String, TileEntity> tiles;
     private List<String> updates;
     private List<String> modified;
+    private List<String> renderUpdates;
 
     private BareWorld() {
         super((ISaveHandler) null, null, (WorldSettings) null, (WorldProvider) null, (Profiler) null);
@@ -46,6 +48,7 @@ public final class BareWorld extends World {
             world.tiles = new HashMap<>();
             world.updates = new ArrayList<>();
             world.modified = new ArrayList<>();
+            world.renderUpdates = new ArrayList<>();
             return world;
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("cannot allocate a world", e);
@@ -82,6 +85,19 @@ public final class BareWorld extends World {
     @Override
     public void markTileEntityChunkModified(int x, int y, int z, TileEntity tile) {
         modified.add(key(x, y, z));
+    }
+
+    /** The blocks {@link #func_147479_m} marked for a render update, as "x y z", in order. */
+    public List<String> renderUpdates() {
+        return new ArrayList<>(renderUpdates);
+    }
+
+    /**
+     * Records the block; World's own walks {@code worldAccesses} (World.java:1116-1122), which a bare world never set.
+     */
+    @Override
+    public void func_147479_m(int x, int y, int z) {
+        renderUpdates.add(key(x, y, z));
     }
 
     @Override

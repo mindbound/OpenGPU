@@ -100,10 +100,13 @@ class ServerSessionTest {
         }
     }
 
+    // The integrated session through the installation seam, as no test installs a host (S11 amendments B1)
     @Test
     void sessionIdsDifferAcrossSessionsAndGrow() {
         ServerSession first = startHere(true);
-        ServerSession second = startHere(false);
+        ServerSession second = ServerSession
+            .start(false, Installation.of(new FakeRenderHost(), "test host", null), executor());
+        started.add(second);
         Assertions.assertTrue(first.id() >= 1, first::toString);
         Assertions.assertTrue(second.id() > first.id(), () -> first + " then " + second);
     }
@@ -153,21 +156,22 @@ class ServerSessionTest {
         Assertions.assertSame(Installation.dedicated(), RenderHosts.forServer(true));
     }
 
-    // Until S12's ClientProxy.init installs GlRenderHost, an integrated server answers with the interim reason
-    // (Q-S11-8)
+    // Q-S11-8 and Q-S12-5 (a): S11's interim reason is gone, so an integrated server that finds no installed host,
+    // which only a JVM without the client proxy sees, as here (S11 amendments B1), refuses to start, naming K3, and the
+    // running session stays current. It refuses before it makes its pool (ServerSession.start reads RenderHosts first),
+    // but no test can see that: a pool makes its threads only as tasks arrive (Pool.java:30), so a pool made and
+    // dropped would leave no thread either (review strength-8)
     @Test
-    void anIntegratedServerGetsTheInstalledHostWhichIsNoneUntilS12() {
-        ServerSession session = startHere(false);
-        Assertions.assertFalse(session.isDedicated());
-        Assertions.assertSame(RenderHosts.installed(), session.installation());
-        Assertions.assertSame(
-            NoRenderHost.INSTANCE,
-            session.installation()
-                .host());
-        Assertions.assertEquals(
-            "host renderer not installed",
-            session.installation()
-                .unavailableReason());
+    void anIntegratedServerWithNoInstalledHostRefusesToStart() {
+        ServerSession running = startHere(true);
+        IllegalStateException refused = Assertions
+            .assertThrows(IllegalStateException.class, () -> started.add(ServerSession.start(false, 1)));
+        Assertions.assertTrue(
+            refused.getMessage()
+                .contains("K3"),
+            refused::getMessage);
+        Assertions.assertThrows(IllegalStateException.class, () -> RenderHosts.forServer(false));
+        Assertions.assertSame(running, ServerSession.current());
     }
 
     @Test

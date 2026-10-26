@@ -355,6 +355,79 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    merged (ad9092e, 2026-10-25); the main session recorded it at RM:465
    and in 23 §1.1, and `.gitignore`'s two entries stay, the owner's
    choice. S11's push is OpenGPU's first CI run with the new step.
+26. The owner committed S11, with S10's second-CI record, as e4617d8
+   and, on 2026-10-26, reported its CI run, 40249306573: green on the
+   first attempt, "Tests" 2 496 passed, the root's server side booted in
+   the shared workflow's `runServer` step, PR #75's step run, five jars
+   without "-dirty", and the root `test` inside its budget. `:gl:test`
+   and its model test went over theirs (31.4 of 30 s and 13.0 of 8 s) in
+   a run where every test task executed, S11's change to `:core`'s test
+   fixtures keeping three of them from the build cache, and the owner
+   chose to record that only (Q-S11-20):
+   "I'd say let's record them only for now, unless you strongly object."
+   The main session read the run with `gh`, read-only, and recorded it
+   in the roadmap, 23, 28 and this index. Run wf_a4fd481c-207 checked the
+   record with a refuting checker, whose confirmed points were applied.
+27. M0 step S12 (2026-10-26) built the root mod's client side: the
+   client's render host and its installation, `GlCaps` with the Angelica
+   gate, the display's TESR, chassis, render box and placeholder
+   textures, its GUI and input's client half, `jarTest`'s checks 10 and
+   11, `glsmLinkageTest` over the root's classes and the root's GL leg
+   `clientGlTest`; 2 635 tests in `check`. Planning run wf_6a9e283f-eb4
+   (scouts for the docs, the API, GL and the repo, a spike in WSL, the
+   planner, critics F and I, and an amend step that adopted 28 of their
+   29 points) made the plan, and the owner took the main session's
+   recommended default, (a), on each of its seven questions:
+   "I think these are reasonable defaults to start with. If we run into
+   any issues with them during testing, we can change them and iterate,
+   this isn't a one-shot work, of course." On the leave that Q-S12-2
+   asked for: "Yes, feel free to copy the Lua programs into the test
+   world OC folders, no objections whatsoever." Build run
+   wf_62b87a6d-189 built units U1 to U6, with the verification on
+   Windows, in WSL and on the RTX 5060 (V1, V2, V2b), the `runServer`
+   audit's series `s12-audit-v1` (V3), the guards (V4) and the mutants
+   in WSL copies of the tree (V5). In review run wf_435240e9-3f6 three
+   lenses (spec, strength, gl) found 20 points, and a fixer confirmed
+   all of them, fixed 19 and ran series `s12-audit-v1b` (V3b); the
+   twentieth, gl-3, Angelica's pop restoring a texture binding without
+   GLSM's event that Iris listens to, was first deferred. The owner
+   asked: "if this is a serious concern that *can* be fixed on our end
+   by changing the OpenGPU state rules, can and should we do it that
+   way? That is to say, is it a genuine Angelica issue or rather a
+   clash between Angelica's behaviour and our logic?" The main session
+   proposed a bracket without `GL_TEXTURE_BIT` that binds 0 after its
+   draw, and the owner chose it: "Alright, that looks good! You're
+   right, our version floor guarantees older versions wouldn't receive
+   the fix, no matter if it's implemented upstream or not. Yes, let's
+   do it." Follow-up run wf_0f33e60d-403 (an implementer and a checker)
+   built it as D23, and the main session fixed the checker's one nit
+   (D25). In the in-game session V7 the main session started each
+   `--offline` `runClient` and read its log, and the owner did every
+   step in a test world: leg L1 without Angelica and leg L2 on 2.2.8,
+   both on the Intel iGPU. The main session's finding IG4-1, repeated
+   drags within one pixel, went to the owner: "As for the drag lines
+   finding, yes, let's match OC there." (D26). On font 0's look (IG8):
+   "it's clear, easily readable, and I have no issues with it of any
+   kind", which the owner called "obviously not a technical
+   evaluation". Follow-up run wf_deb3ac1d-d71 (an implementer and a
+   checker) built D26, and the main session fixed the checker's four
+   points (D27). The owner then wrote: "I think we can skip IG7 for now.
+   As for the NVIDIA checks, we can add those to any of our next
+   in-game test suites, maybe even the upcoming D26 test." (D28), so leg
+   L4 ran on the RTX 5060 with 2.2.8, D26's drags among its checks.
+   After the main session gave L3's cost and what only it shows, the
+   owner said: "let's test this and fold the results into the docs
+   pass" (D29), and leg L3 ran Angelica 2.1.49, below the floor, whose
+   bound display showed the "no graphics" bitmap. After each run the
+   main session checked the tree itself (a build, the agents' commands
+   against the shell rules, a scan for third-party text) and deleted
+   the audit's worlds; the owner's `run/server/world` was never opened,
+   their saves changed only by NEI's own writes, and every Gradle run
+   was `--offline`. The doc pass recorded the step in the roadmap, 23,
+   24, 25, 28 (its section "S12 implemented"), 21, 20, 15, 14, 13, 09,
+   05, 03, 02 and this index, with the pins below. Run wf_4a3ef3ba-5bf
+   wrote it with three writers on disjoint files, then three refuting
+   checkers, whose confirmed points were applied.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
@@ -369,7 +442,7 @@ Java 17-21 + lwjgl3ify (GTNH packs), OC-LuaJIT commit a4994e6.
 | `02-angelica-compat.md` | GLSM redirector, core-profile context, Iris and Celeritas rules, the certified `glTexSubImage2D` + quad baseline |
 | `03-minecraft-1710-rendering-and-networking.md` | Vanilla texture path, `ScreenRenderer` template, Forge 1.7.10 networking and caps, bandwidth envelope |
 | `04-lua-boundary-and-runtimes.md` | Marshalling across Lua 5.2/5.3/5.4, LuaJ and OC-LuaJIT; limits; portable encoder and handle strategy |
-| `05-dev-stack-and-testing.md` | GTNHGradle setup, dependency coordinates, runtime bytecode generation, dev runs, ocelot-brain adapter design, licensing; M0 step S10's harness rules as applied, and its fetch, build and online runs (2026-10-25) |
+| `05-dev-stack-and-testing.md` | GTNHGradle setup, dependency coordinates, runtime bytecode generation, dev runs, ocelot-brain adapter design, licensing; M0 step S10's harness rules as applied, and its fetch, build and online runs (2026-10-25); open question 5 answered by M0 step S12: no OC internals on M0's in-game display path, only OC's `:api` (2026-10-26) |
 | `06-graphics-engine-architecture-best-practices.md` | API shape, software rasterizer design with measured JVM throughput, shader language and compiler plan, compute model, determinism |
 | `07-feasibility-and-performance-envelope.md` | Cost model, call-rate wall, threading policy, risk register, tier proposal, M0 definition |
 | `08-proposal-A-server-software.md` | Server-authoritative software renderer with streamed framebuffers |
@@ -379,19 +452,19 @@ Java 17-21 + lwjgl3ify (GTNH packs), OC-LuaJIT commit a4994e6.
 | `10-gap-gtnh-pack-shipped-oc-config.md` | The GTNH pack's shipped OC config vs the user's instance; effective default Lua runtime; budget and RAM consequences |
 | `11-gap-direct-call-overhead-measured.md` | Measured direct-call costs per runtime (harness in `callbench/`); budget stall protocol; table-argument RAM finding |
 | `12-gap-client-mirror-feasibility.md` | Client-side mirror cost, memory, class loading, single-player bypass, cross-ISA determinism, Context lifecycle; mirror deferred to M3 |
-| `13-gap-off-thread-packet-sending.md` | Forge 1.7.10 send-path thread safety; pool-thread sending via `scheduleOutboundPacket` |
-| `14-gap-lwjgl3ify-glcaps-shim.md` | Capability probing under lwjgl3ify; the GlCaps question closed |
-| `15-gap-keyboard-attachment-and-input-topology.md` | Keyboard attachment rule, display block input topology, host scope, touch projection; dated notes on input's server half as M0 step S11 built it (2026-10-26) |
+| `13-gap-off-thread-packet-sending.md` | Forge 1.7.10 send-path thread safety; pool-thread sending via `scheduleOutboundPacket`; a dated note on `client.InputSender` as M0 step S12 built it (2026-10-26) |
+| `14-gap-lwjgl3ify-glcaps-shim.md` | Capability probing under lwjgl3ify; the GlCaps question closed; `GlCaps` as M0 step S12 built it, its 16 reads of 14 `ContextCapabilities` fields and its logged flag set (2026-10-26) |
+| `15-gap-keyboard-attachment-and-input-topology.md` | Keyboard attachment rule, display block input topology, host scope, touch projection; dated notes on input's server half as M0 step S11 built it (2026-10-26); M0 step S12's GUI: the mapping, the gestures, D26's drags as OC sends them, the drop on close and the in-game results (2026-10-26) |
 | `19-gap-ocelot-brain-gtnh-parity.md` | ocelot-brain vs OC 1.12.64-GTNH machine model diff; which tests are trustworthy headless; the harness rules as M0 step S10 applied them (2026-10-25) |
-| `20-gl-first-client-rendering.md` | Client GL path with and without Angelica: GL 3.3 floor, offscreen integer surfaces, PBO readback, timestamp fences, the GLSM descriptor trap, GPU-hang safety |
-| `21-integrated-server-render-handoff.md` | Server-to-host handoff in one JVM (RenderHost SPI), persistence with an in-flight tail, LAN guest streaming with measured bandwidth, dedicated-server options |
+| `20-gl-first-client-rendering.md` | Client GL path with and without Angelica: GL 3.3 floor, offscreen integer surfaces, PBO readback, timestamp fences, the GLSM descriptor trap, GPU-hang safety; M0 step S12's TESR, GUI and "no graphics" bitmap as built, and what the in-game session saw (2026-10-26) |
+| `21-integrated-server-render-handoff.md` | Server-to-host handoff in one JVM (RenderHost SPI), persistence with an in-flight tail, LAN guest streaming with measured bandwidth, dedicated-server options; M0 steps S11's and S12's notes on the installation, the pause and the quit with frames in flight (2026-10-26) |
 | `22-shader-and-compute-languages.md` | GLSL ES 1.00 graphics subset and its emitter, GLSL 4.30-syntax compute with CPU semantics, determinism rules, rack scheduling, the HBM RBMK check; section 1 superseded by 27 where they conflict |
-| `23-gl-testing-strategy.md` | Headless GL in the GTNH shared CI, tolerance tiers for golden images, the ocelot GL test host, in-game and dedicated-server tests; M0 step S10's ocelot tasks, counts, times, budgets and reviews (2026-10-25); M0 step S11's root `test` and its budget, `jarTest`'s checks 7-9, the mutants and the local `runServer` audit (2026-10-26) |
+| `23-gl-testing-strategy.md` | Headless GL in the GTNH shared CI, tolerance tiers for golden images, the ocelot GL test host, in-game and dedicated-server tests; M0 step S10's ocelot tasks, counts, times, budgets and reviews (2026-10-25); M0 step S11's root `test` and its budget, `jarTest`'s checks 7-9, the mutants and the local `runServer` audit (2026-10-26); S11's first CI run, with `:gl:test`'s two budgets over and recorded only (2026-10-26); M0 step S12's `clientGlTest` and its budget, `jarTest`'s checks 10 and 11, the `runServer` audit with client code, the mutants and the in-game session V7 (2026-10-26) |
 | `24-architecture-gl-first.md` | Current decision document: owner decisions, architecture, phased plan M0-M4 with M1.5 display block, questions, risks |
-| `25-angelica-version-floor.md` | Angelica version floor: 2.2.8 supported, older gated off at runtime (the 2.1.14-2.2.7 best-effort band was dropped on 2026-10-13); linkage matrix over all 2.x releases to 2.2.30, the M0 GL call set and deny-list, code rules, test matrix, GTNH pack coverage; M0 step S9's per-jar linkage and `unmappedGL=FAIL` record on 2.2.8, 2.2.21, 2.2.28 and the latest release (2.2.36 on 2026-10-24), with its mutants |
+| `25-angelica-version-floor.md` | Angelica version floor: 2.2.8 supported, older gated off at runtime (the 2.1.14-2.2.7 best-effort band was dropped on 2026-10-13); linkage matrix over all 2.x releases to 2.2.30, the M0 GL call set and deny-list, code rules, test matrix, GTNH pack coverage; M0 step S9's per-jar linkage and `unmappedGL=FAIL` record on 2.2.8, 2.2.21, 2.2.28 and the latest release (2.2.36 on 2026-10-24), with its mutants; M0 step S12's R-4 without `GL_TEXTURE_BIT` (D23), the root's call set with the pass-through row P01, the linkage test over the root's classes and R-13's gate seen on 2.1.49 (2026-10-26) |
 | `26-lessons-from-general-engines.md` | Lessons from Godot, OpenSceneGraph, O3DE, small-program shader languages and PS1/N64/Dreamcast/Quake/Doom techniques: typed handles, GL state hygiene, a GL allocation ledger, crash guard, API dump, semantic attributes, palette ops, quantize and dither, a retro shader variant family; considered items and owner questions |
 | `27-graphics-language-es300.md` | Graphics shader language as an ES 3.00-based subset: input form, accepted subset, built-ins against GLSL 3.30, integer guards matching compute, ANGLE driver workarounds re-checked, flat and noperspective, interface conventions, shared frontend, effort, an index8 example |
-| `28-command-stream-v1.md` | Command stream v1 for M0, accepted by the owner on 2026-10-14, with its glyph-source question (Q1) answered the same day (font 0 is misc-fixed 6x13) and `TEXT`'s font byte added on 2026-10-15 (29 F4): framing, error codes, versioning and the opcode map; the four M0 ops with per-format pixel results and the tier-E oracle; the minimal texture path and its ordering; the lifecycle and the `RenderHost` SPI; caps, charges and the Lua encoder with a worked frame; S6's test plan; owner questions; what S6 and S7 (2026-10-15), S8 (2026-10-16), S10 (2026-10-25) and S11 (2026-10-26) settled, with S8's owner decisions Q-S8-1 to Q-S8-3 and the readback bugs it found in Intel's Windows driver and in Mesa's llvmpipe, and S11's root server side with its decisions D12-D19 and the owner's answers on Q-S11-16 to Q-S11-19 |
+| `28-command-stream-v1.md` | Command stream v1 for M0, accepted by the owner on 2026-10-14, with its glyph-source question (Q1) answered the same day (font 0 is misc-fixed 6x13) and `TEXT`'s font byte added on 2026-10-15 (29 F4): framing, error codes, versioning and the opcode map; the four M0 ops with per-format pixel results and the tier-E oracle; the minimal texture path and its ordering; the lifecycle and the `RenderHost` SPI; caps, charges and the Lua encoder with a worked frame; S6's test plan; owner questions; what S6 and S7 (2026-10-15), S8 (2026-10-16), S10 (2026-10-25), S11 and S12 (2026-10-26) settled, with S8's owner decisions Q-S8-1 to Q-S8-3 and the readback bugs it found in Intel's Windows driver and in Mesa's llvmpipe, S11's root server side with its decisions D12-D19 and the owner's answers on Q-S11-16 to Q-S11-19, and S12's client host: `GlRenderHost`, the installation and its reasons, HO-2's face rule, `BOUND_ONLY`, the quit and input's client half |
 | `29-font-survey.md` | Font survey for `TEXT` (2026-10-14), answering the follow-up to 28 Q1, revised the same day after the owner decided F1 (font 0 is misc-fixed 6x13), and on 2026-10-15 after F3, F4, F7 and F8 (decided), F6 (proportional fonts in M1, starting with Tiny5, Tiny5 Duo and ANAKRON), F5 (deferred to M1, then decided for M1 at the owner's request) and F9 (done, the ROM files deleted), and after a CJK provenance check (§10) that narrowed F7 to 12x13ja: why one size cannot serve a pixel GPU's labels, body text and headings; bitmap candidates by role (body text, small, display, wide coverage) measured for coverage, licence and provenance; a recommended M1 family by use, mostly misc-fixed; the licence obligations and atlas and jar cost; a font operand, advance and fill rules for `TEXT`; F1's decision record; owner questions F1-F9; the provenance check of misc-fixed's CJK faces |
 | `callbench/` | The ocelot-brain call-overhead harness (`src/Bench.scala`, `src/bench.lua`, run scripts) and every log of the 2026-10-08 campaign. The scripts hard-code the research-phase scratchpad in `S=` (`run.sh:6`, `matrix.sh:3`, `run-extra.sh:3`) and read `$S/lib/*.jar`, 17 public jars (35 MB) that nothing rebuilds; fetch them as OC-LuaJIT's `test/native/smoke-test.sh:353-378` does. No M0 item re-runs callbench; whoever does makes `S` script-relative first |
 | `cmdstream-checks/` | 28's check scripts (2026-10-14; `example.py`, `luabuilders.py` and `rev_checks.py` updated on 2026-10-15 for `TEXT`'s font byte): `q565.py` (quantize, expand and the `GL_R8` index recovery), `example.py` (the worked frame's bytes, handles, charges and caps), `luabuilders.py` (the Lua record builders against the layouts) and `rev_checks.py` (the revision's checks, among them a naive validator over the negative cases; on 2026-10-15 its `TEXT` string check became one scan, as 28:648 says), plus Q1's `q1_font0.py` (font 0's cell, coverage with Greek and Cyrillic, and atlas, and the synthetic table at 6×13 and 8×13; it takes the BDFs under `opengpu-refs\font-survey\misc-fixed\x\` as arguments), and S6's `oracle_goldens.py` (2026-10-15: an independent model of 28 §3, §5, §6.1–§6.4 and §7, with §2.2's reset, that re-derives every grid and total of `:core`'s `oracle-goldens.txt`; `--emit <case>` prints a case's grid; it takes the goldens file as its argument), and S8's `font0_table.py` (2026-10-16: font 0's glyph table re-derived from `6x13.bdf` without the Java converter's code, through a strict BDF 2.1 reading with the converter's checks; it prints the body's SHA-256, which `Font0Test` pins, and its CRC32, the coverage counts and `q1_font0.py`'s checks, then ALL PASS; `--self-test` runs a hand-made two-glyph BDF through the same code and each rule against a file that breaks it; it takes `core/src/fonts/misc-fixed/6x13.bdf` as its argument). Own code, MIT with the repo; Python 3 standard library only: run each with `python -I X.py` |
@@ -425,7 +498,9 @@ roadmap cover all of them:
   creative tab, OC manual pages and `DeviceInfo` in M1, and recipes and
   pack integration by v1 (M4). Since M0 step S11 (2026-10-26) the lang
   file and OC's creative tab are in M0 (Q-S11-5), and textures come with
-  S12.
+  S12. S12 (2026-10-26) added five generated placeholder textures for the
+  block and the card (Q-S12-3), which art can replace at the same names
+  and sizes; the rest stays M1's.
 - OC Lua program conventions (chug-library): design input at the start of
   M1, for the simple-2D callbacks, `opengpu.lua` and the OpenOS-style
   terminal.
@@ -517,6 +592,25 @@ CodeChickenLib's `PacketCustom`
 saving nothing. The `runServer` audit's baseline is series V0, run at
 HEAD dcd8acd before any S11 edit; its class lists, and those of the
 later series, are kept outside the repository (23's S11 amendments).
+
+M0 step S12 (2026-10-26) read Angelica's sources in place in the owner's
+checkout at tag 2.2.8 = 6d8cbf9, among them `GLStateManager` and GLSM's
+Tessellator streaming drawer, Celeritas' world renderer and meshing
+task, `MixinTileEntity`, and Iris's `CommonUniforms`,
+`PBRTextureManager`, `IrisGLSMBridge` and shadow renderer, which gl-3
+and D23 rest on; it read the dev jars of 2.2.8, 2.2.21, 2.2.28 and
+2.2.36 in the Gradle cache with `javap` and `unzip` only, and leg L3 ran
+2.1.49's dev jar from that cache through `-PwithAngelica=2.1.49`. It
+read OC's sources in place at `ocgtnh-master` (tag 1.12.64-GTNH =
+1e4559f), among them `client/gui/Screen.scala` and
+`client/gui/traits/InputBuffer.scala` (D12, D26) and the client's block
+renderer (F7), and Minecraft's, FML's and Forge's decompiled sources
+under `build/rfg/minecraft-src/java/`, among them `RenderBlocks`,
+`Tessellator`, `TileEntityRendererDispatcher`, `EntityRenderer`,
+`GuiScreen` and `RenderItem`. Nothing of them was kept. The `runServer`
+audit's baseline was S11's final series V3d. The in-game test world
+`s12-check` stays under the ignored `run/client/saves/`, with NEI's
+folder for it, for the next in-game suites.
 
 Research evidence, made or downloaded by the research agents; it exists only
 in `opengpu-refs` and in the session transcripts:

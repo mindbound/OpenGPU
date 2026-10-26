@@ -8,6 +8,7 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.Packet;
 import net.minecraft.network.play.server.S35PacketUpdateTileEntity;
+import net.minecraft.util.AxisAlignedBB;
 import net.minecraftforge.common.util.ForgeDirection;
 
 import cpw.mods.fml.relauncher.Side;
@@ -83,13 +84,21 @@ import li.cil.oc.api.prefab.TileEntityEnvironment;
  * {@value #PRECISE} beside the shape, as OC saves {@code oc:precise} (TextBuffer.scala:460, :496) [proposal], and not
  * in the description: a client always sends fractions, and the server converts.
  * <p>
+ * <b>The client's half</b> (S12 plan P8.7, P8.8 with amendment I7). {@link #getRenderBoundingBox} gives one box per
+ * tile entity from its first call, the extent of M1.5's largest default wall (R-9); the render distance stays
+ * vanilla's 64 blocks, a per-class constant as Celeritas needs (03:102). A description that turns the display to
+ * another facing or rotation has the client rebuild the block's chunk mesh, since the chassis's front icon follows the
+ * facing. An ISBRH on a meshing thread reads the shape through Celeritas' world slice, so the shape is volatile; it is
+ * written on the server thread and on the client thread only.
+ * <p>
  * <b>What it never does</b> (P12.7; S11 plan L1, L4). It names no client type outside {@code @SideOnly(CLIENT)} members
- * (24:90): {@link #canConnect} and {@link #onDataPacket} here, S12's render box and render distance later. It holds no
- * framebuffer, texture or device, renders nothing, reads no pixels, and reaches the host only through
- * {@code bindDisplay}. It sends no packet of its own: its description is vanilla's sync. It calls no
- * {@code getEffectiveSide()}, saves no device state, and of the binding saves only its binder (D15), which it never
- * describes. It signals only {@code computer.checked_signal}, for accepted input. Everything but the client's two
- * members and {@code isPrecise}, which OC's workers call, runs on the server thread.
+ * (24:90): {@link #canConnect}, {@link #onDataPacket} and {@link #getRenderBoundingBox}. It holds no framebuffer,
+ * texture or device, renders nothing, reads no pixels, and reaches the host only through {@code bindDisplay}. It sends
+ * no packet of its own: its description is vanilla's sync. It calls no {@code getEffectiveSide()}, saves no device
+ * state, and of the binding saves only its binder (D15), which it never describes. It signals only
+ * {@code computer.checked_signal}, for accepted input. Everything but the client's three members and
+ * {@code isPrecise}, which OC's workers call, runs on the server thread; on a client, Celeritas' meshing threads also
+ * read the shape and ask for the render box.
  */
 public class DisplayTile extends TileEntityEnvironment implements SidedEnvironment {
 
@@ -106,12 +115,28 @@ public class DisplayTile extends TileEntityEnvironment implements SidedEnvironme
     /** The NBT key of the binder, a String, written only when there is one, never described (D15; Q-S11-16). */
     static final String BINDER = "opengpu:binder";
 
+    /**
+     * How far the render box reaches past the block on every side, in blocks: M1.5's largest default wall is 8 × 6
+     * (RM:108), so any of its blocks lies at most 7 from the far edge, whichever way it faces (S12 plan P8.7;
+     * Q-S12-6 (a)). M1.5 sizes it from its configured maximum.
+     */
+    static final int RENDER_REACH = 7;
+
     /** The message a display's node sends for accepted input (24:222; Machine.scala:645-656). */
     private static final String CHECKED_SIGNAL = "computer.checked_signal";
     /** NBT's tag type of a string. */
     private static final int STRING = 8;
 
-    private DisplayShape shape = DisplayShape.DEFAULT;
+    /**
+     * Written on the server thread and on the client thread; volatile, since an ISBRH on a Celeritas meshing thread
+     * reads it through the world slice (WorldSlice.java:382-391; S12 plan P8.8).
+     */
+    private volatile DisplayShape shape = DisplayShape.DEFAULT;
+    /**
+     * On a client: the render box, made once under {@link #renderBoxLock} and then never changed (S12 amendments I7).
+     */
+    private volatile AxisAlignedBB renderBox;
+    private final Object renderBoxLock = new Object();
     /** Warnings logged for unreadable shape values: at most one per tile entity. */
     private int shapeWarnings;
     /** Precise mode: set on the server thread by setPrecise, read there by input and on OC's workers by isPrecise. */
@@ -393,15 +418,62 @@ public class DisplayTile extends TileEntityEnvironment implements SidedEnvironme
         return new S35PacketUpdateTileEntity(xCoord, yCoord, zCoord, 0, tag);
     }
 
-    /** A client reads the server's description; its getter is client-only (S35PacketUpdateTileEntity.java:96-97). */
+    /**
+     * A client reads the server's description; its getter is client-only (S35PacketUpdateTileEntity.java:96-97). When
+     * the facing or the rotation changed and the tile entity is in a world, the world marks the block for a render
+     * update, so the chunk mesh, whose chassis shows its front icon on the facing, is built again
+     * ({@code func_147479_m}, World.java:1116-1122; S12 plan P8.8) [proposal]. Thickness and tilt cannot change in M0
+     * (RM:110-111).
+     */
     @SideOnly(Side.CLIENT)
     @Override
     public void onDataPacket(NetworkManager net, S35PacketUpdateTileEntity packet) {
         NBTTagCompound tag = packet.func_148857_g();
         receivedId = tag.hasKey(DISPLAY_ID, STRING) ? tag.getString(DISPLAY_ID) : null;
+        DisplayShape old = shape;
         shape = readShape(tag);
         receivedWidth = tag.getShort(WIDTH);
         receivedHeight = tag.getShort(HEIGHT);
+        boolean turned = old.facing() != shape.facing() || old.rotation() != shape.rotation();
+        if (turned && worldObj != null) {
+            worldObj.func_147479_m(xCoord, yCoord, zCoord);
+        }
+    }
+
+    /**
+     * The render box (25 R-9, 25:461-467; S12 plan P8.7 with amendment I7): one box per tile entity, made on the first
+     * call and the same instance on every later one, so Angelica's per-class classification and per-instance cache
+     * never see it change (TileEntityRenderBoundsRegistry.java:37-54). It is the block grown by
+     * {@value #RENDER_REACH} on every side, from {@code (x - 7, y - 7, z - 7)} to {@code (x + 8, y + 8, z + 8)}: the
+     * extent of M1.5's largest default wall around any of its blocks, so the rule has its final form in M0 [proposal;
+     * Q-S12-6 (a)]. Celeritas' meshing threads ask for it as well as the client thread
+     * (AngelicaChunkBuilderMeshingTask.java:166-182), so it is made once under a private lock and published through a
+     * volatile field. A box 15 blocks wide passes its 16-block chunk section unless the block sits at section-local 7
+     * or 8 on all three axes, by Celeritas' strict test (AngelicaChunkBuilderMeshingTask.java:181-183), so Celeritas
+     * lists nearly every display as a global block entity, and the 8 others stay in their section, whose bounds hold
+     * the whole box: harmless either way (S12 amendments I7, as S12's review spec-1 corrects it). The box is the tile
+     * entity's own: callers only read it, as vanilla's frustum test does (Frustrum.java:34-37).
+     */
+    @SideOnly(Side.CLIENT)
+    @Override
+    public AxisAlignedBB getRenderBoundingBox() {
+        AxisAlignedBB box = renderBox;
+        if (box == null) {
+            synchronized (renderBoxLock) {
+                box = renderBox;
+                if (box == null) {
+                    box = AxisAlignedBB.getBoundingBox(
+                        xCoord - RENDER_REACH,
+                        yCoord - RENDER_REACH,
+                        zCoord - RENDER_REACH,
+                        xCoord + 1 + RENDER_REACH,
+                        yCoord + 1 + RENDER_REACH,
+                        zCoord + 1 + RENDER_REACH);
+                    renderBox = box;
+                }
+            }
+        }
+        return box;
     }
 
     // ---- What tests read

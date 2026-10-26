@@ -1,4 +1,5 @@
 import java.time.Duration
+import org.gradle.process.CommandLineArgumentProvider
 
 // OpenGPU's GL test kit (24 §3.1, 23 §2.2): its own JUnit 5 extension on a real LWJGL 2 context, for :gl's render core
 // (S8), the GLSM leg and the ocelot GL host. It tests :gl's render core. Context-bound tests carry the gl tag and run
@@ -181,6 +182,20 @@ listOf(glsmTest.compileClasspathConfigurationName, glsmTest.runtimeClasspathConf
     configurations.named(name) { attributes { attribute(rfgObfuscation, "mcp") } }
 }
 
+// The root's test classpath takes these fixtures for clientGlTest (M0 step S12). Its RetroFuturaGradle transforms
+// resolve the fixtures' own dependencies, :gl among them, with the two attributes opengpu.java8 gives the main
+// variants, and find no variant of :gl unless the fixture variants carry them too (S12 plan P13.2). In this script
+// only: a change to opengpu.java8 would touch every project's build logic and CI's cached task results
+val rfgDeobfuscated = Attribute.of("rfgDeobfuscatorTransformed", Boolean::class.javaObjectType)
+listOf("testFixturesApiElements", "testFixturesRuntimeElements").forEach { name ->
+    configurations.named(name) {
+        attributes {
+            attribute(rfgObfuscation, "mcp")
+            attribute(rfgDeobfuscated, true)
+        }
+    }
+}
+
 dependencies {
     // Each one not transitive: the modules would add UniMixins, GTNHExtLib, the Kotlin stdlib or the downgrader itself
     "glsmTestCompileOnly"("com.github.GTNewHorizons:Angelica:${OpenGpuVersions.ANGELICA_FLOOR}:dev") { isTransitive = false }
@@ -298,8 +313,8 @@ val linkageJars = linkageLegs.mapValues { (leg, spec) ->
 
 val glsmLinkageTest = tasks.register<Test>("glsmLinkageTest") {
     group = "verification"
-    description = "Runs 25 §4's per-jar linkage and the unmappedGL=FAIL redirector run over :gl's classes on " +
-        "Angelica ${OpenGpuVersions.ANGELICA_FLOOR}, ${OpenGpuVersions.ANGELICA_CI_ONLY}, " +
+    description = "Runs 25 §4's per-jar linkage and the unmappedGL=FAIL redirector run over :gl's classes and the " +
+        "root's other classes on Angelica ${OpenGpuVersions.ANGELICA_FLOOR}, ${OpenGpuVersions.ANGELICA_CI_ONLY}, " +
         "${OpenGpuVersions.ANGELICA_PACK} and Nexus's <release>, each jar in its own class loader; no GL context."
     testClassesDirs = glsmTest.output.classesDirs
     // No Angelica jar: the floor's is glsmTest's compile-only dependency, and each leg's is passed by its path
@@ -323,6 +338,22 @@ val glsmLinkageTest = tasks.register<Test>("glsmLinkageTest") {
             },
         )
     }
+    // M0 step S12: the root's two shipped jars, whose client classes GlsmLinkageTest reads with ZipFile, never through
+    // this JVM's classpath (S12 plan P13.3, P14.5): the -dev jar, shadowJar's, with Minecraft's MCP names, and the
+    // release jar, reobfJar's, with its SRG names, through their archiveFile providers, since the names change with
+    // every commit, one system property each. The projects now depend on each other both ways, the root's test on this
+    // project's test fixtures, but no task cycles: neither jar task depends on a test task (S12 amendments F13, I12)
+    val rootDevJar = rootProject.tasks.named<AbstractArchiveTask>("shadowJar").flatMap { it.archiveFile }
+    val rootObfJar = rootProject.tasks.named<AbstractArchiveTask>("reobfJar").flatMap { it.archiveFile }
+    inputs.files(rootDevJar, rootObfJar).withPropertyName("rootJars").withPathSensitivity(PathSensitivity.NONE)
+    jvmArgumentProviders.add(
+        CommandLineArgumentProvider {
+            listOf(
+                "-Dopengpu.linkage.rootDevJar=" + rootDevJar.get().asFile.absolutePath,
+                "-Dopengpu.linkage.rootObfJar=" + rootObfJar.get().asFile.absolutePath,
+            )
+        },
+    )
     // A release read online is remembered for --offline builds only now, with its jar fetched as a task input
     doFirst(NexusRelease.Remember(angelicaLatest, angelicaRemembered, angelicaMetadata))
     testLogging { showStandardStreams = true }

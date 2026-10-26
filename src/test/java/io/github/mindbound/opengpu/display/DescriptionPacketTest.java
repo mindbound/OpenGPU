@@ -136,6 +136,52 @@ class DescriptionPacketTest {
         Assertions.assertEquals(Collections.emptyList(), remote.updates());
     }
 
+    /** A client's display, with no node, at (5, 66, -8) in {@code remote}. */
+    private static DisplayTile clientIn(BareWorld remote) {
+        DisplayTile client = at(Displays.withoutNode(), 5, 66, -8);
+        remote.put(client);
+        return client;
+    }
+
+    // S12 plan P8.8: a description that turns the display, to another facing or a floor's other rotation, asks the
+    // client's world for one render update at the block, so the chunk mesh's front icon follows the facing
+    @Test
+    void aDescriptionWithAnotherFacingAsksTheWorldForOneRenderUpdate() {
+        BareWorld remote = BareWorld.allocate(true);
+        DisplayTile client = clientIn(remote);
+        DisplayTile server = Displays.withoutNode();
+        server.place(DisplayShape.placed(ForgeDirection.EAST, 0));
+        client.onDataPacket(null, describe(server));
+        Assertions.assertEquals(ForgeDirection.EAST, client.facing());
+        Assertions.assertEquals(Collections.singletonList("5 66 -8"), remote.renderUpdates());
+        Assertions.assertEquals(Collections.emptyList(), remote.updates(), "a client sends no description");
+        server.place(DisplayShape.placed(ForgeDirection.UP, 1));
+        client.onDataPacket(null, describe(server));
+        server.place(DisplayShape.placed(ForgeDirection.UP, 3));
+        client.onDataPacket(null, describe(server));
+        Assertions.assertEquals(Arrays.asList("5 66 -8", "5 66 -8", "5 66 -8"), remote.renderUpdates());
+    }
+
+    // S12 plan P8.8: a description with the shape the client has, as every attach, detach and new id sends, asks for
+    // no render update; nor does one reaching a tile entity in no world
+    @Test
+    void aDescriptionWithTheSameShapeAsksForNoRenderUpdate() {
+        BareWorld remote = BareWorld.allocate(true);
+        DisplayTile client = clientIn(remote);
+        DisplayTile server = Displays.withoutNode();
+        client.onDataPacket(null, describe(server));
+        Assertions.assertEquals(DisplayShape.DEFAULT, client.shape(), "a new client tile entity's shape already");
+        Assertions.assertEquals(Collections.emptyList(), remote.renderUpdates());
+        server.place(DisplayShape.placed(ForgeDirection.WEST, 0));
+        client.onDataPacket(null, describe(server));
+        client.onDataPacket(null, describe(server));
+        client.onDataPacket(null, describe(server));
+        Assertions.assertEquals(Collections.singletonList("5 66 -8"), remote.renderUpdates(), "the turn only");
+        DisplayTile loose = Displays.withoutNode();
+        loose.onDataPacket(null, describe(server));
+        Assertions.assertEquals(ForgeDirection.WEST, loose.facing());
+    }
+
     /** A display at (4, 70, 9) in a bare server world, its node in the cards' network. */
     private static DisplayTile placed(Cards cards, BareWorld world) {
         DisplayTile display = at(Displays.on(cards.nodes()), 4, 70, 9);

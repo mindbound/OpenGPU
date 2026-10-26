@@ -1,0 +1,47 @@
+# The root's client call set (M0 step S12; S12 plan P14.4; 25 §4.1, §4.2), read by ClientCallSetTest, jarTest's checks
+# 10 and 11. The ids are 25 §4.1's, as :gl's callset.txt uses them
+# (gl/src/test/resources/io/github/mindbound/opengpu/gl/callset.txt): the C and A rows are ids callset.txt has too, and
+# ClientCallSetTest holds each to callset.txt's call (S12 decisions D13); F09 and X01 are 25's ids that callset.txt has
+# no row for, and P01 is S12's. The rows go by class: a call matches a row of its own class only, and a class with no
+# row, every class outside client/ among them, makes no call on org/lwjgl/opengl/ or OpenGlHelper. One row per line:
+# the class, under io/github/mindbound/opengpu/client/; the id; the call as owner.name(descriptor), with Minecraft's
+# MCP names as the -dev jar has them; and, for a glEnable or glDisable that GLSMRedirector folds, its constant, or, for
+# a Minecraft method, the SRG name the release jar calls it by. Rows of the class * are 25 §4.2's deny-list, for every
+# class, and are callset.txt's A rows exactly. A new GL call in the root's code needs a row here and a green run of
+# glsmLinkageTest, which reads the same classes from both jars.
+
+# The screen's calls, ScreenDraw.world and gui (R-4, R-6; S12 plan P8.4; S12 decisions D23): C04 and C05 are world's
+# bracket alone, and both bind the texture and then 0 with C11; check 11 holds their order
+render/ScreenDraw C04 org/lwjgl/opengl/GL11.glPushAttrib(I)V
+render/ScreenDraw C05 org/lwjgl/opengl/GL11.glPopAttrib()V
+render/ScreenDraw C11 org/lwjgl/opengl/GL11.glBindTexture(II)V
+# GL_LIGHTING's constant in the call, folded to disableLighting()V (25:239)
+render/ScreenDraw F09 org/lwjgl/opengl/GL11.glDisable(I)V 2896
+# X01's owner is Minecraft's (25 §4.1). GLSMRedirector's map holds its MCP name only, in every jar of 2.2.8 to 2.2.36,
+# so the release jar's call keeps vanilla's body, whose own GL call GLSM rewrites (S12 plan P2.4); glsmLinkageTest
+# allows that for this call alone
+render/ScreenDraw X01 net/minecraft/client/renderer/OpenGlHelper.setLightmapTextureCoords(IFF)V func_77475_a
+
+# The probe (14 §3; S12 plan P6.1 with amendment F8): the core-profile bit and the three strings
+render/GlCaps C01 org/lwjgl/opengl/GL11.glGetInteger(I)I
+render/GlCaps C02 org/lwjgl/opengl/GL11.glGetString(I)Ljava/lang/String;
+# Pass-through by design, the row 25 §4.1 gains with S12 (S12 plan P14.5; amendments F9) [proposal for its id: P, as
+# callset.txt's A, D and F name a row's kind]: not a gl name, so GLSMRedirector leaves it on LWJGL in every 2.2.x jar,
+# and lwjgl3ify remaps it to its shim (14 §2.1, §2.5). The class that holds it may read the ContextCapabilities fields
+# it returns, of 14:56's all-three row (14:83's rule 2), and keeps none of them as an object (rule 3)
+render/GlCaps P01 org/lwjgl/opengl/GLContext.getCapabilities()Lorg/lwjgl/opengl/ContextCapabilities;
+
+# 25 §4.2's deny-list, as callset.txt has it
+* A01 org/lwjgl/opengl/GL11.glReadPixels(IIIIIIJ)V
+* A02 org/lwjgl/opengl/GL15.glGetQueryObjectui(II)I
+* A03 org/lwjgl/opengl/GL33.glGetQueryObjecti64(II)J
+* A04 org/lwjgl/opengl/GL30.glGenFramebuffers(Ljava/nio/IntBuffer;)V
+* A05 org/lwjgl/opengl/GL30.glGenVertexArrays(Ljava/nio/IntBuffer;)V
+* A06 org/lwjgl/opengl/GL15.glDeleteQueries(Ljava/nio/IntBuffer;)V
+* A07 org/lwjgl/opengl/GL20.glGetShaderInfoLog(ILjava/nio/IntBuffer;Ljava/nio/ByteBuffer;)V
+* A09 org/lwjgl/opengl/GL30.glClearBufferu(IILjava/nio/IntBuffer;)V
+* A11 org/lwjgl/opengl/GL11.glTexImage2D(IIIIIIIILjava/nio/ShortBuffer;)V
+* A12 org/lwjgl/opengl/GL32.glFenceSync(II)Lorg/lwjgl/opengl/GLSync;
+* A15 org/lwjgl/opengl/GL30.glGetInteger(II)I
+* A16 org/lwjgl/opengl/GL30.glUniform1ui(II)V
+* A17 org/lwjgl/opengl/GL32.glGetInteger64(I)J

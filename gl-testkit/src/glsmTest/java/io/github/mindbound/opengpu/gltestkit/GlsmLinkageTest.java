@@ -16,6 +16,8 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumMap;
+import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +47,9 @@ import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
+import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.InsnNode;
+import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
@@ -71,6 +75,19 @@ import org.objectweb.asm.tree.VarInsnNode;
  * without glPolygonMode fail the link check (N2, N3), a fold set without GL_BLEND fails the expected calls (N4), a
  * second LWJGL class literal or a second lookup in D01's method is reported (N5), and so are the calls FAIL lets
  * through: a GLSync descriptor and a debug-output call (N6).
+ * <p>
+ * From M0 step S12 the root's classes join L2, L3 and L4 (S12 plan P13.3, P14.5; 25:721), its client classes and,
+ * since S12's review (strength-6), its common ones, whose {@code @SideOnly(CLIENT)} members run on a client too: those
+ * of the root's two shipped jars outside :gl's package, the -dev jar with Minecraft's MCP names and the release jar
+ * with its SRG names, which the task passes as file inputs and this class reads with ZipFile, never through its own
+ * classpath ({@link RootJar}). L3 follows the calls on the owners of each jar's getNamedClassMethodRedirects, X01's
+ * OpenGlHelper among them: in the -dev jar X01 links to setLightmapTextureCoords(IFF)V, and in the release jar its SRG
+ * name, which no map of 2.2.8 to 2.2.36 holds, is left to vanilla's body, which is allowed for that one call only.
+ * GLContext.getCapabilities(), no gl name, is the one call GLSM passes through by design (the P01 row of the root's
+ * clientcalls.txt, 25 §4.1's new row; S12 amendments F9), and L2 leaves only GLContext and ContextCapabilities in
+ * GlCaps and LWJGL's Mouse in client/gui/, by class. Two more synthetic cases fail as planted: A01 in a root client
+ * class fails L3 on the jars whose GLStateManager lacks it, the floor and the CI-only leg (N7), and those LWJGL names
+ * fail L2 outside their classes (N8).
  */
 @Tag("glsm-linkage")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
@@ -94,13 +111,44 @@ class GlsmLinkageTest {
         .compile("\"modid\"\\s*:\\s*\"angelica\"[^}]*?\"version\"\\s*:\\s*\"([^\"]*)\"");
     /**
      * The shipped classes S9 scans, the prefix and an anchor class: :gl's, gl.host's included, which the root shades
-     * unrelocated (H51; S9 plan P8.1). The root's own client classes join when the TESR step adds them: from the root's
-     * built jar, passed to the task as a file input and read with ZipFile, never the root's classpath in this JVM, and
-     * with the owners of that jar's getNamedClassMethodRedirects followed, X01's OpenGlHelper (S9 plan P8.2, critic
-     * A10).
+     * unrelocated (H51; S9 plan P8.1). The root's own client classes are read from its two built jars instead
+     * ({@link RootJar}), never from the root's classpath in this JVM, with the owners of each jar's
+     * getNamedClassMethodRedirects followed, X01's OpenGlHelper (S9 plan P8.2, critic A10; S12 plan P14.5).
      */
     private static final String[] SHIPPED = { "io/github/mindbound/opengpu/gl/",
         "io/github/mindbound/opengpu/gl/GlBackend.class" };
+    /**
+     * The root's classes, as entries of its jars: every OpenGPU class but {@link #SHIPPED}'s, :gl's, which the legs
+     * read from :gl's own output; so the client classes and the common ones, whose {@code @SideOnly(CLIENT)} members
+     * also run on a client (S12 plan P14.5; S12 review strength-6).
+     */
+    private static final String ROOT = "io/github/mindbound/opengpu/";
+    /** The root's client classes, which hold all of clientcalls.txt's rows. */
+    private static final String ROOT_CLIENT = ROOT + "client/";
+    private static final String ROOT_CLIENT_CLASS = "io.github.mindbound.opengpu.client.";
+    private static final String ROOT_GUI = ROOT_CLIENT_CLASS + "gui.";
+    private static final String ROOT_RENDER = ROOT_CLIENT_CLASS + "render.";
+    /** The probe, which alone may keep GLContext and ContextCapabilities (14 §2.5). */
+    private static final String GL_CAPS = ROOT_RENDER + "GlCaps";
+    /** The screen's bracket, whose X01 the release jar calls by its SRG name. */
+    private static final String SCREEN_DRAW = ROOT_RENDER + "ScreenDraw";
+    private static final String GL_CONTEXT = GlBytecode.GL_OWNER + "GLContext";
+    private static final String CONTEXT_CAPABILITIES = GlBytecode.GL_OWNER + "ContextCapabilities";
+    /** LWJGL's mouse, which the GUI reads for raw window pixels (S12 plan P12.4): no GL, so GLSM leaves it. */
+    private static final String MOUSE = GlBytecode.LWJGL + "input/Mouse";
+    /**
+     * The one call GLSM passes through by design on every 2.2.x jar: no gl name (25:259; 14 §2.5), the P01 row of the
+     * root's clientcalls.txt.
+     */
+    private static final String PASS_THROUGH = GL_CONTEXT + ".getCapabilities()L" + CONTEXT_CAPABILITIES + ";";
+    private static final String OPEN_GL_HELPER = "net/minecraft/client/renderer/OpenGlHelper";
+    /** X01's SRG name, which the release jar calls and no GLSMRedirector map of 2.2.8 to 2.2.36 holds. */
+    private static final String X01_SRG_NAME = "func_77475_a";
+    private static final String X01_SRG = OPEN_GL_HELPER + "." + X01_SRG_NAME + "(IFF)V";
+    /** The root's rows L3 links, by their GLStateManager members (25 §4.1's target column; clientcalls.txt). */
+    private static final Map<String, String> ROOT_ROWS = rootRows();
+    /** An LWJGL internal name inside a reference's text. */
+    private static final Pattern LWJGL_NAME = Pattern.compile(GlBytecode.LWJGL + "[A-Za-z0-9_/$]+");
     /** :gl's class of GL constants only, which no instruction of its takes from LWJGL (S9 critic A7). */
     private static final String GL_FORMATS = "io.github.mindbound.opengpu.gl.GlFormats";
     /** The rows L3 names, by their GLStateManager members: C02 (GL_VENDOR, Q-S8-3), C99 (H41), C100 (S8's fix loop). */
@@ -401,9 +449,10 @@ class GlsmLinkageTest {
     }
 
     /**
-     * Every capability :gl passes glEnable or glDisable as a constant is folded on this jar exactly when it is on the
-     * floor's, whose set CallSetTest's FOLDED and callset.txt's F rows encode. A fold of a capability :gl does not use
-     * is logged, not failed.
+     * Every capability :gl, or since S12 the root's code, passes glEnable or glDisable as a constant is folded on this
+     * jar exactly when it is on the floor's, whose set CallSetTest's FOLDED and callset.txt's F rows encode, and for
+     * the root ClientCallSetTest's FOLDED and clientcalls.txt's F09. A fold of a capability neither uses is logged,
+     * not failed.
      */
     @ParameterizedTest(name = "{0}")
     @MethodSource("laterLegs")
@@ -412,8 +461,14 @@ class GlsmLinkageTest {
         Leg floor = legs().get(0);
         Map<Integer, String> floorFolds = floor.folds();
         Map<Integer, String> folds = leg.folds();
+        List<byte[]> classFiles = new ArrayList<>(shippedClasses().values());
+        for (RootJar jar : RootJar.values()) {
+            classFiles.addAll(
+                jar.classes()
+                    .values());
+        }
         Set<Integer> used = new TreeSet<>();
-        for (byte[] classFile : shippedClasses().values()) {
+        for (byte[] classFile : classFiles) {
             for (String call : GlBytecode.calls(classFile, floor.target())) {
                 Integer cap = GlBytecode.capability(call.substring(call.indexOf('.') + 1));
                 if (cap != null) {
@@ -421,7 +476,7 @@ class GlsmLinkageTest {
                 }
             }
         }
-        Assertions.assertFalse(used.isEmpty(), "no glEnable or glDisable of a constant in :gl's classes");
+        Assertions.assertFalse(used.isEmpty(), "no glEnable or glDisable of a constant in :gl's or the root's classes");
         List<String> problems = new ArrayList<>();
         List<String> usedText = new ArrayList<>();
         for (int cap : used) {
@@ -453,12 +508,12 @@ class GlsmLinkageTest {
             reporter,
             "linkage." + leg.name + ".folds",
             "linkage " + leg.name
-                + ": folds :gl's "
+                + ": folds the "
                 + used.size()
-                + " capabilities "
+                + " capabilities of :gl and the root's classes "
                 + usedText
                 + " as the floor does; "
-                + (others.isEmpty() ? "no other fold differs" : "for capabilities :gl does not use, " + others));
+                + (others.isEmpty() ? "no other fold differs" : "for capabilities neither uses, " + others));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -656,6 +711,247 @@ class GlsmLinkageTest {
                 + (debugLeft ? "both" : "the fence"));
     }
 
+    /**
+     * L2 for the root's classes, its client classes and, since S12's review (strength-6), its common ones (S12 plan
+     * P14.5; amendments F9): each class of both root jars outside :gl's package goes through the leg's redirector as in
+     * game without a throw and with no core exclusion; a class with a call GLSM rewrites, one
+     * that {@link #expectedCalls} expects on another owner or name, is changed, and any other comes out byte for byte
+     * as it went in; and no LWJGL name is left after the transform but, by class, GLContext and ContextCapabilities in
+     * GlCaps, which GLSM passes through by design (14 §2.5), and LWJGL's Mouse in client/gui/, which is no GL. No LWJGL
+     * class literal is allowed: D01's lookup is :gl's PassState's alone. The first leg also lists the classes read.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("legs")
+    @Order(12)
+    void theRootsClientClassesTransformUnderFail(Leg leg, TestReporter reporter) throws Exception {
+        String target = leg.target();
+        Map<Integer, String> folds = leg.folds();
+        Map<String, Map<String, String>> named = leg.named();
+        List<String> problems = new ArrayList<>();
+        List<String> parts = new ArrayList<>();
+        Set<String> left = new TreeSet<>();
+        for (RootJar jar : RootJar.values()) {
+            Set<String> changed = new TreeSet<>();
+            for (Shipped c : leg.root(jar)) {
+                String where = jar + " " + c.name;
+                if (c.thrown != null) {
+                    problems.add(where + ": " + c.thrown);
+                    continue;
+                }
+                GlsmLoader.Transform t = c.transform;
+                if (t.excluded) {
+                    problems.add(where + ": a core exclusion matched, so in game the redirector leaves it as it is");
+                }
+                List<String> before = routedCalls(c.original, target, named.keySet());
+                boolean rewrites = !expectedCalls(c.name, before, target, folds, named, new ArrayList<String>())
+                    .equals(before);
+                if (rewrites && (!t.filtered || !t.changed)) {
+                    problems.add(
+                        where + ": makes calls GLSM rewrites, but filtered " + t.filtered + ", changed " + t.changed);
+                } else if (!rewrites && (t.changed || !Arrays.equals(t.original, t.defined))) {
+                    problems.add(where + ": makes no call GLSM rewrites, but the redirector changed it");
+                }
+                if (t.changed) {
+                    changed.add(simpleName(c.name));
+                }
+                RootScan scan = rootScan(c.name, t.defined);
+                problems.addAll(scan.problems);
+                left.addAll(scan.left);
+            }
+            parts.add(
+                leg.root(jar)
+                    .size() + " classes of the root's "
+                    + jar
+                    + " jar, "
+                    + changed.size()
+                    + " rewritten "
+                    + changed);
+        }
+        Assertions.assertEquals(new ArrayList<String>(), problems, leg + ": " + problems.size() + " problem(s)");
+        if (leg == legs().get(0)) {
+            List<String> jars = new ArrayList<>();
+            for (RootJar jar : RootJar.values()) {
+                List<String> names = new ArrayList<>();
+                int others = 0;
+                for (String name : jar.classes()
+                    .keySet()) {
+                    if (name.startsWith(ROOT_CLIENT_CLASS)) {
+                        names.add(simpleName(name));
+                    } else {
+                        others++;
+                    }
+                }
+                jars.add(
+                    jar + " jar "
+                        + jar.file()
+                            .getName()
+                        + ", "
+                        + names.size()
+                        + " client classes "
+                        + names
+                        + " and "
+                        + others
+                        + " others outside gl/");
+            }
+            report(reporter, "linkage.root.classes", "linkage root: the classes of the " + String.join("; ", jars));
+        }
+        report(
+            reporter,
+            "linkage." + leg.name + ".root",
+            "linkage " + leg.name
+                + ": under unmappedGL=FAIL "
+                + String.join("; ", parts)
+                + "; LWJGL names left by design "
+                + left);
+    }
+
+    /**
+     * L3 for the root's classes, its client classes and its common ones (S12 plan P14.5; S12 review strength-6): in
+     * each class of both root jars outside :gl's package, the calls on LWJGL's GL owners and on the owners of the jar's
+     * getNamedClassMethodRedirects become, in order, what {@link #expectedCalls}
+     * says, and each rewritten one is a public static method of the jar's GLStateManager with the call's descriptor.
+     * Each row of the root's clientcalls.txt links to its 25 §4.1 target in both jars, X01 to
+     * setLightmapTextureCoords(IFF)V in the -dev jar; in the release jar X01's SRG name is left to vanilla's body while
+     * the jar's map lacks it, as on every leg today, and its target is checked once a jar maps it.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("legs")
+    @Order(13)
+    void theRootsClientCallsLink(Leg leg, TestReporter reporter) throws Exception {
+        String target = leg.target();
+        Set<String> statics = leg.statics();
+        Map<String, Map<String, String>> named = leg.named();
+        Map<String, String> helper = named.get(OPEN_GL_HELPER);
+        boolean mapsSrg = helper != null && helper.containsKey(X01_SRG_NAME);
+        List<String> problems = new ArrayList<>();
+        List<String> parts = new ArrayList<>();
+        for (RootJar jar : RootJar.values()) {
+            RootLinkage linkage = rootLinkage(leg.root(jar), jar, target, leg.folds(), statics, named);
+            problems.addAll(linkage.problems);
+            boolean vanilla = jar == RootJar.RELEASE && !mapsSrg;
+            for (Map.Entry<String, String> row : ROOT_ROWS.entrySet()) {
+                if (vanilla && row.getKey()
+                    .equals("X01")) {
+                    continue;
+                }
+                if (!linkage.targets.contains(row.getValue()) || !statics.contains(row.getValue())) {
+                    problems.add(jar + ": " + row.getKey() + " " + target + "." + row.getValue() + " is not linked");
+                }
+            }
+            List<String> expected = vanilla ? Collections.singletonList(simpleName(SCREEN_DRAW) + " " + X01_SRG)
+                : new ArrayList<String>();
+            if (!expected.equals(linkage.vanilla)) {
+                problems.add(jar + ": left to vanilla's body " + linkage.vanilla + ", not " + expected);
+            }
+            parts.add(
+                jar + " jar: "
+                    + linkage.sites
+                    + " rewritten call sites to "
+                    + linkage.targets.size()
+                    + " distinct "
+                    + target
+                    + " methods, passed through by design "
+                    + linkage.passThrough
+                    + ", left to vanilla's body "
+                    + (linkage.vanilla.isEmpty() ? "none" : linkage.vanilla));
+        }
+        Assertions.assertEquals(new ArrayList<String>(), problems, leg + ": " + problems.size() + " problem(s)");
+        report(
+            reporter,
+            "linkage." + leg.name + ".rootLinks",
+            "linkage " + leg.name + ": the root's calls, " + String.join("; ", parts));
+    }
+
+    /**
+     * N7 (S12 plan P14.5): a root client class calling A01, GL11.glReadPixels(IIIIIIJ)V, which GLSM maps by name,
+     * fails L3 where the jar's GLStateManager has no method of that descriptor: on the floor and the CI-only leg, as 25
+     * §4.2 has it (NSME from 2.2.0 to 2.2.21). Where a later jar has one it links, which is recorded.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("legs")
+    @Order(14)
+    void aRootClassCallingA01FailsTheLinkCheckWhereGlsmLacksIt(Leg leg, TestReporter reporter) throws Exception {
+        String name = ROOT_RENDER + "SyntheticReadPixels";
+        String member = "glReadPixels(IIIIIIJ)V";
+        byte[] original = callOf(name, GlBytecode.GL_OWNER + "GL11", "glReadPixels", "(IIIIIIJ)V");
+        GlsmLoader.Transform t = GlBytecode.redirect(leg.transformer(), name, original);
+        Assertions.assertTrue(t.changed, leg + ": the redirector left " + name + " as it was");
+        String target = leg.target();
+        boolean links = leg.statics()
+            .contains(member);
+        if (LEG_NAMES.subList(0, 2)
+            .contains(leg.name)) {
+            Assertions.assertFalse(
+                links,
+                leg + ": GLStateManager has " + member + ", which 25 §4.2 gives no 2.2.x before 2.2.22");
+        }
+        RootLinkage linkage = rootLinkage(
+            Collections.singletonList(new Shipped(name, original, t, null)),
+            RootJar.DEV,
+            target,
+            leg.folds(),
+            leg.statics(),
+            leg.named());
+        Assertions
+            .assertEquals(
+                links ? new ArrayList<String>()
+                    : Collections
+                        .singletonList(RootJar.DEV + " " + name + ": no public static " + target + "." + member),
+                linkage.problems,
+                leg.toString());
+        report(
+            reporter,
+            "linkage." + leg.name + ".a01",
+            "linkage " + leg.name
+                + ": A01 GL11."
+                + member
+                + " in a root client class "
+                + (links ? "links, as from 2.2.22 (25 §4.2)" : "fails L3: no public static " + target + "." + member));
+    }
+
+    /**
+     * N8 (S12 plan P14.5; mutants M83a and M83b): L2's exceptions for the root are by class. A call of
+     * GLContext.getCapabilities(), which GLSM passes through, and a field of type GLContext are left in GlCaps and
+     * reported in any other class, and LWJGL's Mouse is left in client/gui/ and reported elsewhere. Each case goes
+     * through the floor's redirector, which changes none of them.
+     */
+    @Test
+    @Order(15)
+    void anLwjglNameLeftOutsideItsClassIsReported() throws Exception {
+        Leg floor = legs().get(0);
+        String renderer = ROOT_RENDER + "DisplayRenderer";
+        String capabilities = "()L" + CONTEXT_CAPABILITIES + ";";
+        Object[][] cases = { { GL_CAPS, GL_CONTEXT, "getCapabilities", capabilities, true },
+            { renderer, GL_CONTEXT, "getCapabilities", capabilities, false },
+            { GL_CAPS, GL_CONTEXT, null, "L" + GL_CONTEXT + ";", true },
+            { renderer, GL_CONTEXT, null, "L" + GL_CONTEXT + ";", false },
+            { ROOT_GUI + "DisplayScreen", MOUSE, "getEventX", "()I", true },
+            { renderer, MOUSE, "getEventX", "()I", false } };
+        for (Object[] c : cases) {
+            String name = (String) c[0];
+            String owner = (String) c[1];
+            String method = (String) c[2];
+            String descriptor = (String) c[3];
+            boolean byDesign = (Boolean) c[4];
+            byte[] original = method != null ? callOf(name, owner, method, descriptor) : fieldOf(name, descriptor);
+            GlsmLoader.Transform t = GlBytecode.redirect(floor.transformer(), name, original);
+            String what = name + " with "
+                + (method != null ? owner + "." + method + descriptor : "a field " + descriptor);
+            Assertions.assertFalse(t.changed, floor + ": the redirector changed " + what);
+            RootScan scan = rootScan(name, t.defined);
+            if (byDesign) {
+                Assertions.assertEquals(new ArrayList<String>(), scan.problems, what);
+                Assertions.assertFalse(scan.left.isEmpty(), what + ": nothing left by design");
+            } else {
+                Assertions.assertEquals(1, scan.problems.size(), what + ": " + scan.problems);
+                Assertions.assertTrue(
+                    scan.problems.get(0)
+                        .contains(owner),
+                    what + ": " + scan.problems);
+            }
+        }
+    }
+
     @AfterAll
     static void writeReport() throws IOException {
         synchronized (GlsmLinkageTest.class) {
@@ -781,6 +1077,205 @@ class GlsmLinkageTest {
         return linkage;
     }
 
+    /** What L2's scan finds in one of the root's classes. */
+    static final class RootScan {
+
+        final List<String> problems = new ArrayList<>();
+        /** Each LWJGL name left by design, as "class name" with both short. */
+        final Set<String> left = new TreeSet<>();
+    }
+
+    /**
+     * L2's scan of one of the root's classes, the dotted {@code name}: every LWJGL name in it is a problem, but
+     * those {@link #leftByDesign} allows in that class, which it collects. Every LWJGL class literal is a problem.
+     */
+    static RootScan rootScan(String name, byte[] classFile) {
+        RootScan scan = new RootScan();
+        List<String> references = new ArrayList<>(GlBytecode.lwjglReferences(classFile));
+        for (GlBytecode.Literal literal : GlBytecode.literals(classFile)) {
+            references.remove(GlBytecode.reference(literal));
+            scan.problems.add(name + ": the class literal " + literal + " is a way past the redirector (R-5)");
+        }
+        for (String reference : references) {
+            List<String> names = new ArrayList<>();
+            Matcher matcher = LWJGL_NAME.matcher(reference);
+            boolean byDesign = true;
+            while (matcher.find()) {
+                names.add(matcher.group());
+                byDesign &= leftByDesign(name, matcher.group());
+            }
+            if (!byDesign) {
+                scan.problems.add(name + ": " + reference + ", an LWJGL name the transform left");
+                continue;
+            }
+            for (String lwjgl : names) {
+                scan.left.add(simpleName(name) + " " + lwjgl.substring(lwjgl.lastIndexOf('/') + 1));
+            }
+        }
+        return scan;
+    }
+
+    /**
+     * L2's exceptions for the root (S12 plan P14.5; amendments F9), by class: GLContext and ContextCapabilities in
+     * GlCaps, which GLSM passes through by design (14 §2.5), and LWJGL's Mouse in client/gui/, which is no GL.
+     */
+    private static boolean leftByDesign(String className, String lwjgl) {
+        if (className.equals(GL_CAPS)) {
+            return lwjgl.equals(GL_CONTEXT) || lwjgl.equals(CONTEXT_CAPABILITIES);
+        }
+        return className.startsWith(ROOT_GUI) && lwjgl.equals(MOUSE);
+    }
+
+    /** What L3's check finds in the root's classes of one jar. */
+    static final class RootLinkage {
+
+        final List<String> problems = new ArrayList<>();
+        /** The distinct GLStateManager members the defined bytes call. */
+        final Set<String> targets = new TreeSet<>();
+        /** The calls GLSM passes through by design, as "class call". */
+        final List<String> passThrough = new ArrayList<>();
+        /**
+         * The calls left to their owner's own body, as "class call": X01's SRG name in the release jar's ScreenDraw.
+         */
+        final List<String> vanilla = new ArrayList<>();
+        int sites;
+    }
+
+    /**
+     * L3's check over the root's classes of {@code jar}: in each, the {@link #routedCalls} after the transform
+     * must be the {@link #expectedCalls} of those before it, in order; each rewritten one must be in {@code statics};
+     * and a call left as it is must be the pass-through, or X01's SRG name in the release jar's ScreenDraw, which is
+     * left to vanilla's body. One problem per call site.
+     */
+    static RootLinkage rootLinkage(List<Shipped> classes, RootJar jar, String target, Map<Integer, String> folds,
+        Set<String> statics, Map<String, Map<String, String>> named) {
+        RootLinkage linkage = new RootLinkage();
+        for (Shipped c : classes) {
+            String where = jar + " " + c.name;
+            if (c.thrown != null) {
+                linkage.problems.add(where + ": not transformed, " + c.thrown);
+                continue;
+            }
+            List<String> before = routedCalls(c.original, target, named.keySet());
+            if (before.isEmpty()) {
+                continue;
+            }
+            List<String> expected = expectedCalls(where, before, target, folds, named, linkage.problems);
+            List<String> after = routedCalls(c.transform.defined, target, named.keySet());
+            if (expected.size() != after.size()) {
+                linkage.problems.add(where + ": expected " + expected + "\n  got " + after);
+            } else {
+                for (int i = 0; i < expected.size(); i++) {
+                    if (!expected.get(i)
+                        .equals(after.get(i))) {
+                        linkage.problems
+                            .add(where + ": call " + i + ": expected " + expected.get(i) + ", got " + after.get(i));
+                    }
+                }
+            }
+            for (String call : after) {
+                String plain = call.replaceAll(" \\[.*]$", "");
+                if (call.startsWith(target + ".")) {
+                    String member = plain.substring(target.length() + 1);
+                    linkage.sites++;
+                    linkage.targets.add(member);
+                    if (!statics.contains(member)) {
+                        linkage.problems.add(where + ": no public static " + target + "." + member);
+                    }
+                } else if (plain.equals(PASS_THROUGH)) {
+                    linkage.passThrough.add(simpleName(c.name) + " " + plain);
+                } else if (jar == RootJar.RELEASE && c.name.equals(SCREEN_DRAW) && plain.equals(X01_SRG)) {
+                    linkage.vanilla.add(simpleName(c.name) + " " + plain);
+                } else {
+                    linkage.problems.add(
+                        where + ": "
+                            + call
+                            + (plain.startsWith(GlBytecode.LWJGL) ? " is left on LWJGL"
+                                : " is left to its owner's own body, which only X01's SRG name in the release jar's"
+                                    + " ScreenDraw may be"));
+                }
+            }
+        }
+        return linkage;
+    }
+
+    /**
+     * What GLSM makes of each of {@code before}'s calls, which {@link #routedCalls} lists: a glEnable or glDisable of
+     * a capability in {@code folds} its enable/disable method (25:239); another call on a GL owner the same name on
+     * GLStateManager, as {@link #linkage} expects it, or the name the jar's map for that owner gives; the call GLSM
+     * passes through by design, as it is; a call on another of the jar's named owners, such as X01's OpenGlHelper, the
+     * name that owner's map gives, or, when the map lacks the name, the call as it is, left to its owner's own body.
+     */
+    private static List<String> expectedCalls(String where, List<String> before, String target,
+        Map<Integer, String> folds, Map<String, Map<String, String>> named, List<String> problems) {
+        List<String> expected = new ArrayList<>();
+        for (String call : before) {
+            String plain = call.replaceAll(" \\[.*]$", "");
+            String owner = call.substring(0, call.indexOf('.'));
+            String member = call.substring(call.indexOf('.') + 1);
+            String method = member.substring(0, member.indexOf('('));
+            Map<String, String> map = named.get(owner);
+            Integer cap = GlBytecode.capability(member);
+            if (plain.equals(PASS_THROUGH) || owner.equals(target)) {
+                expected.add(call);
+            } else if (owner.startsWith(GlBytecode.GL_OWNER) && cap != null && folds.containsKey(cap)) {
+                expected
+                    .add(target + "." + (method.equals("glEnable") ? "enable" : "disable") + folds.get(cap) + "()V");
+            } else if (map != null && map.containsKey(method)) {
+                expected.add(target + "." + map.get(method) + member.substring(member.indexOf('(')));
+            } else if (owner.startsWith(GlBytecode.GL_OWNER)) {
+                if ((method.equals("glEnable") || method.equals("glDisable")) && cap == null) {
+                    problems.add(where + ": " + member + " without a constant capability (25:239)");
+                }
+                expected.add(target + "." + member);
+            } else {
+                expected.add(call);
+            }
+        }
+        return expected;
+    }
+
+    /**
+     * The calls in {@code classFile} on LWJGL's GL owners, on GLStateManager ({@code target}) and on {@code owners},
+     * the jar's named owners, in order, as owner.name+descriptor, a glEnable or glDisable with the int constant right
+     * before it appended in brackets: {@link GlBytecode#calls}'s list with the named owners' calls in their places.
+     */
+    static List<String> routedCalls(byte[] classFile, String target, Set<String> owners) {
+        ClassNode node = new ClassNode();
+        new ClassReader(classFile).accept(node, 0);
+        List<String> calls = new ArrayList<>();
+        for (MethodNode method : node.methods) {
+            for (AbstractInsnNode insn : method.instructions.toArray()) {
+                if (!(insn instanceof MethodInsnNode)) {
+                    continue;
+                }
+                MethodInsnNode call = (MethodInsnNode) insn;
+                if (!call.owner.startsWith(GlBytecode.GL_OWNER) && !call.owner.equals(target)
+                    && !owners.contains(call.owner)) {
+                    continue;
+                }
+                String text = call.owner + "." + call.name + call.desc;
+                if (call.name.equals("glEnable") || call.name.equals("glDisable")) {
+                    AbstractInsnNode previous = call.getPrevious();
+                    Integer constant = null;
+                    if (previous instanceof IntInsnNode) {
+                        constant = ((IntInsnNode) previous).operand;
+                    } else if (previous instanceof LdcInsnNode && ((LdcInsnNode) previous).cst instanceof Integer) {
+                        constant = (Integer) ((LdcInsnNode) previous).cst;
+                    }
+                    text += " [" + constant + "]";
+                }
+                calls.add(text);
+            }
+        }
+        return calls;
+    }
+
+    /** A root client class's dotted name under client/, as the report gives it. */
+    private static String simpleName(String name) {
+        return name.startsWith(ROOT_CLIENT_CLASS) ? name.substring(ROOT_CLIENT_CLASS.length()) : name;
+    }
+
     /** That the redirector throws FAIL's own message for the one call of a synthetic class (S9 plan P2.5). */
     private static void assertRejected(Leg leg, String name, String owner, String method, String descriptor,
         String hint) throws Exception {
@@ -872,6 +1367,22 @@ class GlsmLinkageTest {
         return classOf(name, m);
     }
 
+    /** A synthetic class {@code name} with one static field of type {@code descriptor} and an empty method. */
+    private static byte[] fieldOf(String name, String descriptor) {
+        ClassNode node = new ClassNode();
+        node.version = Opcodes.V1_8;
+        node.access = Opcodes.ACC_PUBLIC | Opcodes.ACC_SUPER;
+        node.name = name.replace('.', '/');
+        node.superName = "java/lang/Object";
+        node.fields.add(new FieldNode(Opcodes.ACC_STATIC, "field", descriptor, null, null));
+        MethodNode method = new MethodNode(Opcodes.ACC_STATIC, "m", "()V", null, null);
+        method.instructions.add(new InsnNode(Opcodes.RETURN));
+        node.methods.add(method);
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        node.accept(writer);
+        return writer.toByteArray();
+    }
+
     /** Every call named {@code method} in {@code classFile}, on any owner, as owner.name+descriptor. */
     private static List<String> callsNamed(byte[] classFile, String method) {
         ClassNode node = new ClassNode();
@@ -956,6 +1467,18 @@ class GlsmLinkageTest {
         rows.put("C02", "glGetString(I)Ljava/lang/String;");
         rows.put("C99", POLYGON_MODE);
         rows.put("C100", "glFinish()V");
+        return Collections.unmodifiableMap(rows);
+    }
+
+    private static Map<String, String> rootRows() {
+        Map<String, String> rows = new LinkedHashMap<>();
+        rows.put("C01", "glGetInteger(I)I");
+        rows.put("C02", "glGetString(I)Ljava/lang/String;");
+        rows.put("C04", "glPushAttrib(I)V");
+        rows.put("C05", "glPopAttrib()V");
+        rows.put("C11", "glBindTexture(II)V");
+        rows.put("F09", "disableLighting()V");
+        rows.put("X01", "setLightmapTextureCoords(IFF)V");
         return Collections.unmodifiableMap(rows);
     }
 
@@ -1053,6 +1576,73 @@ class GlsmLinkageTest {
     }
 
     /**
+     * One of the root's two shipped jars, whose classes outside :gl's L2, L3 and L4 read (S12 plan P13.3, P14.5; S12
+     * review strength-6): the -dev jar, shadowJar's, with Minecraft's MCP names, and the release jar, reobfJar's, with
+     * its SRG names. glsmLinkageTest passes each as a file input in a system property, and its classes are read with
+     * ZipFile, never from this JVM's classpath, which holds no root class.
+     */
+    enum RootJar {
+
+        DEV("opengpu.linkage.rootDevJar", "-dev"),
+        RELEASE("opengpu.linkage.rootObfJar", "release");
+
+        private final String property;
+        private final String label;
+        private Map<String, byte[]> classes;
+
+        RootJar(String property, String label) {
+            this.property = property;
+            this.label = label;
+        }
+
+        File file() {
+            String path = System.getProperty(property);
+            if (path == null || path.isEmpty()) {
+                throw new IllegalStateException("no " + property + ": run through :gl-testkit:glsmLinkageTest");
+            }
+            return new File(path);
+        }
+
+        /** Its OpenGPU classes outside :gl's package, dotted name to class file, read once. */
+        synchronized Map<String, byte[]> classes() throws IOException {
+            if (classes == null) {
+                Assertions.assertNull(
+                    GlsmLinkageTest.class.getClassLoader()
+                        .getResource(ROOT_CLIENT + "render/ScreenDraw.class"),
+                    "the root's client classes are on this JVM's classpath");
+                Map<String, byte[]> read = new TreeMap<>();
+                try (ZipFile zip = new ZipFile(file())) {
+                    for (Enumeration<? extends ZipEntry> entries = zip.entries(); entries.hasMoreElements();) {
+                        ZipEntry entry = entries.nextElement();
+                        String name = entry.getName();
+                        if (entry.isDirectory() || !name.startsWith(ROOT)
+                            || name.startsWith(SHIPPED[0])
+                            || !name.endsWith(".class")) {
+                            continue;
+                        }
+                        try (InputStream in = zip.getInputStream(entry)) {
+                            read.put(
+                                name.substring(0, name.length() - ".class".length())
+                                    .replace('/', '.'),
+                                GlBytecode.readAll(in));
+                        }
+                    }
+                }
+                for (String anchor : new String[] { GL_CAPS, SCREEN_DRAW }) {
+                    Assertions.assertTrue(read.containsKey(anchor), file().getName() + " has no " + anchor);
+                }
+                classes = Collections.unmodifiableMap(read);
+            }
+            return classes;
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
+    /**
      * One leg: its name, the release and source the build resolved, and its dev jar. Its class loader is set up on
      * first use, alone, and a failure is kept, so that only this leg's tests fail and each with the same cause.
      */
@@ -1072,6 +1662,8 @@ class GlsmLinkageTest {
         private Set<String> statics;
         private GlBytecode.Redirector transformer;
         private List<Shipped> shipped;
+        private Map<String, Map<String, String>> named;
+        private final Map<RootJar, List<Shipped>> root = new EnumMap<>(RootJar.class);
 
         Leg(String name) {
             this.name = name;
@@ -1155,6 +1747,25 @@ class GlsmLinkageTest {
             return GlsmLinkageTest.folds(redirector());
         }
 
+        /**
+         * A copy of its redirector's getNamedClassMethodRedirects(): each owner GLSM maps by name, such as X01's
+         * OpenGlHelper and the ARB and EXT classes, to its map of a call's name to its GLStateManager name (25:721).
+         */
+        @SuppressWarnings("unchecked")
+        synchronized Map<String, Map<String, String>> named() throws ReflectiveOperationException {
+            if (named == null) {
+                Map<String, Map<String, String>> copy = new TreeMap<>();
+                Object maps = redirector().getMethod("getNamedClassMethodRedirects")
+                    .invoke(null);
+                for (Map.Entry<String, Map<String, String>> owner : ((Map<String, Map<String, String>>) maps)
+                    .entrySet()) {
+                    copy.put(owner.getKey(), Collections.unmodifiableMap(new TreeMap<>(owner.getValue())));
+                }
+                named = Collections.unmodifiableMap(copy);
+            }
+            return named;
+        }
+
         /** Its GLSMRedirector instance as GlBytecode calls it. */
         synchronized GlBytecode.Redirector transformer() throws NoSuchMethodException {
             if (transformer == null) {
@@ -1174,6 +1785,22 @@ class GlsmLinkageTest {
                 shipped = Collections.unmodifiableList(list);
             }
             return shipped;
+        }
+
+        /** The root's classes of {@code jar} through its redirector, once, each with its own result. */
+        synchronized List<Shipped> root(RootJar jar) throws IOException, NoSuchMethodException {
+            List<Shipped> list = root.get(jar);
+            if (list == null) {
+                GlBytecode.Redirector glsm = transformer();
+                List<Shipped> through = new ArrayList<>();
+                for (Map.Entry<String, byte[]> c : jar.classes()
+                    .entrySet()) {
+                    through.add(Shipped.through(glsm, c.getKey(), c.getValue()));
+                }
+                list = Collections.unmodifiableList(through);
+                root.put(jar, list);
+            }
+            return list;
         }
 
         /** The shipped class {@code className}, which must have transformed. */

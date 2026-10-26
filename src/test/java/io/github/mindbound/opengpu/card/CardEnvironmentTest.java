@@ -336,14 +336,19 @@ class CardEnvironmentTest {
         Assertions.assertEquals("dedicated server", caps.get("graphics"));
     }
 
-    // Q-S11-8: until S12 installs a host, an integrated server's card says so
+    // 24:125, :230: an integrated server whose client has no graphics gives that client's GL reason, and its probed
+    // GL_RENDERER, so 19 keys (Q-S12-7 (a), a departure from S11 plan P10's 18 for NoRenderHost)
     @Test
-    void getCapsOnAnIntegratedServerBeforeS12GivesTheInterimReason() throws Exception {
-        CardEnvironment card = new CardRig(Installation.none(Installation.NOT_INSTALLED), Runnable::run).card(2);
+    void getCapsOnAnIntegratedServerWhoseClientHasNoGraphicsGivesItsReasonAndRenderer() throws Exception {
+        CardEnvironment card = new CardRig(
+            Installation.of(NoRenderHost.INSTANCE, "host GPU below GL 3.3", "Test GL 2.1"),
+            Runnable::run).card(2);
         Map<?, ?> caps = caps(card);
         Assertions.assertSame(NoRenderHost.INSTANCE, card.renderHost());
+        Assertions.assertEquals(keys(card, "renderer", "readback", "graphics", "hostRenderer"), order(caps));
         Assertions.assertEquals("none", caps.get("renderer"));
-        Assertions.assertEquals("host renderer not installed", caps.get("graphics"));
+        Assertions.assertEquals("host GPU below GL 3.3", caps.get("graphics"));
+        Assertions.assertEquals("Test GL 2.1", caps.get("hostRenderer"));
     }
 
     // P10: a GL host that has become unavailable shows all 19 names (28:692)
