@@ -428,6 +428,18 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    05, 03, 02 and this index, with the pins below. Run wf_4a3ef3ba-5bf
    wrote it with three writers on disjoint files, then three refuting
    checkers, whose confirmed points were applied.
+28. The owner committed S12, with S11's first-CI record and the doc
+   pass, as 3851e8a and, on 2026-10-26, reported its CI run,
+   40357899553: green on the first attempt, "Tests" 2 635 passed,
+   `clientGlTest` inside its proposed budget (0.543 s of 10 s, the task
+   about 1.6 s of 60 s), `glsmLinkageTest`'s CI figure 1.028 s, against
+   S9's 1.975 s, and the `runServer` step's labelled `Installation`
+   line. `:core:test`, `:gl:test` and `:gl-testkit:test` came from the
+   build cache, so the run gave no new figure for `:gl:test` and its
+   model test against their budgets. The main session read the run with
+   `gh`, read-only, and recorded it in the roadmap, 23, 24, 25, 28 and
+   this index. Run wf_baeeb9ba-54d checked the record with a refuting
+   checker, whose confirmed points were applied.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
@@ -459,7 +471,7 @@ Java 17-21 + lwjgl3ify (GTNH packs), OC-LuaJIT commit a4994e6.
 | `20-gl-first-client-rendering.md` | Client GL path with and without Angelica: GL 3.3 floor, offscreen integer surfaces, PBO readback, timestamp fences, the GLSM descriptor trap, GPU-hang safety; M0 step S12's TESR, GUI and "no graphics" bitmap as built, and what the in-game session saw (2026-10-26) |
 | `21-integrated-server-render-handoff.md` | Server-to-host handoff in one JVM (RenderHost SPI), persistence with an in-flight tail, LAN guest streaming with measured bandwidth, dedicated-server options; M0 steps S11's and S12's notes on the installation, the pause and the quit with frames in flight (2026-10-26) |
 | `22-shader-and-compute-languages.md` | GLSL ES 1.00 graphics subset and its emitter, GLSL 4.30-syntax compute with CPU semantics, determinism rules, rack scheduling, the HBM RBMK check; section 1 superseded by 27 where they conflict |
-| `23-gl-testing-strategy.md` | Headless GL in the GTNH shared CI, tolerance tiers for golden images, the ocelot GL test host, in-game and dedicated-server tests; M0 step S10's ocelot tasks, counts, times, budgets and reviews (2026-10-25); M0 step S11's root `test` and its budget, `jarTest`'s checks 7-9, the mutants and the local `runServer` audit (2026-10-26); S11's first CI run, with `:gl:test`'s two budgets over and recorded only (2026-10-26); M0 step S12's `clientGlTest` and its budget, `jarTest`'s checks 10 and 11, the `runServer` audit with client code, the mutants and the in-game session V7 (2026-10-26) |
+| `23-gl-testing-strategy.md` | Headless GL in the GTNH shared CI, tolerance tiers for golden images, the ocelot GL test host, in-game and dedicated-server tests; M0 step S10's ocelot tasks, counts, times, budgets and reviews (2026-10-25); M0 step S11's root `test` and its budget, `jarTest`'s checks 7-9, the mutants and the local `runServer` audit (2026-10-26); S11's first CI run, with `:gl:test`'s two budgets over and recorded only (2026-10-26); M0 step S12's `clientGlTest` and its budget, `jarTest`'s checks 10 and 11, the `runServer` audit with client code, the mutants and the in-game session V7 (2026-10-26); S12's first CI run, with `clientGlTest`'s budget confirmed (2026-10-26) |
 | `24-architecture-gl-first.md` | Current decision document: owner decisions, architecture, phased plan M0-M4 with M1.5 display block, questions, risks |
 | `25-angelica-version-floor.md` | Angelica version floor: 2.2.8 supported, older gated off at runtime (the 2.1.14-2.2.7 best-effort band was dropped on 2026-10-13); linkage matrix over all 2.x releases to 2.2.30, the M0 GL call set and deny-list, code rules, test matrix, GTNH pack coverage; M0 step S9's per-jar linkage and `unmappedGL=FAIL` record on 2.2.8, 2.2.21, 2.2.28 and the latest release (2.2.36 on 2026-10-24), with its mutants; M0 step S12's R-4 without `GL_TEXTURE_BIT` (D23), the root's call set with the pass-through row P01, the linkage test over the root's classes and R-13's gate seen on 2.1.49 (2026-10-26) |
 | `26-lessons-from-general-engines.md` | Lessons from Godot, OpenSceneGraph, O3DE, small-program shader languages and PS1/N64/Dreamcast/Quake/Doom techniques: typed handles, GL state hygiene, a GL allocation ledger, crash guard, API dump, semantic attributes, palette ops, quantize and dither, a retro shader variant family; considered items and owner questions |
