@@ -61,15 +61,24 @@ import org.objectweb.asm.tree.VarInsnNode;
  * Nexus's {@code <release>} at build time. Its JVM holds no Angelica jar. Each leg's dev jar gets a class loader of its
  * own whose parent is this class's, so every Angelica class comes from that jar, and Guava, GTNHLib, log4j, ASM and the
  * Launch stand-in from the shared classpath (S9 plan P3.1, P6). Each loader initializes its own SystemProperties under
- * the task's {@code -Dangelica.unmappedGL=FAIL}, then its own GLSMRedirector. Nothing loads GLStateManager, which needs
- * Minecraft and LWJGL: its methods are read from the jar ({@link GlBytecode#publicStatics}), so no GL context, no
- * natives and no GLSM start are needed (23:82 (3)). A leg that cannot be set up fails its own tests only. This class
- * names no Angelica type, so it loads where none is.
+ * the task's {@code -Dangelica.unmappedGL=FAIL}, then its own GLSMRedirector. Nothing loads GLStateManager or another
+ * GLSM class, which need Minecraft and LWJGL: their methods are read from the jar
+ * ({@link GlBytecode#publicStatics}), so no GL context, no natives and no GLSM start are needed (23:82 (3)). A leg
+ * that cannot be set up fails its own tests only. This class names no Angelica type, so it loads where none is.
  * <p>
  * On each leg: the jar is the release the build resolved (L1); every shipped class goes through the leg's redirector
  * as in game without a throw, and no LWJGL name is left in any of them but D01's lookup (L2; 25 §4 step 4); every
- * rewritten call is a public static method of that jar's GLStateManager with the call's descriptor, under the jar's
- * own folds (L3; step 3); and from the CI-only leg on, the jar folds :gl's capabilities as the floor does (L4).
+ * rewritten call is a public static method, with the call's descriptor, of the jar's GLSM class that owns its name,
+ * under the jar's own folds (L3; step 3); and from the CI-only leg on, the jar folds :gl's capabilities as the floor
+ * does (L4).
+ * <p>
+ * The GLSM classes are each leg's own ({@link Glsm}), chosen by reflection on its redirector, so the test sets no
+ * ceiling on Angelica's releases. Up to 2.2.39 GLSMRedirector's getTargetClassName() names one, GLStateManager, which
+ * owns every GLSM method, as since S9. 2.2.40 split GLStateManager into owner classes (Angelica PR #2305; CI run
+ * 40473671907, whose latest leg failed on the missing getTargetClassName()): its redirector gives the classes as
+ * glsmClasses() and each GLSM name's owner as getTargetOwner(name), GLStateManager for a name it does not list. L1
+ * reads every class and its multi-release copies, L3 links each call on its own owner, the scans take a call on any
+ * GLSM class as rewritten, and N3 removes glPolygonMode from the class that owns it.
  * Synthetic classes, transformed and scanned but never defined, so LWJGL never loads, show that each check can fail
  * (S9 plan P10, critic A2): FAIL rejects an unmapped call and A09 (N1), a rewritten call with no GLSM method and a jar
  * without glPolygonMode fail the link check (N2, N3), a fold set without GL_BLEND fails the expected calls (N4), a
@@ -98,12 +107,15 @@ class GlsmLinkageTest {
         .unmodifiableList(Arrays.asList("floor", "ci-only", "pack", "latest"));
     private static final String SYSTEM_PROPERTIES = "com.gtnewhorizons.angelica.config.SystemProperties";
     private static final String REDIRECTOR = "com.gtnewhorizons.angelica.glsm.redirect.GLSMRedirector";
-    /** The base entries S9 reads (S9 plan P2.1); a Java 8 client loads these, so each must be major 52. */
+    /** The GLSM class of every name up to Angelica 2.2.39, and from 2.2.40 the owner of a name no other class owns. */
+    private static final String GL_STATE_MANAGER = "com/gtnewhorizons/angelica/glsm/GLStateManager";
+    /**
+     * The base entries S9 reads besides the GLSM classes (S9 plan P2.1); a Java 8 client loads these, so each must be
+     * major 52. L1 reads every GLSM class the same way, GLStateManager among them while it is one, so no release that
+     * renames it or stops using it as the default owner fails here (review CK3).
+     */
     private static final List<String> ENTRIES = Collections.unmodifiableList(
-        Arrays.asList(
-            REDIRECTOR.replace('.', '/') + ".class",
-            "com/gtnewhorizons/angelica/glsm/GLStateManager.class",
-            SYSTEM_PROPERTIES.replace('.', '/') + ".class"));
+        Arrays.asList(REDIRECTOR.replace('.', '/') + ".class", SYSTEM_PROPERTIES.replace('.', '/') + ".class"));
     /** The multi-release copies lwjgl3ify's Java 17 and 21 clients load (25 §5.1; LK L9). */
     private static final int[] RELEASES = { 17, 21 };
     /** The version of mcmod.info's angelica entry; the jar also holds NotFine's, Embeddium's and MCPatcherForge's. */
@@ -145,13 +157,16 @@ class GlsmLinkageTest {
     /** X01's SRG name, which the release jar calls and no GLSMRedirector map of 2.2.8 to 2.2.36 holds. */
     private static final String X01_SRG_NAME = "func_77475_a";
     private static final String X01_SRG = OPEN_GL_HELPER + "." + X01_SRG_NAME + "(IFF)V";
-    /** The root's rows L3 links, by their GLStateManager members (25 §4.1's target column; clientcalls.txt). */
+    /**
+     * The root's rows L3 links, by their GLSM members, each on the class that owns its name (25 §4.1's target column;
+     * clientcalls.txt).
+     */
     private static final Map<String, String> ROOT_ROWS = rootRows();
     /** An LWJGL internal name inside a reference's text. */
     private static final Pattern LWJGL_NAME = Pattern.compile(GlBytecode.LWJGL + "[A-Za-z0-9_/$]+");
     /** :gl's class of GL constants only, which no instruction of its takes from LWJGL (S9 critic A7). */
     private static final String GL_FORMATS = "io.github.mindbound.opengpu.gl.GlFormats";
-    /** The rows L3 names, by their GLStateManager members: C02 (GL_VENDOR, Q-S8-3), C99 (H41), C100 (S8's fix loop). */
+    /** The rows L3 names, by their GLSM members: C02 (GL_VENDOR, Q-S8-3), C99 (H41), C100 (S8's fix loop). */
     private static final Map<String, String> ROWS = rows();
     private static final String POLYGON_MODE = "glPolygonMode(II)V";
     /** GL_BLEND, F01's capability. */
@@ -259,55 +274,58 @@ class GlsmLinkageTest {
                     .getField("UNMAPPED_GL")
                     .get(null)),
             leg + ": unmappedGL in its own SystemProperties (glsmLinkageTest sets -Dangelica.unmappedGL=FAIL)");
-        String target = leg.target();
-        List<Integer> copies = new ArrayList<>();
-        try (ZipFile zip = new ZipFile(leg.jar)) {
-            Assertions.assertNotNull(zip.getEntry(target + ".class"), leg + ": no " + target + ".class");
-            for (int release : RELEASES) {
-                if (zip.getEntry(versioned(release, target)) != null) {
-                    copies.add(release);
-                }
-            }
-        }
-        Set<String> statics = leg.statics();
-        Assertions.assertFalse(statics.isEmpty(), leg + ": " + target + " has no public static method");
-        // LK L9's re-check: the Java 17 and 21 copies declare the same public static methods as the base, each read
-        // from the entry a JVM of that release loads, which is asserted, so a reader that falls back to the base
-        // cannot pass for the re-check (S9 review TS2)
+        Glsm glsm = leg.glsm();
+        Assertions.assertNotEquals(0, glsm.methods(), leg + ": " + glsm + ": no public static method");
+        // LK L9's re-check, on each GLSM class: the Java 17 and 21 copies declare the same public static methods as
+        // the base, each read from the entry a JVM of that release loads, the highest META-INF/versions/n with n at
+        // most its release, which is asserted, so a reader that falls back to the base cannot pass for the re-check
+        // (S9 review TS2). On 2.2.40 some classes have a versions/17 copy and no versions/21 one, which Java 21 loads
+        Map<Integer, Integer> copies = new TreeMap<>();
         List<String> differences = new ArrayList<>();
-        List<String> compared = new ArrayList<>();
-        for (int release : RELEASES) {
-            List<String> read = new ArrayList<>();
-            Set<String> copy = GlBytecode.publicStatics(leg.jar, target, release, read);
-            Assertions.assertEquals(
-                copies.contains(release) ? versioned(release, target) : target + ".class",
-                read.get(0),
-                leg + ": the " + target + " a Java " + release + " JVM loads");
-            if (copies.contains(release)) {
-                compared.add("versions/" + release);
-            }
-            for (String method : statics) {
-                if (!copy.contains(method)) {
-                    differences.add("Java " + release + " lacks " + method);
-                }
-            }
-            for (String method : copy) {
-                if (!statics.contains(method)) {
-                    differences.add("only Java " + release + " has " + method);
+        try (ZipFile zip = new ZipFile(leg.jar)) {
+            for (String owner : glsm.classes) {
+                Assertions.assertEquals(52, major(zip, owner + ".class"), leg + ": the class file major of " + owner);
+                Set<String> statics = glsm.statics(owner);
+                for (int release : RELEASES) {
+                    if (zip.getEntry(versioned(release, owner)) != null) {
+                        copies.merge(release, 1, Integer::sum);
+                    }
+                    List<String> read = new ArrayList<>();
+                    Set<String> copy = GlBytecode.publicStatics(leg.jar, owner, release, read);
+                    Assertions.assertEquals(
+                        loaded(zip, release, owner),
+                        read.get(0),
+                        leg + ": the " + owner + " a Java " + release + " JVM loads");
+                    for (String method : statics) {
+                        if (!copy.contains(method)) {
+                            differences.add(glsmName(owner) + ": Java " + release + " lacks " + method);
+                        }
+                    }
+                    for (String method : copy) {
+                        if (!statics.contains(method)) {
+                            differences.add(glsmName(owner) + ": only Java " + release + " has " + method);
+                        }
+                    }
                 }
             }
         }
         Assertions
             .assertEquals(new ArrayList<String>(), differences, leg + ": " + differences.size() + " difference(s)");
+        List<String> compared = new ArrayList<>();
+        for (Map.Entry<Integer, Integer> copy : copies.entrySet()) {
+            compared.add("versions/" + copy.getKey() + (glsm.single() ? "" : " (" + copy.getValue() + " of them)"));
+        }
         report(
             reporter,
             "linkage." + leg.name + ".glsm",
             "linkage " + leg.name
                 + ": "
-                + target
-                + " has "
-                + statics.size()
-                + " public static methods, the same in "
+                + glsm
+                + (glsm.single() ? ", has " : " have ")
+                + glsm.methods()
+                + " public static methods"
+                + (glsm.single() ? "" : " " + glsm.counts())
+                + ", the same in "
                 + (compared.isEmpty() ? "no multi-release copy" : String.join(" and ", compared))
                 + "; folds "
                 + foldText(leg.folds()));
@@ -325,7 +343,7 @@ class GlsmLinkageTest {
     @MethodSource("legs")
     @Order(2)
     void everyShippedClassTransformsUnderFail(Leg leg, TestReporter reporter) throws Exception {
-        String target = leg.target();
+        Glsm glsm = leg.glsm();
         Map<Integer, String> folds = leg.folds();
         List<String> problems = new ArrayList<>();
         Set<String> calling = new TreeSet<>();
@@ -342,7 +360,7 @@ class GlsmLinkageTest {
             if (t.excluded) {
                 problems.add(c.name + ": a core exclusion matched, so in game the redirector leaves it as it is");
             }
-            List<String> before = GlBytecode.calls(c.original, target);
+            List<String> before = calls(c.original, glsm);
             if (!before.isEmpty()) {
                 calling.add(c.name);
                 if (!t.filtered || !t.changed) {
@@ -405,22 +423,22 @@ class GlsmLinkageTest {
     }
 
     /**
-     * 25 §4 step 3 on the leg's own jar: in each class that calls GL, the calls on GLStateManager after the transform
-     * are its GL calls in order, each of the same name and descriptor but a glEnable or glDisable of a capability in
-     * that jar's glCapRedirects, which becomes its enable/disable method (25 §4.1's target column; 25:239), and each is
-     * a public static method of that jar's GLStateManager with that descriptor. A target a later jar renames fails
-     * here by design, though 25 §4 step 3 would let it link: {@link #linkage} expects each call's own name, so the fix
-     * is 25 §4.1's target column and that jar's name in linkage() (25:546; S9 review F3). The number of distinct
-     * targets is recorded per leg and compared with no other leg's: a new fold changes it without a link failure (S9
-     * critic A3), which L4 reports.
+     * 25 §4 step 3 on the leg's own jar: in each class that calls GL, the calls on the jar's GLSM classes after the
+     * transform are its GL calls in order, each of the same name and descriptor on the class that owns that name but a
+     * glEnable or glDisable of a capability in that jar's glCapRedirects, which becomes its enable/disable method on
+     * that method's owner (25 §4.1's target column; 25:239), and each is a public static method of the class it calls,
+     * with that descriptor. A target a later jar renames fails here by design, though 25 §4 step 3 would let it link:
+     * {@link #linkage} expects each call's own name, so the fix is 25 §4.1's target column and that jar's name in
+     * linkage() (25:546; S9 review F3). A target a later jar moves to another GLSM class does not: each name's owner
+     * is the jar's own ({@link Glsm}). The number of distinct targets is recorded per leg and compared with no other
+     * leg's: a new fold changes it without a link failure (S9 critic A3), which L4 reports.
      */
     @ParameterizedTest(name = "{0}")
     @MethodSource("legs")
     @Order(3)
     void everyRewrittenCallLinks(Leg leg, TestReporter reporter) throws Exception {
-        String target = leg.target();
-        Set<String> statics = leg.statics();
-        Linkage linkage = linkage(leg.shipped(), target, leg.folds(), statics);
+        Glsm glsm = leg.glsm();
+        Linkage linkage = linkage(leg.shipped(), glsm, leg.folds());
         Assertions.assertEquals(
             new ArrayList<String>(),
             linkage.problems,
@@ -429,21 +447,18 @@ class GlsmLinkageTest {
                 + " problem(s); a target this jar renames needs 25 §4.1's target column and this jar's name in"
                 + " GlsmLinkageTest.linkage()");
         for (Map.Entry<String, String> row : ROWS.entrySet()) {
+            String owner = glsm.ownerOf(row.getValue());
             Assertions.assertTrue(
-                linkage.targets.contains(row.getValue()) && statics.contains(row.getValue()),
-                leg + ": " + row.getKey() + " " + target + "." + row.getValue() + " is not among the linked targets");
+                linkage.targets.contains(row.getValue()) && glsm.links(owner, row.getValue()),
+                leg + ": " + row.getKey() + " " + owner + "." + row.getValue() + " is not among the linked targets");
         }
         report(
             reporter,
             "linkage." + leg.name + ".links",
             "linkage " + leg.name
                 + ": "
-                + linkage.sites
-                + " rewritten call sites to "
-                + linkage.targets.size()
-                + " distinct "
-                + target
-                + " methods, each public static with the call's descriptor; "
+                + sitesText(glsm, linkage.sites, linkage.targets, linkage.owners)
+                + ", each public static with the call's descriptor; "
                 + String.join(", ", ROWS.keySet())
                 + " among them");
     }
@@ -469,7 +484,7 @@ class GlsmLinkageTest {
         }
         Set<Integer> used = new TreeSet<>();
         for (byte[] classFile : classFiles) {
-            for (String call : GlBytecode.calls(classFile, floor.target())) {
+            for (String call : calls(classFile, floor.glsm())) {
                 Integer cap = GlBytecode.capability(call.substring(call.indexOf('.') + 1));
                 if (cap != null) {
                     used.add(cap);
@@ -538,7 +553,7 @@ class GlsmLinkageTest {
             "; if this jar maps A09, update 24:197 and 25 §4.2's A09 row");
     }
 
-    /** glViewport is mapped by name, but no GLStateManager method can have this descriptor. */
+    /** glViewport is mapped by name, but no GLSM method can have this descriptor. */
     @ParameterizedTest(name = "{0}")
     @MethodSource("legs")
     @Order(7)
@@ -547,36 +562,50 @@ class GlsmLinkageTest {
         byte[] original = callOf(name, GlBytecode.GL_OWNER + "GL11", "glViewport", "(Ljava/lang/Object;)V");
         GlsmLoader.Transform t = GlBytecode.redirect(leg.transformer(), name, original);
         Assertions.assertTrue(t.changed, leg + ": the redirector left " + name + " as it was");
-        Linkage linkage = linkage(
-            Collections.singletonList(new Shipped(name, original, t, null)),
-            leg.target(),
-            leg.folds(),
-            leg.statics());
+        Glsm glsm = leg.glsm();
+        Linkage linkage = linkage(Collections.singletonList(new Shipped(name, original, t, null)), glsm, leg.folds());
         Assertions.assertEquals(
-            Collections.singletonList(name + ": no public static " + leg.target() + ".glViewport(Ljava/lang/Object;)V"),
+            Collections.singletonList(
+                name + ": no public static " + glsm.owner("glViewport") + ".glViewport(Ljava/lang/Object;)V"),
             linkage.problems,
             leg.toString());
     }
 
-    /** L3's check over the real shipped classes, on this jar's method list without C99: exactly C99's sites fail. */
+    /**
+     * L3's check over the real shipped classes, on this jar's method lists with C99 removed from the GLSM class that
+     * owns its name, the one the redirector sends it to: exactly C99's sites fail. On a split leg C99 is also given to
+     * another GLSM class, so only a check on each call's own owner reports those sites, not one that takes a method
+     * from any GLSM class (review CK1); on a single-class leg there is no other class to give it to.
+     */
     @ParameterizedTest(name = "{0}")
     @MethodSource("legs")
     @Order(8)
     void aJarWithoutGlPolygonModeFailsTheLinkCheck(Leg leg) throws Exception {
-        String target = leg.target();
-        Set<String> statics = new TreeSet<>(leg.statics());
-        Assertions.assertTrue(statics.remove(POLYGON_MODE), leg + ": C99 " + POLYGON_MODE + " is no public static");
+        Glsm glsm = leg.glsm();
+        String owner = glsm.ownerOf(POLYGON_MODE);
+        Set<String> statics = new TreeSet<>(glsm.statics(owner));
+        Assertions.assertTrue(
+            statics.remove(POLYGON_MODE),
+            leg + ": C99 " + owner + "." + POLYGON_MODE + " is no public static");
+        Glsm without = glsm.with(owner, statics);
+        for (String other : glsm.classes) {
+            if (!other.equals(owner)) {
+                Set<String> more = new TreeSet<>(glsm.statics(other));
+                more.add(POLYGON_MODE);
+                without = without.with(other, more);
+                break;
+            }
+        }
         List<String> expected = new ArrayList<>();
         for (Shipped c : leg.shipped()) {
-            for (String call : GlBytecode.calls(c.original, target)) {
+            for (String call : calls(c.original, glsm)) {
                 if (call.equals(GlBytecode.GL_OWNER + "GL11." + POLYGON_MODE)) {
-                    expected.add(c.name + ": no public static " + target + "." + POLYGON_MODE);
+                    expected.add(c.name + ": no public static " + owner + "." + POLYGON_MODE);
                 }
             }
         }
         Assertions.assertFalse(expected.isEmpty(), "no C99 call in :gl's classes");
-        Assertions
-            .assertEquals(expected, linkage(leg.shipped(), target, leg.folds(), statics).problems, leg.toString());
+        Assertions.assertEquals(expected, linkage(leg.shipped(), without, leg.folds()).problems, leg.toString());
     }
 
     /**
@@ -586,13 +615,13 @@ class GlsmLinkageTest {
     @Order(9)
     void aFoldSetWithoutBlendFailsTheTargetCheck() throws Exception {
         Leg floor = legs().get(0);
-        String target = floor.target();
+        Glsm glsm = floor.glsm();
         Map<Integer, String> folds = floor.folds();
         String blend = folds.remove(BLEND);
         Assertions.assertNotNull(blend, floor + " does not fold GL_BLEND (F01)");
         List<String> expected = new ArrayList<>();
         for (Shipped c : floor.shipped()) {
-            List<String> before = GlBytecode.calls(c.original, target);
+            List<String> before = calls(c.original, glsm);
             for (int i = 0; i < before.size(); i++) {
                 String member = before.get(i)
                     .substring(
@@ -600,24 +629,24 @@ class GlsmLinkageTest {
                             .indexOf('.') + 1);
                 if (Integer.valueOf(BLEND)
                     .equals(GlBytecode.capability(member))) {
+                    String fold = (member.startsWith("glEnable") ? "enable" : "disable") + blend;
                     expected.add(
                         c.name + ": call "
                             + i
                             + ": expected "
-                            + target
+                            + glsm.ownerOf(member)
                             + "."
                             + member
                             + ", got "
-                            + target
+                            + glsm.owner(fold)
                             + "."
-                            + (member.startsWith("glEnable") ? "enable" : "disable")
-                            + blend
+                            + fold
                             + "()V");
                 }
             }
         }
         Assertions.assertFalse(expected.isEmpty(), "no F01 site in :gl's classes");
-        Assertions.assertEquals(expected, linkage(floor.shipped(), target, folds, floor.statics()).problems);
+        Assertions.assertEquals(expected, linkage(floor.shipped(), glsm, folds).problems);
     }
 
     /**
@@ -701,7 +730,8 @@ class GlsmLinkageTest {
             "linkage." + leg.name + ".passThrough",
             "linkage " + leg.name
                 + ": unmappedGL=FAIL lets GL32.glFenceSync (a GLSync descriptor) through, "
-                + (fenced.changed ? "rewritten to " + leg.target() : "left on LWJGL")
+                + (fenced.changed ? "rewritten to " + leg.glsm()
+                    .owner("glFenceSync") : "left on LWJGL")
                 + ", and ARBDebugOutput."
                 + debugName
                 + ", "
@@ -724,7 +754,7 @@ class GlsmLinkageTest {
     @MethodSource("legs")
     @Order(12)
     void theRootsClientClassesTransformUnderFail(Leg leg, TestReporter reporter) throws Exception {
-        String target = leg.target();
+        Glsm glsm = leg.glsm();
         Map<Integer, String> folds = leg.folds();
         Map<String, Map<String, String>> named = leg.named();
         List<String> problems = new ArrayList<>();
@@ -742,8 +772,8 @@ class GlsmLinkageTest {
                 if (t.excluded) {
                     problems.add(where + ": a core exclusion matched, so in game the redirector leaves it as it is");
                 }
-                List<String> before = routedCalls(c.original, target, named.keySet());
-                boolean rewrites = !expectedCalls(c.name, before, target, folds, named, new ArrayList<String>())
+                List<String> before = routedCalls(c.original, glsm, named.keySet());
+                boolean rewrites = !expectedCalls(c.name, before, glsm, folds, named, new ArrayList<String>())
                     .equals(before);
                 if (rewrites && (!t.filtered || !t.changed)) {
                     problems.add(
@@ -809,8 +839,8 @@ class GlsmLinkageTest {
      * L3 for the root's classes, its client classes and its common ones (S12 plan P14.5; S12 review strength-6): in
      * each class of both root jars outside :gl's package, the calls on LWJGL's GL owners and on the owners of the jar's
      * getNamedClassMethodRedirects become, in order, what {@link #expectedCalls}
-     * says, and each rewritten one is a public static method of the jar's GLStateManager with the call's descriptor.
-     * Each row of the root's clientcalls.txt links to its 25 §4.1 target in both jars, X01 to
+     * says, and each rewritten one is a public static method, with the call's descriptor, of the jar's GLSM class that
+     * owns its name. Each row of the root's clientcalls.txt links to its 25 §4.1 target in both jars, X01 to
      * setLightmapTextureCoords(IFF)V in the -dev jar; in the release jar X01's SRG name is left to vanilla's body while
      * the jar's map lacks it, as on every leg today, and its target is checked once a jar maps it.
      */
@@ -818,15 +848,14 @@ class GlsmLinkageTest {
     @MethodSource("legs")
     @Order(13)
     void theRootsClientCallsLink(Leg leg, TestReporter reporter) throws Exception {
-        String target = leg.target();
-        Set<String> statics = leg.statics();
+        Glsm glsm = leg.glsm();
         Map<String, Map<String, String>> named = leg.named();
         Map<String, String> helper = named.get(OPEN_GL_HELPER);
         boolean mapsSrg = helper != null && helper.containsKey(X01_SRG_NAME);
         List<String> problems = new ArrayList<>();
         List<String> parts = new ArrayList<>();
         for (RootJar jar : RootJar.values()) {
-            RootLinkage linkage = rootLinkage(leg.root(jar), jar, target, leg.folds(), statics, named);
+            RootLinkage linkage = rootLinkage(leg.root(jar), jar, glsm, leg.folds(), named);
             problems.addAll(linkage.problems);
             boolean vanilla = jar == RootJar.RELEASE && !mapsSrg;
             for (Map.Entry<String, String> row : ROOT_ROWS.entrySet()) {
@@ -834,8 +863,9 @@ class GlsmLinkageTest {
                     .equals("X01")) {
                     continue;
                 }
-                if (!linkage.targets.contains(row.getValue()) || !statics.contains(row.getValue())) {
-                    problems.add(jar + ": " + row.getKey() + " " + target + "." + row.getValue() + " is not linked");
+                String owner = glsm.ownerOf(row.getValue());
+                if (!linkage.targets.contains(row.getValue()) || !glsm.links(owner, row.getValue())) {
+                    problems.add(jar + ": " + row.getKey() + " " + owner + "." + row.getValue() + " is not linked");
                 }
             }
             List<String> expected = vanilla ? Collections.singletonList(simpleName(SCREEN_DRAW) + " " + X01_SRG)
@@ -845,12 +875,8 @@ class GlsmLinkageTest {
             }
             parts.add(
                 jar + " jar: "
-                    + linkage.sites
-                    + " rewritten call sites to "
-                    + linkage.targets.size()
-                    + " distinct "
-                    + target
-                    + " methods, passed through by design "
+                    + sitesText(glsm, linkage.sites, linkage.targets, linkage.owners)
+                    + ", passed through by design "
                     + linkage.passThrough
                     + ", left to vanilla's body "
                     + (linkage.vanilla.isEmpty() ? "none" : linkage.vanilla));
@@ -864,8 +890,9 @@ class GlsmLinkageTest {
 
     /**
      * N7 (S12 plan P14.5): a root client class calling A01, GL11.glReadPixels(IIIIIIJ)V, which GLSM maps by name,
-     * fails L3 where the jar's GLStateManager has no method of that descriptor: on the floor and the CI-only leg, as 25
-     * §4.2 has it (NSME from 2.2.0 to 2.2.21). Where a later jar has one it links, which is recorded.
+     * fails L3 where the jar's GLSM class that owns glReadPixels has no method of that descriptor: on the floor and
+     * the CI-only leg, as 25 §4.2 has it (NSME from 2.2.0 to 2.2.21). Where a later jar has one it links, which is
+     * recorded.
      */
     @ParameterizedTest(name = "{0}")
     @MethodSource("legs")
@@ -876,27 +903,26 @@ class GlsmLinkageTest {
         byte[] original = callOf(name, GlBytecode.GL_OWNER + "GL11", "glReadPixels", "(IIIIIIJ)V");
         GlsmLoader.Transform t = GlBytecode.redirect(leg.transformer(), name, original);
         Assertions.assertTrue(t.changed, leg + ": the redirector left " + name + " as it was");
-        String target = leg.target();
-        boolean links = leg.statics()
-            .contains(member);
+        Glsm glsm = leg.glsm();
+        String owner = glsm.ownerOf(member);
+        boolean links = glsm.links(owner, member);
         if (LEG_NAMES.subList(0, 2)
             .contains(leg.name)) {
             Assertions.assertFalse(
                 links,
-                leg + ": GLStateManager has " + member + ", which 25 §4.2 gives no 2.2.x before 2.2.22");
+                leg + ": " + owner + " has " + member + ", which 25 §4.2 gives no 2.2.x before 2.2.22");
         }
         RootLinkage linkage = rootLinkage(
             Collections.singletonList(new Shipped(name, original, t, null)),
             RootJar.DEV,
-            target,
+            glsm,
             leg.folds(),
-            leg.statics(),
             leg.named());
         Assertions
             .assertEquals(
                 links ? new ArrayList<String>()
                     : Collections
-                        .singletonList(RootJar.DEV + " " + name + ": no public static " + target + "." + member),
+                        .singletonList(RootJar.DEV + " " + name + ": no public static " + owner + "." + member),
                 linkage.problems,
                 leg.toString());
         report(
@@ -906,7 +932,8 @@ class GlsmLinkageTest {
                 + ": A01 GL11."
                 + member
                 + " in a root client class "
-                + (links ? "links, as from 2.2.22 (25 §4.2)" : "fails L3: no public static " + target + "." + member));
+                + (links ? "links on " + owner + ", as from 2.2.22 (25 §4.2)"
+                    : "fails L3: no public static " + owner + "." + member));
     }
 
     /**
@@ -1012,25 +1039,28 @@ class GlsmLinkageTest {
     static final class Linkage {
 
         final List<String> problems = new ArrayList<>();
-        /** The distinct GLStateManager members the defined bytes call. */
+        /** The distinct GLSM members the defined bytes call, as name+descriptor. */
         final Set<String> targets = new TreeSet<>();
+        /** The rewritten call sites on each GLSM class they call. */
+        final Map<String, Integer> owners = new TreeMap<>();
         int sites;
     }
 
     /**
-     * L3's check over {@code classes}: in each that calls GL, the calls on {@code target} after the transform must be
-     * the original GL calls in order, each of the same name and descriptor but a glEnable or glDisable of a capability
-     * in {@code folds}, which becomes enable/disable&lt;suffix&gt;()V, and each must be in {@code statics}. One problem
-     * per call site.
+     * L3's check over {@code classes}: in each that calls GL, the calls on {@code glsm}'s classes after the transform
+     * must be the original GL calls in order, each of the same name and descriptor on the GLSM class that owns that
+     * name but a glEnable or glDisable of a capability in {@code folds}, which becomes enable/disable&lt;suffix&gt;()V
+     * on that method's owner, and each must be a public static method of the class it calls. One problem per call
+     * site.
      */
-    static Linkage linkage(List<Shipped> classes, String target, Map<Integer, String> folds, Set<String> statics) {
+    static Linkage linkage(List<Shipped> classes, Glsm glsm, Map<Integer, String> folds) {
         Linkage linkage = new Linkage();
         for (Shipped c : classes) {
             if (c.thrown != null) {
                 linkage.problems.add(c.name + ": not transformed, " + c.thrown);
                 continue;
             }
-            List<String> before = GlBytecode.calls(c.original, target);
+            List<String> before = calls(c.original, glsm);
             if (before.isEmpty()) {
                 continue;
             }
@@ -1039,16 +1069,16 @@ class GlsmLinkageTest {
                 String member = call.substring(call.indexOf('.') + 1);
                 Integer cap = GlBytecode.capability(member);
                 if (cap != null && folds.containsKey(cap)) {
-                    expected.add(
-                        target + "." + (member.startsWith("glEnable") ? "enable" : "disable") + folds.get(cap) + "()V");
+                    String fold = (member.startsWith("glEnable") ? "enable" : "disable") + folds.get(cap);
+                    expected.add(glsm.owner(fold) + "." + fold + "()V");
                 } else {
-                    expected.add(target + "." + member);
+                    expected.add(glsm.ownerOf(member) + "." + member);
                 }
                 if ((member.startsWith("glEnable(") || member.startsWith("glDisable(")) && cap == null) {
                     linkage.problems.add(c.name + ": " + member + " without a constant capability (25:239)");
                 }
             }
-            List<String> after = GlBytecode.calls(c.transform.defined, target);
+            List<String> after = calls(c.transform.defined, glsm);
             if (expected.size() != after.size()) {
                 linkage.problems.add(c.name + ": expected " + expected + "\n  got " + after);
             } else {
@@ -1061,16 +1091,18 @@ class GlsmLinkageTest {
                 }
             }
             for (String call : after) {
-                if (!call.startsWith(target + ".")) {
+                String owner = call.substring(0, call.indexOf('.'));
+                if (!glsm.holds(owner)) {
                     linkage.problems.add(c.name + ": " + call + " is left on LWJGL");
                     continue;
                 }
-                String member = call.substring(target.length() + 1)
+                String member = call.substring(owner.length() + 1)
                     .replaceAll(" \\[.*]$", "");
                 linkage.sites++;
                 linkage.targets.add(member);
-                if (!statics.contains(member)) {
-                    linkage.problems.add(c.name + ": no public static " + target + "." + member);
+                linkage.owners.merge(owner, 1, Integer::sum);
+                if (!glsm.links(owner, member)) {
+                    linkage.problems.add(c.name + ": no public static " + owner + "." + member);
                 }
             }
         }
@@ -1130,8 +1162,10 @@ class GlsmLinkageTest {
     static final class RootLinkage {
 
         final List<String> problems = new ArrayList<>();
-        /** The distinct GLStateManager members the defined bytes call. */
+        /** The distinct GLSM members the defined bytes call, as name+descriptor. */
         final Set<String> targets = new TreeSet<>();
+        /** The rewritten call sites on each GLSM class they call. */
+        final Map<String, Integer> owners = new TreeMap<>();
         /** The calls GLSM passes through by design, as "class call". */
         final List<String> passThrough = new ArrayList<>();
         /**
@@ -1143,12 +1177,12 @@ class GlsmLinkageTest {
 
     /**
      * L3's check over the root's classes of {@code jar}: in each, the {@link #routedCalls} after the transform
-     * must be the {@link #expectedCalls} of those before it, in order; each rewritten one must be in {@code statics};
-     * and a call left as it is must be the pass-through, or X01's SRG name in the release jar's ScreenDraw, which is
-     * left to vanilla's body. One problem per call site.
+     * must be the {@link #expectedCalls} of those before it, in order; each rewritten one must be a public static
+     * method of the GLSM class it calls; and a call left as it is must be the pass-through, or X01's SRG name in the
+     * release jar's ScreenDraw, which is left to vanilla's body. One problem per call site.
      */
-    static RootLinkage rootLinkage(List<Shipped> classes, RootJar jar, String target, Map<Integer, String> folds,
-        Set<String> statics, Map<String, Map<String, String>> named) {
+    static RootLinkage rootLinkage(List<Shipped> classes, RootJar jar, Glsm glsm, Map<Integer, String> folds,
+        Map<String, Map<String, String>> named) {
         RootLinkage linkage = new RootLinkage();
         for (Shipped c : classes) {
             String where = jar + " " + c.name;
@@ -1156,12 +1190,12 @@ class GlsmLinkageTest {
                 linkage.problems.add(where + ": not transformed, " + c.thrown);
                 continue;
             }
-            List<String> before = routedCalls(c.original, target, named.keySet());
+            List<String> before = routedCalls(c.original, glsm, named.keySet());
             if (before.isEmpty()) {
                 continue;
             }
-            List<String> expected = expectedCalls(where, before, target, folds, named, linkage.problems);
-            List<String> after = routedCalls(c.transform.defined, target, named.keySet());
+            List<String> expected = expectedCalls(where, before, glsm, folds, named, linkage.problems);
+            List<String> after = routedCalls(c.transform.defined, glsm, named.keySet());
             if (expected.size() != after.size()) {
                 linkage.problems.add(where + ": expected " + expected + "\n  got " + after);
             } else {
@@ -1175,12 +1209,14 @@ class GlsmLinkageTest {
             }
             for (String call : after) {
                 String plain = call.replaceAll(" \\[.*]$", "");
-                if (call.startsWith(target + ".")) {
-                    String member = plain.substring(target.length() + 1);
+                String owner = call.substring(0, call.indexOf('.'));
+                if (glsm.holds(owner)) {
+                    String member = plain.substring(owner.length() + 1);
                     linkage.sites++;
                     linkage.targets.add(member);
-                    if (!statics.contains(member)) {
-                        linkage.problems.add(where + ": no public static " + target + "." + member);
+                    linkage.owners.merge(owner, 1, Integer::sum);
+                    if (!glsm.links(owner, member)) {
+                        linkage.problems.add(where + ": no public static " + owner + "." + member);
                     }
                 } else if (plain.equals(PASS_THROUGH)) {
                     linkage.passThrough.add(simpleName(c.name) + " " + plain);
@@ -1200,14 +1236,17 @@ class GlsmLinkageTest {
     }
 
     /**
-     * What GLSM makes of each of {@code before}'s calls, which {@link #routedCalls} lists: a glEnable or glDisable of
-     * a capability in {@code folds} its enable/disable method (25:239); another call on a GL owner the same name on
-     * GLStateManager, as {@link #linkage} expects it, or the name the jar's map for that owner gives; the call GLSM
-     * passes through by design, as it is; a call on another of the jar's named owners, such as X01's OpenGlHelper, the
-     * name that owner's map gives, or, when the map lacks the name, the call as it is, left to its owner's own body.
+     * What GLSM makes of each of {@code before}'s calls, which {@link #routedCalls} lists, each rewritten one on the
+     * GLSM class that owns its new name: a glEnable or glDisable of a capability in {@code folds} its enable/disable
+     * method (25:239); another call on a GL owner the same name, as {@link #linkage} expects it, or the name the jar's
+     * map for that owner gives; the call GLSM passes through by design, and a call already on a GLSM class, as it is
+     * (from 2.2.40 GLSM moves a call on GLStateManager whose name another class owns to that class; OpenGPU makes no
+     * such call); a call on another of the jar's named owners, such as X01's OpenGlHelper, the name that owner's map
+     * gives, or,
+     * when the map lacks the name, the call as it is, left to its owner's own body.
      */
-    private static List<String> expectedCalls(String where, List<String> before, String target,
-        Map<Integer, String> folds, Map<String, Map<String, String>> named, List<String> problems) {
+    private static List<String> expectedCalls(String where, List<String> before, Glsm glsm, Map<Integer, String> folds,
+        Map<String, Map<String, String>> named, List<String> problems) {
         List<String> expected = new ArrayList<>();
         for (String call : before) {
             String plain = call.replaceAll(" \\[.*]$", "");
@@ -1216,18 +1255,19 @@ class GlsmLinkageTest {
             String method = member.substring(0, member.indexOf('('));
             Map<String, String> map = named.get(owner);
             Integer cap = GlBytecode.capability(member);
-            if (plain.equals(PASS_THROUGH) || owner.equals(target)) {
+            if (plain.equals(PASS_THROUGH) || glsm.holds(owner)) {
                 expected.add(call);
             } else if (owner.startsWith(GlBytecode.GL_OWNER) && cap != null && folds.containsKey(cap)) {
-                expected
-                    .add(target + "." + (method.equals("glEnable") ? "enable" : "disable") + folds.get(cap) + "()V");
+                String fold = (method.equals("glEnable") ? "enable" : "disable") + folds.get(cap);
+                expected.add(glsm.owner(fold) + "." + fold + "()V");
             } else if (map != null && map.containsKey(method)) {
-                expected.add(target + "." + map.get(method) + member.substring(member.indexOf('(')));
+                String name = map.get(method);
+                expected.add(glsm.owner(name) + "." + name + member.substring(member.indexOf('(')));
             } else if (owner.startsWith(GlBytecode.GL_OWNER)) {
                 if ((method.equals("glEnable") || method.equals("glDisable")) && cap == null) {
                     problems.add(where + ": " + member + " without a constant capability (25:239)");
                 }
-                expected.add(target + "." + member);
+                expected.add(glsm.owner(method) + "." + member);
             } else {
                 expected.add(call);
             }
@@ -1236,11 +1276,20 @@ class GlsmLinkageTest {
     }
 
     /**
-     * The calls in {@code classFile} on LWJGL's GL owners, on GLStateManager ({@code target}) and on {@code owners},
-     * the jar's named owners, in order, as owner.name+descriptor, a glEnable or glDisable with the int constant right
-     * before it appended in brackets: {@link GlBytecode#calls}'s list with the named owners' calls in their places.
+     * {@link GlBytecode#calls}'s list over a jar's GLSM classes: the calls in {@code classFile} on LWJGL's GL owners
+     * and on any of {@code glsm}'s classes, in order, as owner.name+descriptor, a glEnable or glDisable with the int
+     * constant right before it appended in brackets.
      */
-    static List<String> routedCalls(byte[] classFile, String target, Set<String> owners) {
+    static List<String> calls(byte[] classFile, Glsm glsm) {
+        return routedCalls(classFile, glsm, Collections.<String>emptySet());
+    }
+
+    /**
+     * The calls in {@code classFile} on LWJGL's GL owners, on any of {@code glsm}'s classes and on {@code owners}, the
+     * jar's named owners, in order, as owner.name+descriptor, a glEnable or glDisable with the int constant right
+     * before it appended in brackets: {@link #calls}'s list with the named owners' calls in their places.
+     */
+    static List<String> routedCalls(byte[] classFile, Glsm glsm, Set<String> owners) {
         ClassNode node = new ClassNode();
         new ClassReader(classFile).accept(node, 0);
         List<String> calls = new ArrayList<>();
@@ -1250,7 +1299,7 @@ class GlsmLinkageTest {
                     continue;
                 }
                 MethodInsnNode call = (MethodInsnNode) insn;
-                if (!call.owner.startsWith(GlBytecode.GL_OWNER) && !call.owner.equals(target)
+                if (!call.owner.startsWith(GlBytecode.GL_OWNER) && !glsm.holds(call.owner)
                     && !owners.contains(call.owner)) {
                     continue;
                 }
@@ -1404,6 +1453,60 @@ class GlsmLinkageTest {
         return "META-INF/versions/" + release + "/" + owner + ".class";
     }
 
+    /**
+     * The entry of {@code owner} a Java {@code release} JVM loads from {@code zip}, a multi-release jar: the highest
+     * META-INF/versions/n with n at most {@code release} that holds it, else its base entry. Read from the zip's
+     * entries, not through {@link GlBytecode#publicStatics}, whose choice L1 checks against it.
+     */
+    private static String loaded(ZipFile zip, int release, String owner) {
+        for (int n = release; n > 8; n--) {
+            if (zip.getEntry(versioned(n, owner)) != null) {
+                return versioned(n, owner);
+            }
+        }
+        return owner + ".class";
+    }
+
+    /** A GLSM class's simple name, as a split jar's report lines give it. */
+    private static String glsmName(String owner) {
+        return owner.substring(owner.lastIndexOf('/') + 1);
+    }
+
+    /**
+     * The report's words for L3's {@code sites} rewritten call sites to {@code targets}: on a jar with one GLSM class
+     * as since S9, and on a split jar with the sites on each GLSM class they call, {@code owners}, and how many are on
+     * a class other than GLStateManager.
+     */
+    private static String sitesText(Glsm glsm, int sites, Set<String> targets, Map<String, Integer> owners) {
+        if (glsm.single()) {
+            return sites + " rewritten call sites to "
+                + targets.size()
+                + " distinct "
+                + glsm.classes.get(0)
+                + " methods";
+        }
+        List<String> parts = new ArrayList<>();
+        int moved = 0;
+        for (Map.Entry<String, Integer> owner : owners.entrySet()) {
+            parts.add(glsmName(owner.getKey()) + " " + owner.getValue());
+            if (!owner.getKey()
+                .equals(GL_STATE_MANAGER)) {
+                moved += owner.getValue();
+            }
+        }
+        return sites + " rewritten call sites to "
+            + targets.size()
+            + " distinct methods of "
+            + owners.size()
+            + " of the "
+            + glsm.classes.size()
+            + " GLSM classes "
+            + parts
+            + ", "
+            + moved
+            + " of the sites on a class other than GLStateManager";
+    }
+
     private static AbstractInsnNode zero(Type type) {
         switch (type.getSort()) {
             case Type.LONG:
@@ -1482,7 +1585,7 @@ class GlsmLinkageTest {
         return Collections.unmodifiableMap(rows);
     }
 
-    /** The redirector's fold table (25:239): capability to the suffix of GLStateManager's enable/disable methods. */
+    /** The redirector's fold table (25:239): capability to the suffix of GLSM's enable/disable methods. */
     @SuppressWarnings("unchecked")
     static Map<Integer, String> folds(Class<?> redirector) throws ReflectiveOperationException {
         Field field = redirector.getDeclaredField("glCapRedirects");
@@ -1576,6 +1679,142 @@ class GlsmLinkageTest {
     }
 
     /**
+     * A leg's GLSM classes, those its redirector sends rewritten calls to, with each one's public static methods read
+     * from the jar's base entry, never by loading the class (S9 plan P3.2). The shape is chosen by reflection on the
+     * leg's GLSMRedirector, so that every release is read as it is built, before Angelica 2.2.40's split and after it.
+     * Where the redirector has getTargetOwner(String), as from 2.2.40, which split GLStateManager into owner classes
+     * (Angelica PR #2305; CI run 40473671907), the classes are its glsmClasses() and the owner of a GLSM method name is
+     * its getTargetOwner(name), GLStateManager for a name no other class owns: the owner its transformClassNode gives
+     * a call it rewrites to that name. getTargetOwner decides, so a getTargetClassName() kept or brought back beside
+     * it for older callers changes nothing (review CK2). Where it has none, as up to 2.2.39, the one class its
+     * getTargetClassName() names, GLStateManager, owns every GLSM name, as since S9.
+     */
+    static final class Glsm {
+
+        /** The GLSM classes, as internal names, in the redirector's order. */
+        final List<String> classes;
+        /** The redirector's getTargetOwner(String), or null where one class owns every name. */
+        private final Method targetOwner;
+        /** Each GLSM class's public static methods, as name+descriptor. */
+        private final Map<String, Set<String>> statics;
+
+        private Glsm(List<String> classes, Method targetOwner, Map<String, Set<String>> statics) {
+            this.classes = Collections.unmodifiableList(new ArrayList<>(classes));
+            this.targetOwner = targetOwner;
+            this.statics = Collections.unmodifiableMap(new LinkedHashMap<>(statics));
+        }
+
+        /** The GLSM classes of {@code redirector}, a leg's initialized GLSMRedirector class, read from {@code jar}. */
+        static Glsm of(Class<?> redirector, File jar) throws ReflectiveOperationException, IOException {
+            List<String> classes = new ArrayList<>();
+            Method targetOwner = publicMethod(redirector, "getTargetOwner", String.class);
+            if (targetOwner != null) {
+                // Any collection of names: a release that returns a Set in place of the List is read alike (CK3)
+                for (Object owner : (Iterable<?>) redirector.getMethod("glsmClasses")
+                    .invoke(null)) {
+                    classes.add((String) owner);
+                }
+            } else {
+                classes.add(
+                    (String) redirector.getMethod("getTargetClassName")
+                        .invoke(null));
+            }
+            Map<String, Set<String>> statics = new LinkedHashMap<>();
+            for (String owner : classes) {
+                statics.put(owner, Collections.unmodifiableSet(GlBytecode.publicStatics(jar, owner)));
+            }
+            return new Glsm(classes, targetOwner, statics);
+        }
+
+        // The redirector's public method of that name and parameters, or null where it has none
+        private static Method publicMethod(Class<?> type, String name, Class<?>... parameters) {
+            try {
+                return type.getMethod(name, parameters);
+            } catch (NoSuchMethodException e) {
+                return null;
+            }
+        }
+
+        /** Whether one class owns every GLSM name, as up to Angelica 2.2.39. */
+        boolean single() {
+            return targetOwner == null;
+        }
+
+        /** The GLSM class that owns the GLSM method {@code name}: a rewritten call to that name has it as its owner. */
+        String owner(String name) {
+            if (targetOwner == null) {
+                return classes.get(0);
+            }
+            try {
+                return (String) targetOwner.invoke(null, name);
+            } catch (IllegalAccessException | InvocationTargetException e) {
+                throw new IllegalStateException("GLSMRedirector.getTargetOwner(\"" + name + "\")", e);
+            }
+        }
+
+        /** The owner of {@code member}, a GLSM method or a {@link #calls} entry's member, by its name. */
+        String ownerOf(String member) {
+            return owner(member.substring(0, member.indexOf('(')));
+        }
+
+        /** Whether {@code owner}, an internal name, is one of the GLSM classes. */
+        boolean holds(String owner) {
+            return statics.containsKey(owner);
+        }
+
+        /** The public static methods of the GLSM class {@code owner}. */
+        Set<String> statics(String owner) {
+            Set<String> methods = statics.get(owner);
+            if (methods == null) {
+                throw new IllegalArgumentException(owner + " is no GLSM class of " + classes);
+            }
+            return methods;
+        }
+
+        /** Whether a call of {@code member} on {@code owner} links: a public static method of that GLSM class. */
+        boolean links(String owner, String member) {
+            Set<String> methods = statics.get(owner);
+            return methods != null && methods.contains(member);
+        }
+
+        /** A copy in which the GLSM class {@code owner} has only {@code methods} as its public static methods. */
+        Glsm with(String owner, Set<String> methods) {
+            statics(owner);
+            Map<String, Set<String>> copy = new LinkedHashMap<>(statics);
+            copy.put(owner, Collections.unmodifiableSet(new TreeSet<>(methods)));
+            return new Glsm(classes, targetOwner, copy);
+        }
+
+        /** The public static methods of all the GLSM classes together. */
+        int methods() {
+            int methods = 0;
+            for (Set<String> owner : statics.values()) {
+                methods += owner.size();
+            }
+            return methods;
+        }
+
+        /** Each class's number of public static methods, by its simple name, in the redirector's order. */
+        List<String> counts() {
+            List<String> counts = new ArrayList<>();
+            for (Map.Entry<String, Set<String>> owner : statics.entrySet()) {
+                counts.add(
+                    glsmName(owner.getKey()) + " "
+                        + owner.getValue()
+                            .size());
+            }
+            return counts;
+        }
+
+        /** The shape, as L1's report line names it. */
+        @Override
+        public String toString() {
+            return single() ? classes.get(0) + ", the one GLSM class (getTargetClassName)"
+                : classes.size() + " GLSM classes (glsmClasses, each name's owner by getTargetOwner)";
+        }
+    }
+
+    /**
      * One of the root's two shipped jars, whose classes outside :gl's L2, L3 and L4 read (S12 plan P13.3, P14.5; S12
      * review strength-6): the -dev jar, shadowJar's, with Minecraft's MCP names, and the release jar, reobfJar's, with
      * its SRG names. glsmLinkageTest passes each as a file input in a system property, and its classes are read with
@@ -1658,8 +1897,7 @@ class GlsmLinkageTest {
         private Class<?> redirector;
         private Object instance;
         private IllegalStateException failure;
-        private String target;
-        private Set<String> statics;
+        private Glsm glsm;
         private GlBytecode.Redirector transformer;
         private List<Shipped> shipped;
         private Map<String, Map<String, String>> named;
@@ -1725,21 +1963,16 @@ class GlsmLinkageTest {
             }
         }
 
-        /** Its redirector's getTargetClassName(), GLStateManager's internal name. */
-        synchronized String target() throws ReflectiveOperationException {
-            if (target == null) {
-                target = (String) redirector().getMethod("getTargetClassName")
-                    .invoke(null);
+        /**
+         * Its GLSM classes: where its redirector has getTargetOwner(String), as from Angelica 2.2.40, its glsmClasses()
+         * with each name's owner by getTargetOwner, else the one class its getTargetClassName() names; each with its
+         * public static methods read from the jar's base entry ({@link Glsm}).
+         */
+        synchronized Glsm glsm() throws ReflectiveOperationException, IOException {
+            if (glsm == null) {
+                glsm = Glsm.of(redirector(), jar);
             }
-            return target;
-        }
-
-        /** The public static methods of its GLStateManager, read from the jar's base entry (S9 plan P3.2). */
-        synchronized Set<String> statics() throws ReflectiveOperationException, IOException {
-            if (statics == null) {
-                statics = Collections.unmodifiableSet(GlBytecode.publicStatics(jar, target()));
-            }
-            return statics;
+            return glsm;
         }
 
         /** A copy of its redirector's fold table. */
@@ -1749,7 +1982,9 @@ class GlsmLinkageTest {
 
         /**
          * A copy of its redirector's getNamedClassMethodRedirects(): each owner GLSM maps by name, such as X01's
-         * OpenGlHelper and the ARB and EXT classes, to its map of a call's name to its GLStateManager name (25:721).
+         * OpenGlHelper and the ARB and EXT classes, to its map of a call's name to its GLSM name, on the class that
+         * owns
+         * that name (25:721).
          */
         @SuppressWarnings("unchecked")
         synchronized Map<String, Map<String, String>> named() throws ReflectiveOperationException {

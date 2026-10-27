@@ -824,6 +824,21 @@ The owner committed S13 as 5d65f88 and pushed it. CI run 40452698042 of 5d65f88 
 
 Changed in place: RM:58 (the order of work), RM:205 (the Ocelot tasks' CI figures), and the S13 amendments' CI item (RM:787) and "Next" (RM:810); in the research docs, 23:668, 24:675, 25:784 (`glsmLinkageTest`'s CI figure) and 28:1218.
 
-Next: S14, the compute spike.
+Next: S14, the compute spike. *Update 2026-10-27:* first, Angelica 2.2.40 broke CI's latest linkage leg; the fix is recorded below ([Angelica 2.2.40 amendments](#amendments-after-angelica-2240-2026-10-27)).
 
 [23 S13 CI]: research/23-gl-testing-strategy.md#amendments-after-s13s-first-ci-run-2026-10-27
+
+## Amendments after Angelica 2.2.40 (2026-10-27)
+
+CI run 40473671907 of 7c1e8da (S13's docs-only CI record) failed on `glsmLinkageTest`'s latest leg: Angelica 2.2.40, released that day with PR #2305 (and #2306), splits `GLStateManager` into owner classes and drops the `GLSMRedirector.getTargetClassName()` the test read by reflection. OpenGPU's shipped code names no Angelica type, so its calls still link on 2.2.40 (by the fixed test; not yet run in game there). The follow-up run wf_d9bfb7d0-ccd (an implementer and a refuting checker) and the main session's fixes for the checker's three points made `GlsmLinkageTest` read both shapes, the one-class one up to 2.2.39 and the owner classes from 2.2.40, with each call checked on its own owner; all four legs and a forced 2.2.36 pass, and the full build holds 2 650 tests. [25 2.2.40] has the cause, the fix, the figures and what PR #2305 teaches, among it that gl-3 is unchanged at 2.2.40, so R-4 as D23 amended it stays right; [23 2.2.40] has the test record.
+
+- **The owner on the fix:** "Yes, let's go for the fix now, this is important for not having a ceiling on Angelica's versions. Yes, please proceed."
+- **The latest leg stays gating** (S13 decisions D4). Asked whether to keep it gating or make it advisory, so that an upstream release cannot block OpenGPU's pushes, with the main session recommending gating, the owner: "Thanks! Yes, I think let's keep it, as now."
+- **Two online runs,** each announced to the owner first, fetched 2.2.40 for `--offline` runs: one on Windows, one in WSL.
+
+Changed in place: "Next" after S13's first CI run (RM:827).
+
+Next: CI's run of this fix, then S14, the compute spike.
+
+[25 2.2.40]: research/25-angelica-version-floor.md#amendments-after-angelica-2240-2026-10-27
+[23 2.2.40]: research/23-gl-testing-strategy.md#amendments-after-angelica-2240-2026-10-27

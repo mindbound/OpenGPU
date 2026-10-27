@@ -498,6 +498,21 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    with `gh`, read-only, and recorded it in the roadmap, 23, 24, 25, 28
    and this index. Run wf_9504efe7-691 checked the record with a
    refuting checker, whose confirmed points were applied.
+31. CI run 40473671907 of 7c1e8da, S13's CI record, failed on
+   `glsmLinkageTest`'s latest leg: Angelica 2.2.40, released that day
+   with PR #2305 (and #2306), splits `GLStateManager` into owner
+   classes and drops the `GLSMRedirector.getTargetClassName()` the
+   test read. The owner:
+   "Yes, let's go for the fix now, this is important for not having a
+   ceiling on Angelica's versions. Yes, please proceed." After an
+   announced online run on Windows, follow-up run wf_d9bfb7d0-ccd (an
+   implementer and a refuting checker, with one more announced online
+   run in WSL) made `GlsmLinkageTest` read both shapes, each call
+   checked on its own owner, and the main session fixed the checker's
+   three points. The main session read PR #2305 with `gh`, read-only:
+   gl-3 is unchanged at 2.2.40. Asked whether the latest leg should
+   stay gating, the owner: "Thanks! Yes, I think let's keep it, as
+   now." Recorded in the roadmap, 23, 25 and this index.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
