@@ -486,6 +486,18 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    25, 28 (its section "S13 implemented") and this index. Run
    wf_e56718f4-92e wrote it with two writers on disjoint files, then
    two refuting checkers, whose confirmed points were applied.
+30. The owner committed S13 as 5d65f88 and, on 2026-10-27, reported
+   its CI run, 40452698042: green on the first attempt, "Tests" 2 650
+   passed, the self-test's `opengpu-selftest PASS` in all ten of its
+   positive cases, the GL ones on CI's llvmpipe on Lua 5.3, 5.2 and
+   5.4, and the three Ocelot tasks inside their budgets with it
+   (22.168 s of 45 s, 12.181 s of 30 s and 8.855 s of 45 s).
+   `:core:test`, `:gl:test` and `:gl-testkit:test` came from the build
+   cache again, so the run gave no new figure for `:gl:test` and its
+   model test against their budgets. The main session read the run
+   with `gh`, read-only, and recorded it in the roadmap, 23, 24, 25, 28
+   and this index. Run wf_9504efe7-691 checked the record with a
+   refuting checker, whose confirmed points were applied.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
