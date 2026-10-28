@@ -513,6 +513,49 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    gl-3 is unchanged at 2.2.40. Asked whether the latest leg should
    stay gating, the owner: "Thanks! Yes, I think let's keep it, as
    now." Recorded in the roadmap, 23, 25 and this index.
+32. CI run 40483902161 of 89172c7, the 2.2.40 fix, was green on the
+   first attempt, "Tests" 2 650 passed, and M0 step S14 (2026-10-27
+   and 2026-10-28) followed: M0's compute spike as the test-only
+   subproject `:compute-spike`, which ships nothing. A small IR, built
+   in Java by the tests, is emitted as `V1_8` classes through ASM
+   9.10.1, scanned before `defineClass` and defined in a child loader
+   that admits five classes; the gating legs `test` on Java 8 and
+   `test21` on Java 21 run it from a jar with ASM relocated, and
+   `verifySpikeSameOutput` in `check` holds their digests equal; 2 778
+   tests in `check`. While planning run wf_c1c518fd-d42 (scouts for the
+   docs, the build and the JVMs, the planner, critics F and I, and an
+   amend step) ran, the owner asked: "Thanks! Please remind me, what
+   exactly do we need Java 21 for? Minecraft 1.7.10 itself only uses
+   Java 8 - is this for builds and tests specifically or something
+   else?" The main session answered that Java 21 stands for GTNH's
+   modern lwjgl3ify JVMs, against which compute's determinism is
+   checked, and the owner: "Got it, thanks. I think we can go with (a)
+   here but let's see what the workflow brings up." On the plan's
+   three questions and the critics' four cuts the owner chose, through
+   a question form, the recommended option of each: a test-only
+   `:compute-spike`, the Java 21 leg gating locally and on CI, the
+   NaN-canonical store rule in 22:141, and all four cuts kept (no
+   interpreter, no budget abort, no `LaunchClassLoader` check, no legs
+   on 17 and 25) (D1). Build run wf_226fa2bb-6b8 built units U1a, U1b
+   and U2, with the verification on Windows and in WSL and the mutants
+   in WSL copies of the tree; its review's two lenses (spec, tests)
+   found 12 points, which a verifier confirmed, one in part, and a
+   fixer fixed. On the one point left to the owner, a Plugin Portal
+   block for two ASM test modules, the owner: "As for the test
+   modules, sure, let's go with (a)." (D2); the main session deleted
+   the block and made two announced online runs, on Windows and in
+   WSL, which fetched only four checksums. On the owner's desktop,
+   which the owner had prepared, the main session ran the speed gate:
+   over five fresh JVMs per JDK the heat kernel K1's worst median was
+   1.393 ns/element on Java 8 and 1.367 on Java 21, so the gate of 10
+   is met. After the planning and build runs the main session checked
+   the agents' commands against the shell rules and scanned for
+   third-party text, and after the build run it made an `--offline` run
+   of its own. Every Gradle run but D2's two was `--offline`. The doc
+   pass recorded the step, with CI run 40483902161 in the roadmap's
+   2.2.40 block, in the roadmap, 22, 23, 24, 09, 07, 05 and this index.
+   Run wf_31e9f7d2-9b2 wrote it with three writers on disjoint files,
+   then two refuting checkers, whose confirmed points were applied.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
@@ -527,13 +570,13 @@ Java 17-21 + lwjgl3ify (GTNH packs), OC-LuaJIT commit a4994e6.
 | `02-angelica-compat.md` | GLSM redirector, core-profile context, Iris and Celeritas rules, the certified `glTexSubImage2D` + quad baseline |
 | `03-minecraft-1710-rendering-and-networking.md` | Vanilla texture path, `ScreenRenderer` template, Forge 1.7.10 networking and caps, bandwidth envelope |
 | `04-lua-boundary-and-runtimes.md` | Marshalling across Lua 5.2/5.3/5.4, LuaJ and OC-LuaJIT; limits; portable encoder and handle strategy |
-| `05-dev-stack-and-testing.md` | GTNHGradle setup, dependency coordinates, runtime bytecode generation, dev runs, ocelot-brain adapter design, licensing; M0 step S10's harness rules as applied, and its fetch, build and online runs (2026-10-25); open question 5 answered by M0 step S12: no OC internals on M0's in-game display path, only OC's `:api` (2026-10-26) |
+| `05-dev-stack-and-testing.md` | GTNHGradle setup, dependency coordinates, runtime bytecode generation, dev runs, ocelot-brain adapter design, licensing; M0 step S10's harness rules as applied, and its fetch, build and online runs (2026-10-25); open question 5 answered by M0 step S12: no OC internals on M0's in-game display path, only OC's `:api` (2026-10-26); M0 step S14's correction of the launcher's ASM mechanism on Java 8, the ASM pin as the compute spike uses it (9.10.1, `asm` alone at run time), the relocation proof's scope and Gradle's per-repository offline cache (2026-10-28) |
 | `06-graphics-engine-architecture-best-practices.md` | API shape, software rasterizer design with measured JVM throughput, shader language and compiler plan, compute model, determinism |
-| `07-feasibility-and-performance-envelope.md` | Cost model, call-rate wall, threading policy, risk register, tier proposal, M0 definition |
+| `07-feasibility-and-performance-envelope.md` | Cost model, call-rate wall, threading policy, risk register, tier proposal, M0 definition; M0 step S14's compiled `c_elem` as the compute spike measured it, and the parts of 07's spike that the current design superseded (2026-10-28) |
 | `08-proposal-A-server-software.md` | Server-authoritative software renderer with streamed framebuffers |
 | `08-proposal-B-client-hardware.md` | Client-side GL rendering from a replicated command stream |
 | `08-proposal-C-layered-hybrid.md` | Layered core, software reference backend, client mirror, optional GL; the adopted base |
-| `09-architecture-synthesis.md` | Decision document: verdict, matrix, recommended design, phases, questions, risks, amendments |
+| `09-architecture-synthesis.md` | Decision document: verdict, matrix, recommended design, phases, questions, risks, amendments; M0 step S14's corrections: the launcher's ASM mechanism, M0's spike as built, and `FSQRT` through `Math.sqrt` (2026-10-28) |
 | `10-gap-gtnh-pack-shipped-oc-config.md` | The GTNH pack's shipped OC config vs the user's instance; effective default Lua runtime; budget and RAM consequences |
 | `11-gap-direct-call-overhead-measured.md` | Measured direct-call costs per runtime (harness in `callbench/`); budget stall protocol; table-argument RAM finding |
 | `12-gap-client-mirror-feasibility.md` | Client-side mirror cost, memory, class loading, single-player bypass, cross-ISA determinism, Context lifecycle; mirror deferred to M3 |
@@ -543,9 +586,9 @@ Java 17-21 + lwjgl3ify (GTNH packs), OC-LuaJIT commit a4994e6.
 | `19-gap-ocelot-brain-gtnh-parity.md` | ocelot-brain vs OC 1.12.64-GTNH machine model diff; which tests are trustworthy headless; the harness rules as M0 step S10 applied them (2026-10-25) |
 | `20-gl-first-client-rendering.md` | Client GL path with and without Angelica: GL 3.3 floor, offscreen integer surfaces, PBO readback, timestamp fences, the GLSM descriptor trap, GPU-hang safety; M0 step S12's TESR, GUI and "no graphics" bitmap as built, and what the in-game session saw (2026-10-26) |
 | `21-integrated-server-render-handoff.md` | Server-to-host handoff in one JVM (RenderHost SPI), persistence with an in-flight tail, LAN guest streaming with measured bandwidth, dedicated-server options; M0 steps S11's and S12's notes on the installation, the pause and the quit with frames in flight (2026-10-26) |
-| `22-shader-and-compute-languages.md` | GLSL ES 1.00 graphics subset and its emitter, GLSL 4.30-syntax compute with CPU semantics, determinism rules, rack scheduling, the HBM RBMK check; section 1 superseded by 27 where they conflict |
-| `23-gl-testing-strategy.md` | Headless GL in the GTNH shared CI, tolerance tiers for golden images, the ocelot GL test host, in-game and dedicated-server tests; M0 step S10's ocelot tasks, counts, times, budgets and reviews (2026-10-25); M0 step S11's root `test` and its budget, `jarTest`'s checks 7-9, the mutants and the local `runServer` audit (2026-10-26); S11's first CI run, with `:gl:test`'s two budgets over and recorded only (2026-10-26); M0 step S12's `clientGlTest` and its budget, `jarTest`'s checks 10 and 11, the `runServer` audit with client code, the mutants and the in-game session V7 (2026-10-26); S12's first CI run, with `clientGlTest`'s budget confirmed (2026-10-26); M0 step S13's self-test program in the three Ocelot tasks, its counts, budgets, review and mutants, and the in-game session V5 with legs L1 to L5 (2026-10-27) |
-| `24-architecture-gl-first.md` | Current decision document: owner decisions, architecture, phased plan M0-M4 with M1.5 display block, questions, risks; M0 step S13's change to M0's scope: the self-test a Lua program, with no `-selftest` jar (2026-10-27) |
+| `22-shader-and-compute-languages.md` | GLSL ES 1.00 graphics subset and its emitter, GLSL 4.30-syntax compute with CPU semantics, determinism rules, rack scheduling, the HBM RBMK check; section 1 superseded by 27 where they conflict; M0 step S14's NaN-canonical store rule and the compute spike's findings for M3 (2026-10-28) |
+| `23-gl-testing-strategy.md` | Headless GL in the GTNH shared CI, tolerance tiers for golden images, the ocelot GL test host, in-game and dedicated-server tests; M0 step S10's ocelot tasks, counts, times, budgets and reviews (2026-10-25); M0 step S11's root `test` and its budget, `jarTest`'s checks 7-9, the mutants and the local `runServer` audit (2026-10-26); S11's first CI run, with `:gl:test`'s two budgets over and recorded only (2026-10-26); M0 step S12's `clientGlTest` and its budget, `jarTest`'s checks 10 and 11, the `runServer` audit with client code, the mutants and the in-game session V7 (2026-10-26); S12's first CI run, with `clientGlTest`'s budget confirmed (2026-10-26); M0 step S13's self-test program in the three Ocelot tasks, its counts, budgets, review and mutants, and the in-game session V5 with legs L1 to L5 (2026-10-27); M0 step S14's compute-spike legs on Java 8 and 21 with `verifySpikeSameOutput`, their counts, proposed budgets, review and mutants (2026-10-28) |
+| `24-architecture-gl-first.md` | Current decision document: owner decisions, architecture, phased plan M0-M4 with M1.5 display block, questions, risks; M0 step S13's change to M0's scope: the self-test a Lua program, with no `-selftest` jar (2026-10-27); M0 step S14's test-only `:compute-spike`, outside §3.1's modules, and its Java 21 leg (2026-10-28) |
 | `25-angelica-version-floor.md` | Angelica version floor: 2.2.8 supported, older gated off at runtime (the 2.1.14-2.2.7 best-effort band was dropped on 2026-10-13); linkage matrix over all 2.x releases to 2.2.30, the M0 GL call set and deny-list, code rules, test matrix, GTNH pack coverage; M0 step S9's per-jar linkage and `unmappedGL=FAIL` record on 2.2.8, 2.2.21, 2.2.28 and the latest release (2.2.36 on 2026-10-24), with its mutants; M0 step S12's R-4 without `GL_TEXTURE_BIT` (D23), the root's call set with the pass-through row P01, the linkage test over the root's classes and R-13's gate seen on 2.1.49 (2026-10-26); M0 step S13's in-game matrix with the release jar and the self-test program in place of the `-selftest` jar, the floor's AUTO and pinned 3.3 contexts in game and B's `pixels` line on 2.1.49 (2026-10-27) |
 | `26-lessons-from-general-engines.md` | Lessons from Godot, OpenSceneGraph, O3DE, small-program shader languages and PS1/N64/Dreamcast/Quake/Doom techniques: typed handles, GL state hygiene, a GL allocation ledger, crash guard, API dump, semantic attributes, palette ops, quantize and dither, a retro shader variant family; considered items and owner questions |
 | `27-graphics-language-es300.md` | Graphics shader language as an ES 3.00-based subset: input form, accepted subset, built-ins against GLSL 3.30, integer guards matching compute, ANGLE driver workarounds re-checked, flat and noperspective, interface conventions, shared frontend, effort, an index8 example |
