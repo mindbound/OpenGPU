@@ -556,6 +556,20 @@ Multi-agent workflow, all claims cited as `path:line` into the local checkouts
    2.2.40 block, in the roadmap, 22, 23, 24, 09, 07, 05 and this index.
    Run wf_31e9f7d2-9b2 wrote it with three writers on disjoint files,
    then two refuting checkers, whose confirmed points were applied.
+33. The owner committed S14 as 965b0a3 and, on 2026-10-28, reported
+   its CI run, 40638718873: green on the first attempt, "Tests" 2 778
+   passed. `verifySpikeSameOutput` logged the digests of Windows and
+   WSL, with `test` on the runner image's Temurin 1.8.0_504 and
+   `test21` on its Temurin 21.0.13, which Gradle took over the shared
+   workflow's Zulu 21, so the same output holds on CI too. Both legs
+   were inside their proposed budgets of 20 s per test sum and 60 s
+   per task: 9.427 s and about 11.5 s on Java 8, 7.223 s and about
+   10.6 s on Java 21. `:core:test`, `:gl:test`, `:gl-testkit:test` and
+   `:ocelot-harness:test` came from the build cache, so the run gave
+   no new figure for them. The main session read the run with `gh`,
+   read-only, and run wf_8a948038-8be recorded it in the roadmap, 23,
+   24, 05 and this index with one writer, then two refuting checkers,
+   whose confirmed points were applied.
 
 Target environment at the time: OpenComputers 1.12.64-GTNH, Angelica 2.2.21,
 Forge 10.13.4.1614 on Java 8 + LWJGL 2.9.4 (the user's instance) and on
